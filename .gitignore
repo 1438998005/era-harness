@@ -60,3 +60,7 @@ tests/**/cache
 # Backup created by scripts/marketplace-readme.mjs while publishing.
 # Should never be committed: only exists if a publish aborts mid-swap.
 .README.github.bak
+
+# 本地构建脚手架（Windows 工具链修补）
+/tmp-protoc/bin/
+*.log
