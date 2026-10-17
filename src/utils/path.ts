@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process"
+import * as fs from "node:fs"
 import { workspaceResolver } from "@core/workspace"
 import os from "os"
 import * as path from "path"
@@ -108,9 +110,73 @@ export async function getCwd(defaultCwd = ""): Promise<string> {
 	return workspacePaths.paths.shift() || defaultCwd
 }
 
-export function getDesktopDir() {
-	const desktopResult = workspaceResolver.resolveWorkspacePath(os.homedir(), "Desktop", "Utils.path.getDesktopDir")
-	return typeof desktopResult === "string" ? desktopResult : desktopResult.absolutePath
+export function getDesktopDir(): string {
+	if (cachedDesktopDir === undefined) {
+		cachedDesktopDir = resolveDesktopDir()
+	}
+	return cachedDesktopDir
+}
+
+let cachedDesktopDir: string | undefined
+
+/**
+ * 解析桌面目录。
+ *
+ * Windows 上桌面经常被重定向（OneDrive 备份、改到 D 盘等），
+ * 直接拼 `homedir/Desktop` 会得到一个并不存在的路径 —— 后面任何
+ * access() 都会以 ENOENT 失败。所以先读注册表里的真实位置，再退回常见候选。
+ */
+function resolveDesktopDir(): string {
+	const home = os.homedir()
+	const defaultDesktop = path.join(home, "Desktop")
+
+	// 绝大多数机器走这条快路径，不启动任何子进程
+	if (exists(defaultDesktop)) {
+		return defaultDesktop
+	}
+
+	const candidates: string[] = []
+	if (process.platform === "win32") {
+		const fromRegistry = readWindowsDesktopDir()
+		if (fromRegistry) {
+			candidates.push(fromRegistry)
+		}
+		candidates.push(path.join(home, "OneDrive", "Desktop"), path.join(home, "桌面"), path.join(home, "OneDrive", "桌面"))
+	}
+
+	for (const candidate of candidates) {
+		if (exists(candidate)) {
+			return candidate
+		}
+	}
+
+	return defaultDesktop
+}
+
+function exists(p: string): boolean {
+	try {
+		return fs.existsSync(p)
+	} catch {
+		return false
+	}
+}
+
+/** 从注册表读取 Windows 桌面目录（User Shell Folders），失败返回 undefined */
+function readWindowsDesktopDir(): string | undefined {
+	try {
+		const output = execFileSync(
+			"reg",
+			["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders", "/v", "Desktop"],
+			{ encoding: "utf8", windowsHide: true, timeout: 2000 },
+		)
+		const match = output.match(/Desktop\s+REG_(?:EXPAND_)?SZ\s+(.+)/)
+		if (!match) {
+			return undefined
+		}
+		return match[1].trim().replace(/%([^%]+)%/g, (whole, name: string) => process.env[name] ?? whole)
+	} catch {
+		return undefined
+	}
 }
 
 // Returns the workspace path of the file in the current editor.

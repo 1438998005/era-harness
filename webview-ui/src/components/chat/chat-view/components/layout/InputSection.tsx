@@ -1,6 +1,7 @@
 import React from "react"
 import ChatTextArea from "@/components/chat/ChatTextArea"
 import QuotedMessagePreview from "@/components/chat/QuotedMessagePreview"
+import { WorkspaceGateBanner } from "@/components/chat/WorkspaceGateBanner"
 import { ChatState, MessageHandlers, ScrollBehavior } from "../../types/chatTypes"
 
 interface InputSectionProps {
@@ -42,6 +43,8 @@ export const InputSection: React.FC<InputSectionProps> = ({
 
 	return (
 		<>
+			<WorkspaceGateBanner />
+
 			{activeQuote && (
 				<div style={{ marginBottom: "-12px", marginTop: "10px" }}>
 					<QuotedMessagePreview
