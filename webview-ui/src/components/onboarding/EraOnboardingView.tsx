@@ -75,7 +75,7 @@ const EraOnboardingView = memo(() => {
 						</div>
 
 						<div className="flex flex-col gap-2 mt-2">
-							<VSCodeButton appearance="primary" onClick={() => setStep("config")}>
+							<VSCodeButton appearance="primary" className="w-full" onClick={() => setStep("config")}>
 								开始配置
 							</VSCodeButton>
 							{isConfigured && (
@@ -115,7 +115,7 @@ const EraOnboardingView = memo(() => {
 							</p>
 						)}
 
-						<VSCodeButton appearance="primary" onClick={finish}>
+						<VSCodeButton appearance="primary" className="w-full" onClick={finish}>
 							完成，开始使用
 						</VSCodeButton>
 					</>
