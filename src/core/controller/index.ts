@@ -41,7 +41,7 @@ import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { Session } from "@/shared/services/Session"
 import { getLatestAnnouncementId } from "@/utils/announcements"
-import { getCwd, getDesktopDir } from "@/utils/path"
+import { getCwd } from "@/utils/path"
 import { PromptRegistry } from "../prompts/system-prompt"
 import {
 	ensureCacheDirectoryExists,
@@ -273,7 +273,8 @@ export class Controller {
 			detectRoots: detectWorkspaceRoots,
 		})
 
-		const cwd = this.workspaceManager?.getPrimaryRoot()?.path || (await getCwd(getDesktopDir()))
+		// 只认工作区根；没有打开文件夹时为空字符串，由 UI 提示用户先打开工程目录
+		const cwd = this.workspaceManager?.getPrimaryRoot()?.path || (await getCwd(""))
 
 		const taskId = historyItem?.id || Date.now().toString()
 

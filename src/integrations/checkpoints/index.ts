@@ -274,6 +274,9 @@ export class TaskCheckpointManager implements ICheckpointManager {
 					if (!this.state.checkpointTracker && !this.state.checkpointManagerErrorMessage) {
 						try {
 							const workspacePath = await this.getWorkspacePath()
+							if (!workspacePath) {
+								throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中 eraTW 工程目录。")
+							}
 							this.state.checkpointTracker = await CheckpointTracker.create(
 								this.task.taskId,
 								this.config.enableCheckpoints,
@@ -427,6 +430,9 @@ export class TaskCheckpointManager implements ICheckpointManager {
 			if (!this.state.checkpointTracker && this.config.enableCheckpoints && !this.state.checkpointManagerErrorMessage) {
 				try {
 					const workspacePath = await this.getWorkspacePath()
+					if (!workspacePath) {
+						throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中 eraTW 工程目录。")
+					}
 					this.state.checkpointTracker = await CheckpointTracker.create(
 						this.task.taskId,
 						this.config.enableCheckpoints,
@@ -592,6 +598,9 @@ export class TaskCheckpointManager implements ICheckpointManager {
 			if (this.config.enableCheckpoints && !this.state.checkpointTracker && !this.state.checkpointManagerErrorMessage) {
 				try {
 					const workspacePath = await this.getWorkspacePath()
+					if (!workspacePath) {
+						throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中 eraTW 工程目录。")
+					}
 					this.state.checkpointTracker = await CheckpointTracker.create(
 						this.task.taskId,
 						this.config.enableCheckpoints,
@@ -790,19 +799,25 @@ export class TaskCheckpointManager implements ICheckpointManager {
 				if (!checkpointsWarningShown) {
 					checkpointsWarningShown = true
 					await this.setcheckpointManagerErrorMessage(
-						"Checkpoints are taking longer than expected to initialize. Working in a large repository? Consider re-opening Cline in a project that uses git, or disabling checkpoints.",
+						"检查点初始化较慢。工程较大时可以考虑关闭检查点，或改用 git 管理。",
 					)
 				}
 			}, 7_000)
 
 			// Timeout - If checkpoints take too long to initialize, warn user and disable checkpoints for the task
 			const workspacePath = await this.getWorkspacePath()
+			if (!workspacePath) {
+				// 没打开文件夹：不猜目录、不读桌面，直接说明原因
+				await this.setcheckpointManagerErrorMessage(
+					"未打开工作区。era harness 只在你打开的文件夹里读写 —— 请用「文件 → 打开文件夹」选中 eraTW 工程目录后重新发起对话。",
+				)
+				return undefined
+			}
 			const tracker = await pTimeout(
 				CheckpointTracker.create(this.task.taskId, this.config.enableCheckpoints, workspacePath),
 				{
 					milliseconds: 15_000,
-					message:
-						"Checkpoints taking too long to initialize. Consider re-opening Cline in a project that uses git, or disabling checkpoints.",
+					message: "检查点初始化超时。工程较大时可以考虑关闭检查点。",
 				},
 			)
 
@@ -810,16 +825,14 @@ export class TaskCheckpointManager implements ICheckpointManager {
 			this.state.checkpointTracker = tracker
 			return tracker
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : "Unknown error"
+			const errorMessage = error instanceof Error ? error.message : "未知错误"
 			Logger.error("Failed to initialize checkpoint tracker:", errorMessage)
 
 			// If the error was a timeout, we disable all checkpoint operations for the rest of the task
-			if (errorMessage.includes("Checkpoints taking too long to initialize")) {
-				await this.setcheckpointManagerErrorMessage(
-					"Checkpoints initialization timed out. Consider re-opening Cline in a project that uses git, or disabling checkpoints.",
-				)
+			if (errorMessage.includes("检查点初始化超时")) {
+				await this.setcheckpointManagerErrorMessage("检查点初始化超时。工程较大时可以考虑关闭检查点，或改用 git 管理。")
 			} else {
-				await this.setcheckpointManagerErrorMessage(errorMessage)
+				await this.setcheckpointManagerErrorMessage(`检查点初始化失败：${errorMessage}`)
 			}
 			return undefined
 		} finally {
@@ -886,9 +899,14 @@ export class TaskCheckpointManager implements ICheckpointManager {
 			}
 		}
 
-		// Fallback to the legacy CheckpointUtils implementation
+		// Fallback to the legacy CheckpointUtils implementation.
+		// 没有工作区时它抛异常，这里收敛成空字符串，由调用方给出中文提示。
 		const { getWorkingDirectory: getWorkingDirectoryImpl } = await import("./CheckpointUtils")
-		return getWorkingDirectoryImpl()
+		try {
+			return await getWorkingDirectoryImpl()
+		} catch {
+			return ""
+		}
 	}
 
 	/**

@@ -3709,8 +3709,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 
 		if (includeFileDetails) {
 			details += this.formatFileDetailsHeader()
-			const isDesktop = arePathsEqual(this.cwd, getDesktopDir())
-			if (isDesktop) {
+			// 没有工作区时不再退回桌面目录：明确告诉模型当前无工程可读
+			const isDesktop = !!this.cwd && arePathsEqual(this.cwd, getDesktopDir())
+			if (!this.cwd) {
+				details += "(未打开工作区，未列出文件。请用户先用「文件 → 打开文件夹」打开 eraTW 工程目录。)"
+			} else if (isDesktop) {
 				// don't want to immediately access desktop since it would show permission popup
 				details += "(Desktop files not shown automatically. Use list_files to explore if needed.)"
 			} else {

@@ -4,7 +4,7 @@ import { telemetryService } from "@/services/telemetry"
 import type { HistoryItem } from "@/shared/HistoryItem"
 import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
-import { getCwd, getDesktopDir } from "@/utils/path"
+import { getCwd } from "@/utils/path"
 import { StateManager } from "../storage/StateManager"
 import { isMultiRootEnabled } from "./multi-root-utils"
 import { WorkspaceRootManager } from "./WorkspaceRootManager"
@@ -25,7 +25,8 @@ export async function setupWorkspaceManager({
 	historyItem?: HistoryItem
 	detectRoots: DetectRoots
 }): Promise<WorkspaceRootManager> {
-	const cwd = await getCwd(getDesktopDir())
+	// 没有打开文件夹时 cwd 为空 —— 不再退回桌面目录，直接按「无工作区」处理
+	const cwd = await getCwd("")
 	const startTime = performance.now()
 	const multiRootEnabled = isMultiRootEnabled(stateManager)
 	try {
@@ -75,6 +76,14 @@ export async function setupWorkspaceManager({
 		// 	}
 		// }
 
+		if (!cwd) {
+			// 未打开文件夹：不伪造工作区根，避免模型在用户不知情的目录里读写
+			stateManager.setGlobalState("workspaceRoots", [])
+			stateManager.setGlobalState("primaryRootIndex", 0)
+			Logger.log("[WorkspaceManager] No workspace folder opened")
+			return new WorkspaceRootManager([], 0)
+		}
+
 		manager = await WorkspaceRootManager.fromLegacyCwd(cwd)
 		telemetryService.captureWorkspaceInitialized(
 			1,
@@ -94,6 +103,11 @@ export async function setupWorkspaceManager({
 		telemetryService.captureWorkspaceInitError(error as Error, true, workspaceCount)
 
 		Logger.error("[WorkspaceManager] Initialization failed:", error)
+		if (!cwd) {
+			stateManager.setGlobalState("workspaceRoots", [])
+			stateManager.setGlobalState("primaryRootIndex", 0)
+			return new WorkspaceRootManager([], 0)
+		}
 		const manager = await WorkspaceRootManager.fromLegacyCwd(cwd)
 		const roots = manager.getRoots()
 		stateManager.setGlobalState("workspaceRoots", roots)
@@ -101,7 +115,7 @@ export async function setupWorkspaceManager({
 
 		HostProvider.window.showMessage({
 			type: ShowMessageType.WARNING,
-			message: "Failed to initialize workspace. Using single folder mode.",
+			message: "工作区初始化失败，已退回单文件夹模式。",
 		})
 		return manager
 	}
