@@ -1,18 +1,12 @@
 import { Empty, EmptyRequest } from "@shared/proto/cline/common"
-import { HostProvider } from "@/hosts/host-provider"
-import { openExternal } from "@/utils/env"
+import { Logger } from "@/shared/services/Logger"
 import { Controller } from ".."
 
 /**
- * Initiates Hicap auth
+ * era harness 减法：Hicap（dashboard.hicap.ai）账号登录已移除。
+ * RPC 保留仅为协议兼容；provider 与设置界面将在批次 3/4 一并删除。
  */
 export async function hicapAuthClicked(_: Controller, __: EmptyRequest): Promise<Empty> {
-	const callbackUrl = await HostProvider.get().getCallbackUrl("/hicap")
-	const authUrl = new URL("https://dashboard.hicap.ai/setup")
-	authUrl.searchParams.set("application", "cline")
-	authUrl.searchParams.set("callback_url", callbackUrl)
-
-	await openExternal(authUrl.toString())
-
+	Logger.warn("hicapAuthClicked: Hicap 登录已在 era harness 本地版中移除")
 	return {}
 }

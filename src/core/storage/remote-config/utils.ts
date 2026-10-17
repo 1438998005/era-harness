@@ -5,18 +5,11 @@ import { ConfiguredAPIKeys, GlobalStateAndSettings, RemoteConfigFields } from "@
 import { AuthService } from "@/services/auth/AuthService"
 import { getDistinctId } from "@/services/logging/distinctId"
 import { type McpHub } from "@/services/mcp/McpHub"
-import { telemetryService } from "@/services/telemetry"
-import { OpenTelemetryClientProvider } from "@/services/telemetry/providers/opentelemetry/OpenTelemetryClientProvider"
-import { OpenTelemetryTelemetryProvider } from "@/services/telemetry/providers/opentelemetry/OpenTelemetryTelemetryProvider"
-import { type TelemetryService } from "@/services/telemetry/TelemetryService"
 import { ApiProvider } from "@/shared/api"
-import { isOpenTelemetryConfigValid, remoteConfigToOtelConfig } from "@/shared/services/config/otel-config"
 import { Logger } from "@/shared/services/Logger"
 import { syncWorker } from "@/shared/services/worker/sync"
 import { BlobStoreSettings } from "@/shared/storage"
-import { ensureSettingsDirectoryExists } from "../disk"
 import { StateManager } from "../StateManager"
-import { syncRemoteMcpServersToSettings } from "./syncRemoteMcpServers"
 
 function accessSettingsToBlobStorage(type: BlobStoreSettings["adapterType"], settings: S3AccessKeySettings): BlobStoreSettings {
 	return {
@@ -243,27 +236,6 @@ export function transformRemoteConfigToStateShape(remoteConfig: RemoteConfig): P
 	return transformed
 }
 
-export const REMOTE_CONFIG_OTEL_PROVIDER_ID = "OpenTelemetryRemoteConfiguredProvider"
-async function applyRemoteOTELConfig(transformed: Partial<RemoteConfigFields>, telemetryService: TelemetryService) {
-	try {
-		const otelConfig = remoteConfigToOtelConfig(transformed)
-		if (isOpenTelemetryConfigValid(otelConfig)) {
-			const client = new OpenTelemetryClientProvider(otelConfig)
-
-			if (client.meterProvider || client.loggerProvider) {
-				telemetryService.addProvider(
-					await new OpenTelemetryTelemetryProvider(client.meterProvider, client.loggerProvider, {
-						name: REMOTE_CONFIG_OTEL_PROVIDER_ID,
-						bypassUserSettings: true,
-					}).initialize(),
-				)
-			}
-		}
-	} catch (err) {
-		Logger.error("[REMOTE CONFIG DEBUG] Failed to apply remote OTEL config", err)
-	}
-}
-
 async function applyRemoteSyncQueueConfig(transformed: Partial<RemoteConfigFields>) {
 	try {
 		const blobStoreConfig = transformed.blobStoreConfig
@@ -282,7 +254,6 @@ export function clearRemoteConfig() {
 		const stateManager = StateManager.get()
 
 		stateManager.clearRemoteConfig()
-		telemetryService.removeProvider(REMOTE_CONFIG_OTEL_PROVIDER_ID)
 		// the remote config cline rules toggle state is stored in global state
 		stateManager.setGlobalState("remoteRulesToggles", {})
 		stateManager.setGlobalState("remoteWorkflowToggles", {})
@@ -344,8 +315,6 @@ export async function applyRemoteConfig(
 	stateManager.setGlobalState("remoteWorkflowToggles", syncedWorkflowToggles)
 	stateManager.setGlobalState("remoteSkillsToggles", syncedSkillToggles)
 
-	telemetryService.removeProvider(REMOTE_CONFIG_OTEL_PROVIDER_ID)
-
 	// If the existing configured provider is valid, don't update it
 	const apiConfiguration = stateManager.getApiConfiguration()
 	if (isProviderValid(apiConfiguration.actModeApiProvider, transformed)) {
@@ -365,22 +334,8 @@ export async function applyRemoteConfig(
 
 	applyRemoteSyncQueueConfig(transformed)
 
-	// Always sync remote MCP servers when remote config is active.
-	// The sync function uses the persistent `remoteConfigured` marker in the settings file
-	// to identify which servers were added by remote config. This means:
-	// - Servers no longer in remoteMCPServers but marked `remoteConfigured: true` get removed
-	// - New servers get added with the `remoteConfigured: true` marker
-	// - No dependency on in-memory state that would be lost across restarts
-	try {
-		const serversToSync = remoteConfig.remoteMCPServers ?? []
-		const settingsPath = await ensureSettingsDirectoryExists()
-		await syncRemoteMcpServersToSettings(serversToSync, settingsPath, mcpHub)
-		stateManager.setRemoteConfigField("previousRemoteMCPServers", serversToSync)
-	} catch (error) {
-		Logger.error("[RemoteConfig] Failed to sync remote MCP servers to settings:", error)
-		// Continue with other config application even if MCP sync fails
-	}
-	await applyRemoteOTELConfig(transformed, telemetryService)
+	// era harness 减法：不再从 cline.bot 同步远端 MCP 服务器列表，也不再应用远端 OTEL 配置。
+	// MCP 服务器完全由本地 mcp_settings.json 管理。
 }
 
 const isProviderValid = (provider?: ApiProvider, remoteConfig?: Partial<RemoteConfigFields>) => {

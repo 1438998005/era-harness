@@ -15,7 +15,6 @@ import { ErrorService } from "./services/error"
 import { featureFlagsService } from "./services/feature-flags"
 import { getDistinctId } from "./services/logging/distinctId"
 import { telemetryService } from "./services/telemetry"
-import { PostHogClientProvider } from "./services/telemetry/providers/posthog/PostHogClientProvider"
 import { ClineTempManager } from "./services/temp"
 import { cleanupTestMode } from "./services/test/TestMode"
 import { ShowMessageType } from "./shared/proto/host/window"
@@ -54,10 +53,6 @@ export async function initialize(storageContext: StorageContext): Promise<Webvie
 
 	// =============== External services ===============
 	await ErrorService.initialize()
-	// Initialize PostHog client provider (skip in self-hosted mode)
-	if (!ClineEndpoint.isSelfHosted()) {
-		PostHogClientProvider.getInstance()
-	}
 
 	// =============== Webview services ===============
 	const webview = HostProvider.get().createWebviewProvider()
@@ -152,7 +147,6 @@ async function checkWorktreeAutoOpen(stateManager: StateManager): Promise<void> 
  */
 export async function tearDown(): Promise<void> {
 	AgentConfigLoader.getInstance()?.dispose()
-	PostHogClientProvider.getInstance().dispose()
 	telemetryService.dispose()
 	ErrorService.get().dispose()
 	featureFlagsService.dispose()

@@ -11,7 +11,7 @@ import { Mode } from "@/shared/storage/types"
 import { version as extensionVersion } from "../../../package.json"
 import { setDistinctId } from "../logging/distinctId"
 import type { ITelemetryProvider, TelemetryProperties } from "./providers/ITelemetryProvider"
-import { TelemetryProviderFactory } from "./TelemetryProviderFactory"
+import { NoopTelemetryProvider } from "./providers/NoopTelemetryProvider"
 
 /**
  * Represents telemetry event categories that can be individually enabled or disabled
@@ -353,7 +353,8 @@ export class TelemetryService {
 	}
 
 	public static async create(): Promise<TelemetryService> {
-		const providers = await TelemetryProviderFactory.createProviders()
+		// era harness 减法：不上报遥测，固定使用本地 no-op provider
+		const providers: ITelemetryProvider[] = [new NoopTelemetryProvider()]
 		const hostVersion = await HostProvider.env.getHostVersion({})
 		const metadata: TelemetryMetadata = {
 			extension_version: extensionVersion,
