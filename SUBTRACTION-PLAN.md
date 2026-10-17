@@ -10,7 +10,13 @@
 - 每个批次结束时 `npm run compile`（check-types + webview tsc + esbuild）必须通过，再进下一批。
 - 删除以"目录级整删 + 孤立引用清理"两步走：先删文件，再按 tsc 报错逐个断链。
 
-## 1. 顶层删除（批次 1）
+## 1. 顶层删除（批次 1）✅ 已完成（commit `35216ba`，compile 全绿）
+
+> **执行记录（2026-10-17）**：
+> - 实际删除范围比本表更彻底：**整个测试体系**一并删除（`src/test/`、`src/__tests__/`、144 个 `*.test.ts`、`.mocharc.json`、`tsconfig.test/unit-test.json` 及测试专用 devDeps）。理由：上游单测测的是批次 2-4 要删的 provider/功能，保留会逐批爆红；回归闸门改为 compile + sideload 实测。
+> - `src/standalone/` 与 `src/hosts/external/` 的 external-host 实现已删；`FolderLockUtils` 改为单实例空实现（锁恒 `skipped`）。`AuthHandler.ts` 暂留（oca 引用，批次 2 随 auth 删）。
+> - **命令/视图 ID 全量改名**：`src/registry.ts` 的 `prefix` 取自 package.json `name`，改名 `era-harness` 必须联动 package.json 所有 command/menu/keybinding/view id；context key、config section、`~/.era-harness` 存储目录、redirect URI 同步改。
+> - 生成器 `generate-host-bridge-client.mjs` / `generate-protobus-setup.mjs` 已停止产出 standalone 产物（否则 `npm run protos` 重新生成引用已删文件的死代码）。
 
 | 路径 | 理由 |
 |---|---|
