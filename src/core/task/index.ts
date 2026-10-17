@@ -24,6 +24,7 @@ import { getHookModelContext } from "@core/hooks/hook-model-context"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import * as NotificationHook from "@core/hooks/notification-hook"
 import { executePreCompactHookWithCleanup, HookCancellationError, HookExecution } from "@core/hooks/precompact-executor"
+import { parseIdentityFromText, setCurrentIdentityMode } from "@core/identity/scope"
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
 import { parseMentions } from "@core/mentions"
 import { CommandPermissionController } from "@core/permissions"
@@ -817,6 +818,11 @@ export class Task {
 	}
 
 	async handleWebviewAskResponse(askResponse: ClineAskResponse, text?: string, images?: string[], files?: string[]) {
+		// 用户在对话中切换身份后，后续回合的可写范围随之更新
+		const identityFromText = parseIdentityFromText(text)
+		if (identityFromText) {
+			setCurrentIdentityMode(identityFromText)
+		}
 		this.taskState.askResponse = askResponse
 		this.taskState.askResponseText = text
 		this.taskState.askResponseImages = images

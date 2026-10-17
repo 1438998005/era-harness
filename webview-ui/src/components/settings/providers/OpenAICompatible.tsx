@@ -1,8 +1,8 @@
 import { TooltipContent, TooltipTrigger } from "@radix-ui/react-tooltip"
-import { azureOpenAiDefaultApiVersion, openAiModelInfoSaneDefaults } from "@shared/api"
+import { openAiModelInfoSaneDefaults } from "@shared/api"
 import { OpenAiModelsRequest } from "@shared/proto/cline/models"
 import { Mode } from "@shared/storage/types"
-import { VSCodeButton, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Tooltip } from "@/components/ui/tooltip"
@@ -10,7 +10,6 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
 import { getAsVar, VSC_DESCRIPTION_FOREGROUND } from "@/utils/vscStyles"
 import { ApiKeyField } from "../common/ApiKeyField"
-import { BaseUrlField } from "../common/BaseUrlField"
 import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
@@ -121,118 +120,6 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 				style={{ width: "100%", marginBottom: 10 }}>
 				<span style={{ fontWeight: 500 }}>{t("providers.openaiCompatible.modelId")}</span>
 			</DebouncedTextField>
-
-			{/* OpenAI Compatible Custom Headers */}
-			{(() => {
-				const headerEntries = Object.entries(apiConfiguration?.openAiHeaders ?? {})
-
-				return (
-					<div style={{ marginBottom: 10 }}>
-						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-							<Tooltip>
-								<TooltipTrigger>
-									<div className="flex items-center gap-2">
-										<span style={{ fontWeight: 500 }}>{t("providers.openaiCompatible.customHeaders")}</span>
-										{remoteConfigSettings?.openAiHeaders !== undefined && (
-											<i className="codicon codicon-lock text-description text-sm" />
-										)}
-									</div>
-								</TooltipTrigger>
-								<TooltipContent hidden={remoteConfigSettings?.openAiHeaders === undefined}>
-									This setting is managed by your organization's remote configuration
-								</TooltipContent>
-							</Tooltip>
-							<VSCodeButton
-								disabled={remoteConfigSettings?.openAiHeaders !== undefined}
-								onClick={() => {
-									const currentHeaders = { ...(apiConfiguration?.openAiHeaders || {}) }
-									const headerCount = Object.keys(currentHeaders).length
-									const newKey = `header${headerCount + 1}`
-									currentHeaders[newKey] = ""
-									handleFieldChange("openAiHeaders", currentHeaders)
-								}}>
-								{t("commonFields.addHeaderButton")}
-							</VSCodeButton>
-						</div>
-
-						<div>
-							{headerEntries.map(([key, value], index) => (
-								<div key={index} style={{ display: "flex", gap: 5, marginTop: 5 }}>
-									<DebouncedTextField
-										disabled={remoteConfigSettings?.openAiHeaders !== undefined}
-										initialValue={key}
-										onChange={(newValue) => {
-											const currentHeaders = apiConfiguration?.openAiHeaders ?? {}
-											if (newValue && newValue !== key) {
-												const { [key]: _, ...rest } = currentHeaders
-												handleFieldChange("openAiHeaders", {
-													...rest,
-													[newValue]: value,
-												})
-											}
-										}}
-										placeholder={t("commonFields.headerName")}
-										style={{ width: "40%" }}
-									/>
-									<DebouncedTextField
-										disabled={remoteConfigSettings?.openAiHeaders !== undefined}
-										initialValue={value}
-										onChange={(newValue) => {
-											handleFieldChange("openAiHeaders", {
-												...(apiConfiguration?.openAiHeaders ?? {}),
-												[key]: newValue,
-											})
-										}}
-										placeholder={t("commonFields.headerValue")}
-										style={{ width: "40%" }}
-									/>
-									<VSCodeButton
-										appearance="secondary"
-										disabled={remoteConfigSettings?.openAiHeaders !== undefined}
-										onClick={() => {
-											const { [key]: _, ...rest } = apiConfiguration?.openAiHeaders ?? {}
-											handleFieldChange("openAiHeaders", rest)
-										}}>
-										{t("commonFields.removeButton")}
-									</VSCodeButton>
-								</div>
-							))}
-						</div>
-					</div>
-				)
-			})()}
-
-			{remoteConfigSettings?.azureApiVersion !== undefined ? (
-				<Tooltip>
-					<TooltipTrigger>
-						<BaseUrlField
-							disabled={true}
-							initialValue={apiConfiguration?.azureApiVersion}
-							label={t("providers.openaiCompatible.setAzureApiVersion")}
-							onChange={(value) => handleFieldChange("azureApiVersion", value)}
-							placeholder={`Default: ${azureOpenAiDefaultApiVersion}`}
-							showLockIcon={true}
-						/>
-					</TooltipTrigger>
-					<TooltipContent>This setting is managed by your organization's remote configuration</TooltipContent>
-				</Tooltip>
-			) : (
-				<BaseUrlField
-					initialValue={apiConfiguration?.azureApiVersion}
-					label={t("providers.openaiCompatible.setAzureApiVersion")}
-					onChange={(value) => handleFieldChange("azureApiVersion", value)}
-					placeholder={`Default: ${azureOpenAiDefaultApiVersion}`}
-				/>
-			)}
-
-			<VSCodeCheckbox
-				checked={apiConfiguration?.azureIdentity || false}
-				onChange={(e: any) => {
-					const isChecked = e.target.checked === true
-					return handleFieldChange("azureIdentity", isChecked)
-				}}>
-				{t("providers.openaiCompatible.useAzureIdentity")}
-			</VSCodeCheckbox>
 
 			<div
 				onClick={() => setModelConfigurationSelected((val) => !val)}
@@ -392,17 +279,6 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 					</div>
 				</>
 			)}
-
-			<p
-				style={{
-					fontSize: "12px",
-					marginTop: 3,
-					color: "var(--vscode-descriptionForeground)",
-				}}>
-				<span style={{ color: "var(--vscode-errorForeground)" }}>
-					{t("providers.openaiCompatible.noteComplexPrompts")}
-				</span>
-			</p>
 
 			{showModelOptions && (
 				<>
