@@ -224,8 +224,8 @@
 	"commonFields": {
 		"apiKey": "{{provider}} API Key",
 		"enterApiKey": "Enter API Key...",
-		"apiKeyStoredLocally": "This key is stored locally and only used to make API requests from this extension.",
-		"getApiKeySignup": "You can get a {{provider}} API key by signing up here.",
+		"apiKeyStoredLocally": "This key is stored locally and only used to send API requests from this extension.",
+		"getApiKeySignup": "Get a {{provider}} API key",
 		"baseUrl": "Base URL",
 		"baseUrlOptional": "Base URL (optional)",
 		"enterBaseUrl": "Enter base URL...",

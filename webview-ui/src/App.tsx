@@ -4,8 +4,8 @@ import AccountView from "./components/account/AccountView"
 import ChatView from "./components/chat/ChatView"
 import HistoryView from "./components/history/HistoryView"
 import McpView from "./components/mcp/configuration/McpConfigurationView"
+import EraOnboardingView from "./components/onboarding/EraOnboardingView"
 import SettingsView from "./components/settings/SettingsView"
-import WelcomeView from "./components/welcome/WelcomeView"
 import WorktreesView from "./components/worktrees/WorktreesView"
 import { useClineAuth } from "./context/ClineAuthContext"
 import { useExtensionState } from "./context/ExtensionStateContext"
@@ -60,9 +60,9 @@ const AppContent = () => {
 		return null
 	}
 
-	// 首次启动只做一件事：配一个模型服务。无登录、无账号、无多步引导。
+	// 首启：两步引导（介绍 → 配置模型服务）。无登录、无账号。
 	if (showWelcome) {
-		return <WelcomeView />
+		return <EraOnboardingView />
 	}
 
 	return (

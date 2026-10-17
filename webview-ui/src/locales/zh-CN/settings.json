@@ -224,8 +224,8 @@
 	"commonFields": {
 		"apiKey": "{{provider}} API 密钥",
 		"enterApiKey": "输入 API 密钥...",
-		"apiKeyStoredLocally": "此密钥存储在本地，仅用于从此扩展发起 API 请求。",
-		"getApiKeySignup": "您可以通过在此注册来获取 {{provider}} API 密钥。",
+		"apiKeyStoredLocally": "此密钥只保存在本机，仅用于本扩展发起 API 请求。",
+		"getApiKeySignup": "前往 {{provider}} 获取 API 密钥",
 		"baseUrl": "基础 URL",
 		"baseUrlOptional": "基础 URL（可选）",
 		"enterBaseUrl": "输入基础 URL...",
