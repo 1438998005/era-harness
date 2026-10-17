@@ -24,7 +24,7 @@
 			"copy": "Copy"
 		},
 		"kanban": {
-			"introducing": "Introducing Cline Kanban",
+			"introducing": "Introducing era harness Kanban",
 			"description": "A replacement for your IDE better suited for running many agents in parallel and reviewing diffs. Enable auto-commit and link cards together to create dependency chains that complete large amounts of work autonomously.",
 			"runInTerminal": "Run in terminal",
 			"runningInstallCommand": "Running install command...",
@@ -43,9 +43,9 @@
 			"copyCode": "Copy Code"
 		},
 		"telemetry": {
-			"title": "Help Improve Cline",
+			"title": "Help Improve era harness",
 			"subtitle": "(and access experimental features)",
-			"description": "Cline collects error and usage data to help us fix bugs and improve the extension. No code, prompts, or personal information is ever sent.",
+			"description": "era harness collects error and usage data to help us fix bugs and improve the extension. No code, prompts, or personal information is ever sent.",
 			"youCanTurnOff": "You can turn this setting off in ",
 			"settings": "settings",
 			"closeBannerEnableTelemetry": "Close banner and enable telemetry"
@@ -67,7 +67,7 @@
 			"starOnGitHub": "Star us on GitHub",
 			"joinSubreddit": "Join our subreddit",
 			"followOnLinkedIn": "Follow us on LinkedIn",
-			"supportByStarring": "Please support Cline by ",
+			"supportByStarring": "Please support era harness by ",
 			"starringOnGitHub": "starring us on GitHub"
 		},
 		"checkpoint": {
@@ -131,9 +131,9 @@
 		"configureView": {
 			"protocolIntro": "The ",
 			"modelContextProtocol": "Model Context Protocol",
-			"protocolDescription": " enables communication with locally running MCP servers that provide additional tools and resources to extend Cline's capabilities. You can use ",
+			"protocolDescription": " enables communication with locally running MCP servers that provide additional tools and resources to extend era harness's capabilities. You can use ",
 			"communityServers": "community-made servers",
-			"protocolDescriptionSuffix": " or ask Cline to create new tools specific to your workflow (e.g., \"add a tool that gets the latest npm docs\"). ",
+			"protocolDescriptionSuffix": " or ask era harness to create new tools specific to your workflow (e.g., \"add a tool that gets the latest npm docs\"). ",
 			"seeDemo": "See a demo here.",
 			"orgManages": "Your organization manages some MCP servers",
 			"noServersInstalled": "No MCP servers installed",
@@ -243,7 +243,7 @@
 	"worktrees": {
 		"title": "Worktrees",
 		"done": "Done",
-		"description": "Git worktrees let you work on multiple branches at the same time, each in its own folder. Open worktrees in their own windows so Cline can work on multiple tasks in parallel. ",
+		"description": "Git worktrees let you work on multiple branches at the same time, each in its own folder. Open worktrees in their own windows so era harness can work on multiple tasks in parallel. ",
 		"clear": "Clear",
 		"learnMore": "Learn more",
 		"worktreeIncludeDetected": ".worktreeinclude detected. ",
@@ -264,7 +264,7 @@
 			"failedToLoad": "Failed to load worktrees",
 			"failedToDelete": "Failed to delete worktree",
 			"failedToMerge": "Failed to merge worktree",
-			"failedToCreateTask": "Failed to create task for Cline",
+			"failedToCreateTask": "Failed to create task for era harness",
 			"failedToCreate": "Failed to create worktree"
 		},
 		"primary": "Primary",
@@ -313,7 +313,7 @@
 			"mergeConflictsDetected": "Merge conflicts detected",
 			"followingFilesConflicts": "The following files have conflicts:",
 			"andMore": "...and {{count}} more",
-			"askClineToResolve": "Ask Cline to Resolve",
+			"askClineToResolve": "Ask era harness to Resolve",
 			"resolveManually": "I'll Resolve Manually",
 			"willMergeBranch": "This will merge branch ",
 			"into": " into ",
@@ -324,9 +324,9 @@
 		}
 	},
 	"rules": {
-		"manageRules": "Manage Cline Rules & Workflows",
-		"hideRules": "Hide Cline Rules & Workflows",
-		"showRules": "Show Cline Rules & Workflows",
+		"manageRules": "Manage era harness Rules & Workflows",
+		"hideRules": "Hide era harness Rules & Workflows",
+		"showRules": "Show era harness Rules & Workflows",
 		"tabs": {
 			"rules": "Rules",
 			"workflows": "Workflows",
@@ -335,12 +335,12 @@
 		},
 		"orgManagesRules": "Your organization manages some rules",
 		"orgManagesWorkflows": "Your organization manages some workflows",
-		"rulesDescription": "Rules allow you to provide Cline with system-level guidance. Think of them as a persistent way to include context and preferences for your projects or globally for every conversation. ",
-		"workflowsDescription": "Workflows allow you to define a series of steps to guide Cline through a repetitive set of tasks, such as deploying a service or submitting a PR. To invoke a workflow, type ",
+		"rulesDescription": "Rules allow you to provide era harness with system-level guidance. Think of them as a persistent way to include context and preferences for your projects or globally for every conversation. ",
+		"workflowsDescription": "Workflows allow you to define a series of steps to guide era harness through a repetitive set of tasks, such as deploying a service or submitting a PR. To invoke a workflow, type ",
 		"workflowsInvoke": " in the chat. ",
-		"skillsDescription": "Skills are reusable instruction sets that Cline can activate on-demand. When a task matches a skill's description, Cline uses the ",
+		"skillsDescription": "Skills are reusable instruction sets that era harness can activate on-demand. When a task matches a skill's description, era harness uses the ",
 		"skillsTool": " tool to load the full instructions.",
-		"hooksDescription": "Hooks allow you to execute custom scripts at specific points in Cline's execution lifecycle, enabling automation and integration with external tools.",
+		"hooksDescription": "Hooks allow you to execute custom scripts at specific points in era harness's execution lifecycle, enabling automation and integration with external tools.",
 		"hookWindowsToggle": "On Windows, hooks execute whenever the hook file exists.",
 		"hookUnixToggle": "Toggle to enable/disable (chmod +x/-x). ",
 		"docs": "Docs",
@@ -374,7 +374,7 @@
 			"allHooksCreated": "All hooks created",
 			"newHook": "New hook...",
 			"selectHookType": "Select hook type to create",
-			"chooseHookType": "Choose a hook type to create. Hooks execute at specific points in Cline's lifecycle. Available: ",
+			"chooseHookType": "Choose a hook type to create. Hooks execute at specific points in era harness's lifecycle. Available: ",
 			"workflowPlaceholder": "workflow-name (.md, .txt, or no extension)",
 			"skillPlaceholder": "skill-name (letters, numbers, dashes, underscores)",
 			"rulePlaceholder": "rule-name (.md, .txt, or no extension)",

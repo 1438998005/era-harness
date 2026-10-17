@@ -24,7 +24,7 @@
 			"copy": "复制"
 		},
 		"kanban": {
-			"introducing": "Cline 看板介绍",
+			"introducing": "era harness 看板介绍",
 			"description": "一个更适合并行运行多个智能体和审查差异的 IDE 替代方案。启用自动提交并将卡片链接在一起，创建可以自主完成大量工作的依赖链。",
 			"runInTerminal": "在终端中运行",
 			"runningInstallCommand": "正在运行安装命令...",
@@ -43,9 +43,9 @@
 			"copyCode": "复制代码"
 		},
 		"telemetry": {
-			"title": "帮助改进 Cline",
+			"title": "帮助改进 era harness",
 			"subtitle": "（并访问实验性功能）",
-			"description": "Cline 收集错误和使用数据，帮助我们修复错误和改进扩展。不会发送任何代码、提示或个人信息。",
+			"description": "era harness 收集错误和使用数据，帮助我们修复错误和改进扩展。不会发送任何代码、提示或个人信息。",
 			"youCanTurnOff": "您可以在 ",
 			"settings": "设置",
 			"closeBannerEnableTelemetry": "关闭横幅并启用遥测"
@@ -68,7 +68,7 @@
 			"joinSubreddit": "加入我们的 subreddit",
 			"followOnLinkedIn": "在 LinkedIn 上关注我们",
 			"supportByStarring": "请通过 ",
-			"starringOnGitHub": "在 GitHub 上为我们加星来支持 Cline"
+			"starringOnGitHub": "在 GitHub 上为我们加星来支持 era harness"
 		},
 		"checkpoint": {
 			"compare": "比较",
@@ -131,9 +131,9 @@
 		"configureView": {
 			"protocolIntro": "",
 			"modelContextProtocol": "模型上下文协议",
-			"protocolDescription": " 支持与本地运行的 MCP 服务器通信，这些服务器提供额外的工具和资源来扩展 Cline 的功能。您可以使用 ",
+			"protocolDescription": " 支持与本地运行的 MCP 服务器通信，这些服务器提供额外的工具和资源来扩展 era harness 的功能。您可以使用 ",
 			"communityServers": "社区制作的服务器",
-			"protocolDescriptionSuffix": " 或让 Cline 创建适合您工作流的新工具（例如，「添加一个获取最新 npm 文档的工具」）。",
+			"protocolDescriptionSuffix": " 或让 era harness 创建适合您工作流的新工具（例如，「添加一个获取最新 npm 文档的工具」）。",
 			"seeDemo": "查看演示。",
 			"orgManages": "您的组织管理着部分 MCP 服务器",
 			"noServersInstalled": "未安装 MCP 服务器",
@@ -243,7 +243,7 @@
 	"worktrees": {
 		"title": "工作树",
 		"done": "完成",
-		"description": "Git 工作树允许您同时在多个分支上工作，每个分支都有自己的文件夹。在各自的窗口中打开工作树，以便 Cline 可以并行处理多个任务。",
+		"description": "Git 工作树允许您同时在多个分支上工作，每个分支都有自己的文件夹。在各自的窗口中打开工作树，以便 era harness 可以并行处理多个任务。",
 		"clear": "清除",
 		"learnMore": "了解更多",
 		"worktreeIncludeDetected": "检测到 .worktreeinclude。 ",
@@ -264,7 +264,7 @@
 			"failedToLoad": "加载工作树失败",
 			"failedToDelete": "删除工作树失败",
 			"failedToMerge": "合并工作树失败",
-			"failedToCreateTask": "为 Cline 创建任务失败",
+			"failedToCreateTask": "为 era harness 创建任务失败",
 			"failedToCreate": "创建工作树失败"
 		},
 		"primary": "主要",
@@ -313,7 +313,7 @@
 			"mergeConflictsDetected": "检测到合并冲突",
 			"followingFilesConflicts": "以下文件存在冲突：",
 			"andMore": "...还有 {{count}} 个",
-			"askClineToResolve": "让 Cline 解决",
+			"askClineToResolve": "让 era harness 解决",
 			"resolveManually": "我将手动解决",
 			"willMergeBranch": "这将把分支 ",
 			"into": " 合并到 ",
@@ -324,9 +324,9 @@
 		}
 	},
 	"rules": {
-		"manageRules": "管理 Cline 规则和工作流",
-		"hideRules": "隐藏 Cline 规则和工作流",
-		"showRules": "显示 Cline 规则和工作流",
+		"manageRules": "管理 era harness 规则和工作流",
+		"hideRules": "隐藏 era harness 规则和工作流",
+		"showRules": "显示 era harness 规则和工作流",
 		"tabs": {
 			"rules": "规则",
 			"workflows": "工作流",
@@ -335,12 +335,12 @@
 		},
 		"orgManagesRules": "您的组织管理着部分规则",
 		"orgManagesWorkflows": "您的组织管理着部分工作流",
-		"rulesDescription": "规则允许您为 Cline 提供系统级指导。可以将它们视为一种持久的方式，为您的项目或全局每个对话包含上下文和偏好。",
-		"workflowsDescription": "工作流允许您定义一系列步骤，引导 Cline 完成一组重复性任务，例如部署服务或提交 PR。要调用工作流，请在聊天中输入 ",
+		"rulesDescription": "规则允许您为 era harness 提供系统级指导。可以将它们视为一种持久的方式，为您的项目或全局每个对话包含上下文和偏好。",
+		"workflowsDescription": "工作流允许您定义一系列步骤，引导 era harness 完成一组重复性任务，例如部署服务或提交 PR。要调用工作流，请在聊天中输入 ",
 		"workflowsInvoke": "。 ",
-		"skillsDescription": "技能是 Cline 可以按需激活的可重用指令集。当任务与技能描述匹配时，Cline 使用 ",
+		"skillsDescription": "技能是 era harness 可以按需激活的可重用指令集。当任务与技能描述匹配时，era harness 使用 ",
 		"skillsTool": " 工具加载完整指令。",
-		"hooksDescription": "钩子允许您在 Cline 执行生命周期的特定点执行自定义脚本，实现自动化和与外部工具的集成。",
+		"hooksDescription": "钩子允许您在 era harness 执行生命周期的特定点执行自定义脚本，实现自动化和与外部工具的集成。",
 		"hookWindowsToggle": "在 Windows 上，钩子在钩子文件存在时执行。",
 		"hookUnixToggle": "切换以启用/禁用 (chmod +x/-x)。",
 		"docs": "文档",
@@ -374,7 +374,7 @@
 			"allHooksCreated": "所有钩子已创建",
 			"newHook": "新钩子...",
 			"selectHookType": "选择要创建的钩子类型",
-			"chooseHookType": "选择要创建的钩子类型。钩子在 Cline 生命周期的特定点执行。可用：",
+			"chooseHookType": "选择要创建的钩子类型。钩子在 era harness 生命周期的特定点执行。可用：",
 			"workflowPlaceholder": "workflow-name（.md、.txt 或无扩展名）",
 			"skillPlaceholder": "skill-name（字母、数字、短横线、下划线）",
 			"rulePlaceholder": "rule-name（.md、.txt 或无扩展名）",

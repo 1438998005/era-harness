@@ -1,6 +1,7 @@
 import { BooleanRequest } from "@shared/proto/cline/common"
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import { memo, useEffect, useState } from "react"
+import EraLogo from "@/assets/EraLogo"
 import ApiOptions from "@/components/settings/ApiOptions"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { StateServiceClient } from "@/services/grpc-client"
@@ -30,14 +31,20 @@ const WelcomeView = memo(() => {
 
 	return (
 		<div className="fixed inset-0 p-0 flex flex-col">
-			<div className="h-full px-5 overflow-auto flex flex-col gap-2.5">
-				<h2 className="text-lg font-semibold">era harness</h2>
-				<p className="text-(--vscode-descriptionForeground)">
-					eraTW 画蛇添足版开发助手：配置一个模型服务即可开始，无需登录。所有对话与文件操作都在本机完成。
+			<div className="h-full px-5 py-6 overflow-auto flex flex-col gap-2.5">
+				<div className="flex items-center gap-3 mb-1">
+					<EraLogo className="size-12 shrink-0 text-(--vscode-foreground)" />
+					<div>
+						<h2 className="text-lg font-semibold m-0">era harness</h2>
+						<p className="text-xs m-0 text-(--vscode-descriptionForeground)">eraTW 画蛇添足版开发助手</p>
+					</div>
+				</div>
+				<p className="text-(--vscode-descriptionForeground) m-0">
+					配置一个模型服务即可开始，无需登录。所有对话与文件操作都在本机完成。
 				</p>
 
 				<div className="mt-2">
-					<ApiOptions currentMode={mode} showModelOptions={false} />
+					<ApiOptions currentMode={mode} showModelOptions={true} />
 				</div>
 
 				{apiErrorMessage && <p className="text-(--vscode-errorForeground)">{apiErrorMessage}</p>}
