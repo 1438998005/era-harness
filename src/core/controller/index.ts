@@ -12,7 +12,7 @@ import type { ApiProvider, ModelInfo } from "@shared/api"
 import type { ChatContent } from "@shared/ChatContent"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
-import type { McpMarketplaceCatalog, McpMarketplaceItem } from "@shared/mcp"
+import type { McpMarketplaceCatalog } from "@shared/mcp"
 import { type Settings } from "@shared/storage/state-keys"
 import type { Mode } from "@shared/storage/types"
 import type { TelemetrySetting } from "@shared/TelemetrySetting"
@@ -47,7 +47,6 @@ import {
 	ensureMcpServersDirectoryExists,
 	ensureSettingsDirectoryExists,
 	GlobalFileNames,
-	writeMcpMarketplaceCatalogToCache,
 } from "../storage/disk"
 import { fetchRemoteConfig } from "../storage/remote-config/fetch"
 import { clearRemoteConfig } from "../storage/remote-config/utils"
@@ -596,39 +595,9 @@ export class Controller {
 
 	// MCP Marketplace
 	private async fetchMcpMarketplaceFromApi(): Promise<McpMarketplaceCatalog> {
-		const response = await axios.get(`${ClineEnv.config().mcpBaseUrl}/marketplace`, {
-			headers: {
-				"Content-Type": "application/json",
-				"User-Agent": "cline-vscode-extension",
-			},
-			...getAxiosSettings(),
-		})
-
-		if (!response.data) {
-			throw new Error("Invalid response from MCP marketplace API")
-		}
-
-		// Get allowlist from remote config
-		const allowedMCPServers = this.stateManager.getRemoteConfigSettings().allowedMCPServers
-
-		let items: McpMarketplaceItem[] = (response.data || []).map((item: McpMarketplaceItem) => ({
-			...item,
-			githubStars: item.githubStars ?? 0,
-			downloadCount: item.downloadCount ?? 0,
-			tags: item.tags ?? [],
-		}))
-
-		// Filter by allowlist if configured
-		if (allowedMCPServers) {
-			const allowedIds = new Set(allowedMCPServers.map((server) => server.id))
-			items = items.filter((item: McpMarketplaceItem) => allowedIds.has(item.mcpId))
-		}
-
-		const catalog: McpMarketplaceCatalog = { items }
-
-		// Store in cache file
-		await writeMcpMarketplaceCatalogToCache(catalog)
-		return catalog
+		// era harness 减法：MCP 市场（cline.bot）已移除。
+		// 本地版不拉取远端目录，MCP 服务器完全由本地 mcp_settings.json 管理。
+		return { items: [] }
 	}
 
 	async refreshMcpMarketplace(sendCatalogEvent: boolean): Promise<McpMarketplaceCatalog | undefined> {

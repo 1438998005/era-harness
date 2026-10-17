@@ -2,12 +2,7 @@ export type {
 	ITelemetryProvider,
 	TelemetrySettings,
 } from "./providers/ITelemetryProvider"
-export { PostHogTelemetryProvider } from "./providers/posthog/PostHogTelemetryProvider"
-export {
-	type TelemetryProviderConfig,
-	TelemetryProviderFactory,
-	type TelemetryProviderType,
-} from "./TelemetryProviderFactory"
+export { NoopTelemetryProvider } from "./providers/NoopTelemetryProvider"
 // Export terminal type definitions for type-safe telemetry
 export type {
 	StandaloneOutputMethod,

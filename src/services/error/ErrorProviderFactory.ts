@@ -1,75 +1,35 @@
-import { ClineEndpoint } from "@/config"
-import { isPostHogConfigValid, PostHogClientConfig, posthogConfig } from "@/shared/services/config/posthog-config"
 import { Logger } from "@/shared/services/Logger"
 import { ClineError } from "./ClineError"
 import { IErrorProvider } from "./providers/IErrorProvider"
-import { PostHogErrorProvider } from "./providers/PostHogErrorProvider"
 
 /**
- * Supported error provider types
+ * era harness 减法：错误只落本地日志，不再外联 PostHog。
  */
-export type ErrorProviderType = "posthog" | "no-op"
+export type ErrorProviderType = "no-op"
 
 /**
  * Configuration for error providers
  */
 export interface ErrorProviderConfig {
 	type: ErrorProviderType
-	config: PostHogClientConfig
 }
 
 /**
- * Factory class for creating error providers
- * Allows easy switching between different error tracking providers
+ * Factory class for creating error providers.
+ * era harness 只保留本地 no-op 实现（错误写入扩展日志，不上报）。
  */
 export class ErrorProviderFactory {
-	/**
-	 * Creates an error provider based on the provided configuration
-	 * @param config Configuration for the error provider
-	 * @returns IErrorProvider instance
-	 */
-	public static async createProvider(config: ErrorProviderConfig): Promise<IErrorProvider> {
-		switch (config.type) {
-			case "posthog": {
-				const hasValidPostHogConfig = isPostHogConfigValid(config.config)
-				const errorTrackingApiKey = config.config.errorTrackingApiKey
-				return hasValidPostHogConfig && errorTrackingApiKey
-					? await new PostHogErrorProvider({
-							apiKey: errorTrackingApiKey,
-							errorTrackingApiKey: errorTrackingApiKey,
-							host: config.config.host,
-							uiHost: config.config.uiHost,
-							enableExceptionAutocapture: !!config.config.enableErrorAutocapture,
-						}).initialize()
-					: new NoOpErrorProvider() // Fallback to no-op provider
-			}
-			default:
-				return new NoOpErrorProvider()
-		}
+	public static async createProvider(_config?: ErrorProviderConfig): Promise<IErrorProvider> {
+		return new NoOpErrorProvider()
 	}
 
-	/**
-	 * Gets the default error provider configuration
-	 * @returns Default configuration using PostHog, or no-op for self-hosted mode
-	 */
 	public static getDefaultConfig(): ErrorProviderConfig {
-		// Use no-op provider in self-hosted mode to avoid external network calls
-		if (ClineEndpoint.isSelfHosted()) {
-			return {
-				type: "no-op",
-				config: posthogConfig,
-			}
-		}
-		return {
-			type: "posthog",
-			config: posthogConfig,
-		}
+		return { type: "no-op" }
 	}
 }
 
 /**
- * No-operation error provider for when error logging is disabled
- * or for testing purposes
+ * No-operation error provider: 错误写入本地 Logger，不产生任何网络请求。
  */
 class NoOpErrorProvider implements IErrorProvider {
 	async captureException(error: Error | ClineError, properties?: Record<string, unknown>): Promise<void> {
