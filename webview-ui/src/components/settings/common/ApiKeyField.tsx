@@ -22,7 +22,7 @@ export const ApiKeyField = ({
 	onChange,
 	providerName,
 	signupUrl,
-	placeholder = "Enter API Key...",
+	placeholder = "填入 API 密钥…",
 	helpText,
 }: ApiKeyFieldProps) => {
 	const { t } = useTranslation("settings")
