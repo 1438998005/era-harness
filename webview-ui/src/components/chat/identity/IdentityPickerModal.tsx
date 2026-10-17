@@ -1,4 +1,4 @@
-import { BookOpenIcon, UserIcon, ZapIcon } from "lucide-react"
+import { CpuIcon, MessageSquareTextIcon, UnlockIcon } from "lucide-react"
 import { IDENTITY_MODES, IdentityMode } from "./identity"
 
 interface IdentityPickerModalProps {
@@ -10,10 +10,10 @@ interface IdentityPickerModalProps {
 	onClose: () => void
 }
 
-const MODE_ICONS: Record<IdentityMode, typeof UserIcon> = {
-	self: UserIcon,
-	persona: BookOpenIcon,
-	unrestricted: ZapIcon,
+const MODE_ICONS: Record<IdentityMode, typeof CpuIcon> = {
+	self: CpuIcon,
+	persona: MessageSquareTextIcon,
+	unrestricted: UnlockIcon,
 }
 
 /**
@@ -61,7 +61,7 @@ export function IdentityPickerModal({
 					boxShadow: "0 10px 32px rgba(0, 0, 0, 0.4)",
 					color: "var(--vscode-foreground)",
 				}}>
-				<div style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.2px" }}>选择身份</div>
+				<div style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.2px" }}>选择身份 · 文件修改范围</div>
 				<div
 					style={{
 						fontSize: 11,
@@ -70,7 +70,7 @@ export function IdentityPickerModal({
 						color: "var(--vscode-descriptionForeground)",
 						lineHeight: 1.6,
 					}}>
-					新对话先定身份，对话中随时可切换。身份决定模型的输出口径，其中「权限全开」同时放开工具批准档位。
+					身份只决定「能改哪些文件」：本体侧与口上侧互斥，跨范围修改需手动确认。它不改变对话风格，也不改变任务做法。
 				</div>
 
 				<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

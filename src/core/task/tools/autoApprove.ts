@@ -1,9 +1,14 @@
+import { isWriteAllowedByScope } from "@core/identity/scope"
 import { resolveWorkspacePath } from "@core/workspace"
 import { isMultiRootEnabled } from "@core/workspace/multi-root-utils"
 import { ClineDefaultTool } from "@shared/tools"
+import path from "path"
 import { StateManager } from "@/core/storage/StateManager"
 import { HostProvider } from "@/hosts/host-provider"
 import { getCwd, getDesktopDir, isLocatedInPath, isLocatedInWorkspace } from "@/utils/path"
+
+/** 会落盘的工具，只有这些受身份范围约束 */
+const EDIT_TOOLS: ClineDefaultTool[] = [ClineDefaultTool.FILE_NEW, ClineDefaultTool.FILE_EDIT, ClineDefaultTool.APPLY_PATCH]
 
 export class AutoApprove {
 	private stateManager: StateManager
@@ -123,6 +128,17 @@ export class AutoApprove {
 		blockname: ClineDefaultTool,
 		autoApproveActionpath: string | undefined,
 	): Promise<boolean> {
+		// 身份范围优先于 YOLO / 权限全开：跨范围的文件修改一律走人工确认
+		if (autoApproveActionpath && EDIT_TOOLS.includes(blockname)) {
+			const cwd = await getCwd(getDesktopDir())
+			const absPath = path.isAbsolute(autoApproveActionpath)
+				? autoApproveActionpath
+				: path.resolve(cwd, autoApproveActionpath)
+			if (!isWriteAllowedByScope(absPath, cwd)) {
+				return false
+			}
+		}
+
 		if (this.stateManager.getGlobalSettingsKey("yoloModeToggled")) {
 			return true
 		}

@@ -38,6 +38,10 @@ README.marketplace.md
 # Custom
 **/demo.gif
 .nvmrc
+# 本地构建/校验日志与解包目录，不进包
+.*.log
+*.log
+.verify/**
 .gitattributes
 .prettierignore
 .husky/

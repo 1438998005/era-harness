@@ -1,6 +1,7 @@
 import type { Anthropic } from "@anthropic-ai/sdk"
 import { buildApiHandler } from "@core/api"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
+import { parseIdentityFromText, setCurrentIdentityMode } from "@core/identity/scope"
 import { tryAcquireTaskLockWithRetry } from "@core/task/TaskLockUtils"
 import { detectWorkspaceRoots } from "@core/workspace/detection"
 import { setupWorkspaceManager } from "@core/workspace/setup"
@@ -224,6 +225,12 @@ export class Controller {
 		historyItem?: HistoryItem,
 		taskSettings?: Partial<Settings>,
 	) {
+		// 身份 = 文件修改范围，随消息前缀下发；这里同步给自动批准判定
+		const identityFromTask = parseIdentityFromText(task)
+		if (identityFromTask) {
+			setCurrentIdentityMode(identityFromTask)
+		}
+
 		// Fire-and-forget: We intentionally don't await fetchRemoteConfig here.
 		// Remote config is already fetched in startRemoteConfigTimer() which runs in the constructor,
 		// so enterprise policies (yoloModeAllowed, allowedMCPServers, etc.) are already applied.

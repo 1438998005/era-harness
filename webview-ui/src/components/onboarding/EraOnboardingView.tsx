@@ -68,9 +68,9 @@ const EraOnboardingView = memo(() => {
 								title="纯本地运行"
 							/>
 							<FeatureRow
-								description="本体侧 / 口上（剧本）侧 / 权限全开，对话中随时切换"
+								description="本体侧与口上侧互斥，跨范围改文件一律手动确认；只约束可写范围，不改对话风格"
 								icon={<SparklesIcon size={15} />}
-								title="身份可切换"
+								title="文件修改范围可切换"
 							/>
 						</div>
 

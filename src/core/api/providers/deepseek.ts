@@ -82,8 +82,9 @@ export class DeepSeekHandler implements ApiHandler {
 		const client = this.ensureClient()
 		const model = this.getModel()
 
-		const isDeepSeekThinkingModel =
-			model.id.includes("deepseek-reasoner") || model.id === "deepseek-v4-flash" || model.id === "deepseek-v4-pro"
+		// V4 起不再用模型名区分思考能力（旧名 deepseek-reasoner 已停用），
+		// 用前缀匹配以兼容在线同步回来的带日期后缀的 id。
+		const isDeepSeekThinkingModel = model.id.includes("deepseek-v4") || model.id.includes("deepseek-reasoner")
 
 		const convertedMessages = convertToOpenAiMessages(messages)
 		const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = isDeepSeekThinkingModel
@@ -131,9 +132,24 @@ export class DeepSeekHandler implements ApiHandler {
 
 	getModel(): { id: DeepSeekModelId; info: ModelInfo } {
 		const modelId = this.options.apiModelId
-		if (modelId && modelId in deepSeekModels) {
-			const id = modelId as DeepSeekModelId
-			return { id, info: getDeepSeekModelInfo(id, this.options.deepSeekModelInfo) }
+		if (modelId) {
+			if (modelId in deepSeekModels) {
+				const id = modelId as DeepSeekModelId
+				return { id, info: getDeepSeekModelInfo(id, this.options.deepSeekModelInfo) }
+			}
+			// 在线同步回来的新模型不在内置清单里：保留用户选的 id，元数据用保守默认，
+			// 否则请求会被悄悄改回默认模型。
+			return {
+				id: modelId as DeepSeekModelId,
+				info:
+					this.options.deepSeekModelInfo ??
+					({
+						contextWindow: 128_000,
+						maxTokens: 8_000,
+						supportsImages: false,
+						supportsPromptCache: true,
+					} as ModelInfo),
+			}
 		}
 		return {
 			id: deepSeekDefaultModelId,

@@ -36,7 +36,7 @@ export function IdentityBar({ modeDef, onOpen }: IdentityBarProps) {
 					background: "color-mix(in srgb, var(--vscode-foreground) 7%, transparent)",
 					border: "1px solid color-mix(in srgb, var(--vscode-foreground) 12%, transparent)",
 				}}
-				title="切换身份（对话中随时可换）">
+				title="切换身份（文件修改范围，对话中随时可换）">
 				<span
 					style={{
 						width: 6,
