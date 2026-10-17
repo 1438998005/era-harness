@@ -8,9 +8,8 @@ const __dirname = path.dirname(__filename)
 
 const production = process.argv.includes("--production") || process.env["IS_DEBUG_BUILD"] === "false"
 const watch = process.argv.includes("--watch")
-const standalone = process.argv.includes("--standalone")
-const e2eBuild = process.argv.includes("--e2e-build")
-const destDir = standalone ? "dist-standalone" : "dist"
+// era harness 减法：无 standalone / e2e 形态，仅 extension 一种产物
+const destDir = "dist"
 
 /**
  * @type {import('esbuild').Plugin}
@@ -125,7 +124,7 @@ const copyWasmFiles = {
 
 const buildEnvVars = {
 	"import.meta.url": "_importMetaUrl",
-	"process.env.IS_STANDALONE": JSON.stringify(standalone ? "true" : "false"),
+	"process.env.IS_STANDALONE": JSON.stringify("false"),
 }
 
 if (production) {
@@ -197,28 +196,8 @@ const extensionConfig = {
 	external: ["vscode"],
 }
 
-// Standalone-specific configuration
-const standaloneConfig = {
-	...baseConfig,
-	entryPoints: ["src/standalone/cline-core.ts"],
-	outfile: `${destDir}/cline-core.js`,
-	// These modules need to load files from the module directory at runtime,
-	// so they cannot be bundled.
-	external: ["vscode", "@grpc/reflection", "grpc-health-check", "better-sqlite3"],
-}
-
-// E2E build script configuration
-const e2eBuildConfig = {
-	...baseConfig,
-	entryPoints: ["src/test/e2e/utils/build.ts"],
-	outfile: `${destDir}/e2e-build.mjs`,
-	external: ["@vscode/test-electron", "execa"],
-	sourcemap: false,
-	plugins: [aliasResolverPlugin, esbuildProblemMatcherPlugin],
-}
-
 async function main() {
-	const config = standalone ? standaloneConfig : e2eBuild ? e2eBuildConfig : extensionConfig
+	const config = extensionConfig
 	const extensionCtx = await esbuild.context(config)
 	if (watch) {
 		await extensionCtx.watch()

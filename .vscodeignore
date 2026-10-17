@@ -84,3 +84,6 @@ test-results/
 *storybook.log
 storybook-static
 **/StorybookDecorator.tsx
+tmp-protoc/
+protoc.zip
+SUBTRACTION-PLAN.md

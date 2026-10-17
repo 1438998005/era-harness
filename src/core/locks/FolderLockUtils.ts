@@ -1,5 +1,4 @@
 import { Logger } from "@/shared/services/Logger"
-import type { SqliteLockManager } from "./SqliteLockManager"
 import type { FolderLockOptions, FolderLockResult, FolderLockWithRetryResult } from "./types"
 
 /**
@@ -24,71 +23,40 @@ export const DEFAULT_RETRY_CONFIG: FolderLockRetryConfig = {
 }
 
 /**
- * Get the lock manager instance for standalone mode.
+ * era harness 减法说明：
+ * 上游的文件夹锁依赖 standalone 形态的 SqliteLockManager（多 cline-core 实例并发防护）。
+ * VSCode 扩展为单实例形态，因此这里保留空实现：锁获取恒为 skipped，
+ * 行为与上游 "lock manager 不可用" 分支完全一致（CheckpointLockUtils /
+ * TaskLockUtils 已按 skipped 语义处理）。
  */
-export async function getStandaloneLockManager(): Promise<SqliteLockManager | undefined> {
-	try {
-		const { getLockManager } = await import("../../standalone/lock-manager")
-		return getLockManager()
-	} catch (_importError) {
-		Logger.debug("Lock manager not available")
-		return undefined
-	}
-}
 
 /**
  * Attempt to acquire a folder lock with retry logic.
  * This is a generic utility that works with any folder path.
  *
+ * 单实例扩展模式：无跨进程锁，直接返回 skipped。
+ *
  * @param lockTarget - The folder path to lock
  * @param config - Optional retry configuration if defaults are not suitable
- * @returns Promise<boolean> true if lock acquired, false if timeout
+ * @returns Result with skipped: true (no lock subsystem in extension mode)
  */
 export async function tryAcquireFolderLockWithRetry(
-	options: FolderLockOptions,
-	config?: FolderLockRetryConfig,
+	_options: FolderLockOptions,
+	_config?: FolderLockRetryConfig,
 ): Promise<FolderLockWithRetryResult> {
-	return await retryFolderLockAcquisition(async () => {
-		try {
-			const lockManager = await getStandaloneLockManager()
-
-			if (!lockManager) {
-				Logger.debug("Lock manager not available - skipping lock acquisition")
-				return { acquired: false, skipped: true }
-			}
-
-			Logger.log(`Attempting to acquire folder lock for: ${options.lockTarget}`)
-
-			const result = await acquireFolderLock(options)
-
-			return { acquired: result.acquired, conflictingLock: result.conflictingLock, skipped: false }
-		} catch (error) {
-			Logger.error("Error in folder lock acquisition attempt:", error)
-			return { acquired: false }
-		}
-	}, config)
+	Logger.debug("Folder lock not available in extension mode - skipping lock acquisition")
+	return { acquired: false, skipped: true }
 }
 
 /**
  * Release a folder lock safely with error handling.
- * This is a generic utility that works with any folder path.
+ *
+ * 单实例扩展模式：无需释放。
  *
  * @param lockTarget - The folder path to release
  */
-export async function releaseFolderLock(taskId: string, lockTarget: string): Promise<void> {
-	try {
-		const lockManager = await getStandaloneLockManager()
-
-		if (!lockManager) {
-			Logger.debug("Lock manager not available - skipping lock release")
-			return
-		}
-
-		await lockManager.releaseFolderLockByTarget(taskId, lockTarget)
-		Logger.log(`Released folder lock for: ${lockTarget}`)
-	} catch (error) {
-		Logger.error("Error releasing folder lock:", error)
-	}
+export async function releaseFolderLock(_taskId: string, _lockTarget: string): Promise<void> {
+	Logger.debug("Folder lock not available in extension mode - skipping lock release")
 }
 
 /**
@@ -96,31 +64,9 @@ export async function releaseFolderLock(taskId: string, lockTarget: string): Pro
  * @param options - Folder lock options including heldBy
  * @returns Result indicating if lock was acquired and any conflicting lock
  */
-export async function acquireFolderLock(options: FolderLockOptions): Promise<FolderLockResult> {
-	const lockManager = await getStandaloneLockManager()
-
-	if (!lockManager) {
-		Logger.debug("Lock manager not available - cannot acquire folder lock")
-		return { acquired: false }
-	}
-
-	try {
-		const conflictingLock = await lockManager.registerFolderLock(options.heldBy, options.lockTarget)
-
-		if (conflictingLock === null) {
-			// Lock was successfully acquired
-			return { acquired: true }
-		} else {
-			// Lock already exists, return the conflicting lock
-			return {
-				acquired: false,
-				conflictingLock,
-			}
-		}
-	} catch (error) {
-		Logger.error("Failed to acquire folder lock:", error)
-		return { acquired: false }
-	}
+export async function acquireFolderLock(_options: FolderLockOptions): Promise<FolderLockResult> {
+	Logger.debug("Folder lock not available in extension mode - cannot acquire folder lock")
+	return { acquired: false }
 }
 
 /**

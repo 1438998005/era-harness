@@ -74,10 +74,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	await cleanupLegacyVSCodeStorage(context)
 
 	// 3. One-time export of VSCode's native storage to shared file-backed stores.
-	// Keep cline-chinese isolated from upstream Cline's ~/.cline/data/.
+	// Keep era harness isolated from upstream Cline's ~/.cline/data/.
 	const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
 	const storageContext = createStorageContext({
-		clineDir: path.join(os.homedir(), ".cline-chinese"),
+		clineDir: path.join(os.homedir(), ".era-harness"),
 		workspacePath,
 	})
 	await exportVSCodeStorageToSharedFiles(context, storageContext)
@@ -187,7 +187,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// Register size testing commands in development mode
 	if (IS_DEV) {
-		vscode.commands.executeCommand("setContext", "cline-chinese.isDevMode", IS_DEV)
+		vscode.commands.executeCommand("setContext", "era-harness.isDevMode", IS_DEV)
 		// Use dynamic import to avoid loading the module in production
 		import("./dev/commands/tasks")
 			.then((module) => {
@@ -499,14 +499,6 @@ ${ctx.cellJson || "{}"}
 				await improveWithCline(ctx.controller, ctx.commandContext, notebookContext)
 			},
 		),
-	)
-
-	// Register the openWalkthrough command handler
-	context.subscriptions.push(
-		vscode.commands.registerCommand(commands.Walkthrough, async () => {
-			await vscode.commands.executeCommand("workbench.action.openWalkthrough", `${context.extension.id}#ClineWalkthrough`)
-			telemetryService.captureButtonClick("command_openWalkthrough")
-		}),
 	)
 
 	// Register the reconstructTaskHistory command handler

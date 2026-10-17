@@ -64,3 +64,7 @@ tests/**/cache
 # 本地构建脚手架（Windows 工具链修补）
 /tmp-protoc/bin/
 *.log
+
+# era harness 减法批次 1：构建工具与本地产物不进库
+tmp-protoc/
+protoc.zip
