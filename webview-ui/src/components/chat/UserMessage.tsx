@@ -6,6 +6,7 @@ import DynamicTextArea from "react-textarea-autosize"
 import Thumbnails from "@/components/common/Thumbnails"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { CheckpointsServiceClient } from "@/services/grpc-client"
+import { buildIdentityDirective, getIdentityMode, splitIdentityDirective } from "./identity/identity"
 import { highlightText } from "./task-header/Highlights"
 
 interface UserMessageProps {
@@ -16,14 +17,22 @@ interface UserMessageProps {
 	sendMessageFromChatRow?: (text: string, images: string[], files: string[]) => void
 }
 
+const IDENTITY_DOT_COLOR: Record<string, string> = {
+	self: "#4aa3ff",
+	persona: "#a78bfa",
+	unrestricted: "#f5a524",
+}
+
 const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageTs, sendMessageFromChatRow }) => {
 	const { t } = useTranslation("common")
+	// 身份块只给模型看，气泡里剥掉，改用它自己的小标签呈现
+	const { mode: identityMode, body: bodyText } = useMemo(() => splitIdentityDirective(text || ""), [text])
 	const [isEditing, setIsEditing] = useState(false)
-	const [editedText, setEditedText] = useState(text || "")
+	const [editedText, setEditedText] = useState(bodyText)
 	const textAreaRef = useRef<HTMLTextAreaElement>(null)
 	const { checkpointManagerErrorMessage } = useExtensionState()
 
-	const highlightedText = useMemo(() => highlightText(editedText || text), [editedText, text])
+	const highlightedText = useMemo(() => highlightText(editedText || bodyText), [editedText, bodyText])
 
 	// Create refs for the buttons to check in the blur handler
 	const restoreAllButtonRef = useRef<HTMLButtonElement>(null)
@@ -46,7 +55,7 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 		const delay = type === "task" ? 500 : 1000 // Delay for task and workspace restore
 		setIsEditing(false)
 
-		if (text === editedText) {
+		if (bodyText === editedText) {
 			return
 		}
 
@@ -60,7 +69,9 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 			)
 
 			setTimeout(() => {
-				sendMessageFromChatRow?.(editedText, images || [], files || [])
+				// 编辑后重发时保留原身份，避免这一回合掉出当前口径
+				const outbound = identityMode ? `${buildIdentityDirective(identityMode)}${editedText}` : editedText
+				sendMessageFromChatRow?.(outbound, images || [], files || [])
 			}, delay)
 		} catch (err) {
 			console.error("Checkpoint restore error:", err)
@@ -147,9 +158,33 @@ const UserMessage: React.FC<UserMessageProps> = ({ text, images, files, messageT
 					</div>
 				</>
 			) : (
-				<span className="ph-no-capture text-sm" style={{ display: "block" }}>
-					{highlightedText}
-				</span>
+				<>
+					{identityMode && (
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 4,
+								fontSize: 10,
+								opacity: 0.7,
+								marginBottom: 3,
+								letterSpacing: "0.2px",
+							}}>
+							<span
+								style={{
+									width: 5,
+									height: 5,
+									borderRadius: "50%",
+									background: IDENTITY_DOT_COLOR[identityMode] ?? "#4aa3ff",
+								}}
+							/>
+							身份 · {getIdentityMode(identityMode).label}
+						</div>
+					)}
+					<span className="ph-no-capture text-sm" style={{ display: "block" }}>
+						{highlightedText}
+					</span>
+				</>
 			)}
 			{((images && images.length > 0) || (files && files.length > 0)) && (
 				<Thumbnails files={files ?? []} images={images ?? []} style={{ marginTop: "8px" }} />

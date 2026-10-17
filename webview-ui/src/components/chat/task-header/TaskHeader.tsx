@@ -7,6 +7,7 @@ import { getModeSpecificFields, normalizeApiConfiguration } from "@/components/s
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { getEnvironmentColor } from "@/utils/environmentColors"
+import { getIdentityMode, splitIdentityDirective } from "../identity/identity"
 import CopyTaskButton from "./buttons/CopyTaskButton"
 import DeleteTaskButton from "./buttons/DeleteTaskButton"
 import NewTaskButton from "./buttons/NewTaskButton"
@@ -17,6 +18,12 @@ import { FocusChain } from "./FocusChain"
 import { highlightText } from "./Highlights"
 
 const IS_DEV = process.env.IS_DEV === '"true"'
+
+const IDENTITY_DOT_COLOR: Record<string, string> = {
+	self: "#4aa3ff",
+	persona: "#a78bfa",
+	unrestricted: "#f5a524",
+}
 interface TaskHeaderProps {
 	task: ClineMessage
 	tokensIn: number
@@ -64,7 +71,9 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	const [isTextOverflowing, setIsTextOverflowing] = useState(false)
 	const highlightedTextRef = React.useRef<HTMLDivElement>(null)
 
-	const highlightedText = useMemo(() => highlightText(task.text, false), [task.text])
+	// 首条消息可能带身份块，头部只显示正文
+	const { mode: identityMode, body: taskBody } = useMemo(() => splitIdentityDirective(task.text || ""), [task.text])
+	const highlightedText = useMemo(() => highlightText(taskBody, false), [taskBody])
 
 	// Check if text overflows the container (i.e., needs clamping)
 	useLayoutEffect(() => {
@@ -149,7 +158,7 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 						{isTaskExpanded ? <ChevronDownIcon size="16" /> : <ChevronRightIcon size="16" />}
 						{isTaskExpanded && (
 							<div className="mt-1 flex justify-end cursor-pointer opacity-80 gap-2 mx-2">
-								<CopyTaskButton className={BUTTON_CLASS} taskText={task.text} />
+								<CopyTaskButton className={BUTTON_CLASS} taskText={taskBody} />
 								<DeleteTaskButton
 									className={BUTTON_CLASS}
 									taskId={currentTaskItem?.id}
@@ -184,6 +193,19 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 				{/* Expand/Collapse Task Details */}
 				{isTaskExpanded && (
 					<div className="flex flex-col break-words" key={`task-details-${currentTaskItem?.id}`}>
+						{identityMode && (
+							<div className="flex items-center gap-1.5 text-xs mt-1" style={{ opacity: 0.7 }}>
+								<span
+									style={{
+										width: 5,
+										height: 5,
+										borderRadius: "50%",
+										background: IDENTITY_DOT_COLOR[identityMode] ?? "#4aa3ff",
+									}}
+								/>
+								身份 · {getIdentityMode(identityMode).label}
+							</div>
+						)}
 						<div
 							className={cn(
 								"ph-no-capture whitespace-pre-wrap break-words px-0.5 text-sm mt-1 relative",

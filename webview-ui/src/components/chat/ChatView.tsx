@@ -30,6 +30,9 @@ import {
 	useScrollBehavior,
 	WelcomeSection,
 } from "./chat-view"
+import { IdentityBar } from "./identity/IdentityBar"
+import { IdentityPickerModal } from "./identity/IdentityPickerModal"
+import { useIdentity } from "./identity/useIdentity"
 
 interface ChatViewProps {
 	isHidden: boolean
@@ -56,6 +59,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 		currentFocusChainChecklist,
 		focusChainSettings,
 		hooksEnabled,
+		didHydrateState,
 	} = useExtensionState()
 	const isProdHostedApp = userInfo?.apiBaseUrl === "https://app.cline.bot"
 	const shouldShowQuickWins = isProdHostedApp && (!taskHistory || taskHistory.length < QUICK_WINS_HISTORY_THRESHOLD)
@@ -178,8 +182,11 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 
 	// handleFocusChange is already provided by chatState
 
+	// 身份（本体侧 / 口上侧 / 权限全开）：新对话自动询问，对话中可随时切换
+	const identity = useIdentity(messages.length, didHydrateState)
+
 	// Use message handlers hook
-	const messageHandlers = useMessageHandlers(messages, chatState)
+	const messageHandlers = useMessageHandlers(messages, chatState, identity.mode)
 
 	const { selectedModelInfo } = useMemo(() => {
 		return normalizeApiConfiguration(apiConfiguration, mode)
@@ -366,6 +373,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 				)}
 			</div>
 			<footer className="bg-(--vscode-sidebar-background)" style={{ gridRow: "2" }}>
+				<IdentityBar modeDef={identity.modeDef} onOpen={identity.openPicker} />
 				<AutoApproveBar />
 				<ActionButtons
 					chatState={chatState}
@@ -389,6 +397,14 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 					shouldDisableFilesAndImages={shouldDisableFilesAndImages}
 				/>
 			</footer>
+			<IdentityPickerModal
+				askOnNew={identity.askOnNew}
+				currentMode={identity.mode}
+				isOpen={identity.isPickerOpen}
+				onClose={identity.closePicker}
+				onSelect={identity.selectMode}
+				onToggleAskOnNew={identity.toggleAskOnNew}
+			/>
 		</ChatLayout>
 	)
 }

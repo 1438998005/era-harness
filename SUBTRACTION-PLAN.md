@@ -45,6 +45,46 @@ package.json 手术：name→`era-harness`、publisher→本地、description �
 
 **providers.json 精简**：`src/shared/providers/providers.json` 只留 `deepseek` + `openai` 两条（用户明确：仅 DeepSeek + 自定义添加两个按钮）。
 
+### 2a 执行记录 ✅（commit `a8929b0`，compile 全绿）
+
+实际做法是**保留接口、替换实现**，而非整目录删除——因为 `telemetryService`/`featureFlagsService` 是 `new Proxy({} as Service, ...)` 形态，调用点 30+ 处，删目录会连锁断链。
+
+- 遥测：新增 `NoopTelemetryProvider`（`isEnabled()` 恒 false、`getSettings()` 返回 `off`），`TelemetryService.create()` 只用它；删 `posthog-node` 与 19 个 `@opentelemetry/*` 依赖。
+- 错误上报：`ErrorProviderFactory` 重写为 `type: "no-op"`，错误只写 `Logger`。
+- 特性开关：`FeatureFlagsProviderFactory` 重写，`getAllFlagsAndPayloads()` 返回 `{}`。
+- 横幅：`BannerService` 重写为静态 no-op，横幅恒空。
+- 远端配置：`remote-config/fetch.ts` 整文件改 no-op（原为带 token 每小时轮询 cline.bot）；`utils.ts` 删 OTel 与远端 MCP 同步。
+- MCP 市场：`downloadMcp.ts` 返回「已移除，请手动写 mcp_settings.json」；`controller/index.ts` 的 `fetchMcpMarketplaceFromApi()` 返回空列表。**McpHub 本体完整保留**（stdio/SSE/HTTP）。
+- URI 路由：`SharedUriHandler` 删 `/ssy` `/shengsuanyun` `/hicap` `/lg-task`。
+- 账号入口桩：`shengSuanYunLoginClicked`、`hicapAuthClicked`、`testOtelConnection` 改为返回「已移除」提示（proto 自动注册仍在，删文件会断生成代码）。
+
+### 2b 去登录 + 去 PostHog + 品牌个性化 ✅（构建全绿）
+
+- webview 遥测栈：删 `CustomPostHogProvider.tsx`、`webview-ui/package.json` 去 `posthog-js`；`Providers.tsx` 去掉包裹层；`useFeatureFlag.ts` 恒返回 false。
+- 登录态：`ClineAuthContext.tsx` 重写为恒未登录（不发 auth 订阅、不取 organizations）；`WelcomeView.tsx` 去掉二段式登录引导，直接展示 `ApiOptions`。
+- 品牌：`package.json` 删 `contributes.icons`（cline 字体图标）与 `$(cline-icon)` 引用；`assets/icons/` 清掉 cline-bot/panda-face/sleepy-cline/icon-market/robot_panel 共 9 个旧资源，换成脚本生成的 `icon.png`（512×512，`scripts/make-icon.py`）与单色 `icon.svg`（`currentColor`，随主题着色）。
+  - **东方 Project 视觉语汇**（用户指定）：御札（符纸）+ 红白蝴蝶结 + 背后魔法阵 + 樱花瓣 + 金色星芒，中央保留块状 E 字标作为 era 的字形锚点。深紫夜色底，朱红 `#c8434b` 为主强调色。
+- 界面主视觉：新增 `webview-ui/src/assets/EraLogo.tsx`（与图标同源），`HomeHeader` 用它替换三个 Cline 表情 logo；欢迎标题改为「今天动哪一段？」。
+- README 重写（无外链图片，vsce 才肯打包）。
+
+## 2.5 身份系统（新增需求）
+
+**三种身份**，通过每条用户消息前缀的 `<era-identity mode="...">` 块下发，因此对话中途切换即刻生效，无需重建任务：
+
+| id | 名称 | 输出契约 | 权限 |
+| --- | --- | --- | --- |
+| `self` | 本体侧 | 直述、不演绎、不补设定 | 沿用现有批准档位 |
+| `persona` | 口上（剧本）侧 | 按既有角色设定产出，技术说明入【场外】 | 同上 |
+| `unrestricted` | 权限全开 | 本体口径 + 直接执行 | 全部 actions 置 true |
+
+实现：
+- `webview-ui/src/components/chat/identity/identity.ts`：模式表、指令拼装 `buildIdentityDirective()`、回读剥离 `splitIdentityDirective()`、localStorage 持久化。
+- `useIdentity.ts`：状态 + 新对话自动弹窗（以 `didHydrateState` 门控，避免恢复旧任务时误弹）+ 「权限全开」切走时恢复原批准档位（快照 `previousActionsRef`）。
+- `IdentityPickerModal.tsx`：三卡选择 + 「每次新开对话都询问」开关，点选即生效。
+- `IdentityBar.tsx`：输入区上方常驻身份条，一点即换。
+- 注入点：`useMessageHandlers` 在 `hasContent` 分支前置指令块。
+- 展示层：`UserMessage` / `TaskHeader` 用 `splitIdentityDirective()` 剥掉指令块，改为「身份 · XX」小标签，避免污染气泡。
+
 ## 3. provider 删除（批次 2 续）
 
 `src/core/api/providers/` **只保留**：`deepseek.ts`、`openai.ts`、`types.ts`；`index.ts` 里注册表只留两者；transform 保留 deepseek/openai 链路实际引用者（预计 `stream.ts`/`tool-call-processor.ts`/`openai-format.ts`/`openai-response-format.ts`/`r1-format.ts`/`openrouter-stream.ts`，以 tsc 为准删其余）。

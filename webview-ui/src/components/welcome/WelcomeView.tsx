@@ -1,36 +1,26 @@
-import { BooleanRequest, EmptyRequest } from "@shared/proto/cline/common"
-import { VSCodeButton, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
+import { BooleanRequest } from "@shared/proto/cline/common"
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import { memo, useEffect, useState } from "react"
-import { useTranslation } from "react-i18next"
-import ClineLogoWhite from "@/assets/ClineLogoWhite"
 import ApiOptions from "@/components/settings/ApiOptions"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { AccountServiceClient, StateServiceClient } from "@/services/grpc-client"
+import { StateServiceClient } from "@/services/grpc-client"
 import { validateApiConfiguration } from "@/utils/validate"
 
+/**
+ * era harness 本地版欢迎页：无登录、无账号、无远端引导。
+ * 配置一个模型服务（DeepSeek 或自定义 OpenAI 兼容端点）即可开始。
+ */
 const WelcomeView = memo(() => {
-	const { t } = useTranslation("common")
 	const { apiConfiguration, mode } = useExtensionState()
 	const [apiErrorMessage, setApiErrorMessage] = useState<string | undefined>(undefined)
-	const [showApiOptions, setShowApiOptions] = useState(false)
-	const [isLoading, setIsLoading] = useState(false)
 
 	const disableLetsGoButton = apiErrorMessage != null
-
-	const handleLogin = () => {
-		setIsLoading(true)
-		AccountServiceClient.accountLoginClicked(EmptyRequest.create())
-			.catch((err) => console.error("Failed to get login URL:", err))
-			.finally(() => {
-				setIsLoading(false)
-			})
-	}
 
 	const handleSubmit = async () => {
 		try {
 			await StateServiceClient.setWelcomeViewCompleted(BooleanRequest.create({ value: true }))
 		} catch (error) {
-			console.error("Failed to update API configuration or complete welcome view:", error)
+			console.error("Failed to complete welcome view:", error)
 		}
 	}
 
@@ -41,49 +31,24 @@ const WelcomeView = memo(() => {
 	return (
 		<div className="fixed inset-0 p-0 flex flex-col">
 			<div className="h-full px-5 overflow-auto flex flex-col gap-2.5">
-				<h2 className="text-lg font-semibold">{t("welcome.title")}</h2>
-				<div className="flex justify-center my-5">
-					<ClineLogoWhite className="size-16" />
-				</div>
-				<p>
-					{t("welcome.description")}{" "}
-					<VSCodeLink className="inline" href="https://www.anthropic.com/claude/sonnet">
-						{t("welcome.descriptionLink")}
-					</VSCodeLink>
-					{t("welcome.descriptionCapabilities")} <i>{t("welcome.descriptionPermission")}</i>.{" "}
-					{t("welcome.descriptionMcp")}
+				<h2 className="text-lg font-semibold">era harness</h2>
+				<p className="text-(--vscode-descriptionForeground)">
+					eraTW 画蛇添足版开发助手：配置一个模型服务即可开始，无需登录。所有对话与文件操作都在本机完成。
 				</p>
 
-				<p className="text-(--vscode-descriptionForeground)">{t("welcome.signupPrompt")}</p>
+				<div className="mt-2">
+					<ApiOptions currentMode={mode} showModelOptions={false} />
+				</div>
 
-				<VSCodeButton appearance="primary" className="w-full mt-1" disabled={isLoading} onClick={handleLogin}>
-					{t("welcome.getStartedFree")}
-					{isLoading && (
-						<span className="ml-1 animate-spin">
-							<span className="codicon codicon-refresh" />
-						</span>
-					)}
+				{apiErrorMessage && <p className="text-(--vscode-errorForeground)">{apiErrorMessage}</p>}
+
+				<VSCodeButton appearance="primary" className="mt-1 w-full" disabled={disableLetsGoButton} onClick={handleSubmit}>
+					开始使用
 				</VSCodeButton>
 
-				{!showApiOptions && (
-					<VSCodeButton
-						appearance="secondary"
-						className="mt-2.5 w-full"
-						onClick={() => setShowApiOptions(!showApiOptions)}>
-						{t("welcome.useOwnApiKey")}
-					</VSCodeButton>
-				)}
-
-				<div className="mt-4.5">
-					{showApiOptions && (
-						<div>
-							<ApiOptions currentMode={mode} showModelOptions={false} />
-							<VSCodeButton className="mt-0.75" disabled={disableLetsGoButton} onClick={handleSubmit}>
-								{t("welcome.letsGo")}
-							</VSCodeButton>
-						</div>
-					)}
-				</div>
+				<p className="text-(--vscode-descriptionForeground) mt-2">
+					推荐：DeepSeek（填写 API Key 即可）；或选择「OpenAI 兼容」接入本地/自建服务（如 Ollama、LM Studio、vLLM）。
+				</p>
 			</div>
 		</div>
 	)

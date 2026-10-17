@@ -2,6 +2,7 @@ import type { ClineMessage } from "@shared/ExtensionMessage"
 import { EmptyRequest, StringRequest } from "@shared/proto/cline/common"
 import { AskResponseRequest, NewTaskRequest } from "@shared/proto/cline/task"
 import { useCallback, useRef } from "react"
+import { buildIdentityDirective, IdentityMode } from "@/components/chat/identity/identity"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { SlashServiceClient, TaskServiceClient } from "@/services/grpc-client"
 import type { ButtonActionType } from "../shared/buttonConfig"
@@ -11,7 +12,11 @@ import type { ChatState, MessageHandlers } from "../types/chatTypes"
  * Custom hook for managing message handlers
  * Handles sending messages, button clicks, and task management
  */
-export function useMessageHandlers(messages: ClineMessage[], chatState: ChatState): MessageHandlers {
+export function useMessageHandlers(
+	messages: ClineMessage[],
+	chatState: ChatState,
+	identityMode: IdentityMode = "self",
+): MessageHandlers {
 	const { backgroundCommandRunning } = useExtensionState()
 	const {
 		setInputValue,
@@ -41,6 +46,8 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 			}
 
 			if (hasContent) {
+				// 身份指令随每条消息下发，切换身份对后续回合立即生效
+				messageToSend = `${buildIdentityDirective(identityMode)}${messageToSend}`
 				console.log("[ChatView] handleSendMessage - Sending message:", messageToSend)
 				let messageSent = false
 
@@ -155,6 +162,7 @@ export function useMessageHandlers(messages: ClineMessage[], chatState: ChatStat
 			messages.length,
 			clineAsk,
 			activeQuote,
+			identityMode,
 			setInputValue,
 			setActiveQuote,
 			setSendingDisabled,
