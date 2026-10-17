@@ -4,8 +4,8 @@ import AccountView from "./components/account/AccountView"
 import ChatView from "./components/chat/ChatView"
 import HistoryView from "./components/history/HistoryView"
 import McpView from "./components/mcp/configuration/McpConfigurationView"
-import OnboardingView from "./components/onboarding/OnboardingView"
 import SettingsView from "./components/settings/SettingsView"
+import WelcomeView from "./components/welcome/WelcomeView"
 import WorktreesView from "./components/worktrees/WorktreesView"
 import { useClineAuth } from "./context/ClineAuthContext"
 import { useExtensionState } from "./context/ExtensionStateContext"
@@ -60,8 +60,9 @@ const AppContent = () => {
 		return null
 	}
 
+	// 首次启动只做一件事：配一个模型服务。无登录、无账号、无多步引导。
 	if (showWelcome) {
-		return <OnboardingView />
+		return <WelcomeView />
 	}
 
 	return (
