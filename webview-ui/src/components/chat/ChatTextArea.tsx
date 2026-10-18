@@ -15,7 +15,7 @@ import ContextMenu from "@/components/chat/ContextMenu"
 import { CHAT_CONSTANTS } from "@/components/chat/chat-view/constants"
 import SlashCommandMenu from "@/components/chat/SlashCommandMenu"
 import Thumbnails from "@/components/common/Thumbnails"
-import { getModeSpecificFields, normalizeApiConfiguration } from "@/components/settings/utils/providerUtils"
+import { normalizeApiConfiguration } from "@/components/settings/utils/providerUtils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { usePlatform } from "@/context/PlatformContext"
@@ -1096,15 +1096,6 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		// Get model display name
 		const modelDisplayName = useMemo(() => {
 			const { selectedProvider, selectedModelId } = normalizeApiConfiguration(apiConfiguration, mode)
-			const {
-				vsCodeLmModelSelector,
-				togetherModelId,
-				lmStudioModelId,
-				ollamaModelId,
-				liteLlmModelId,
-				requestyModelId,
-				vercelAiGatewayModelId,
-			} = getModeSpecificFields(apiConfiguration, mode)
 			const unknownModel = "unknown"
 
 			if (!apiConfiguration) {
@@ -1112,24 +1103,8 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			}
 			// 只显示模型名：`provider:model` 在 DeepSeek 下会变成
 			// 「deepseek:deepseek-flash」这种重复又占宽度的写法，容易把底部工具栏挤爆。
-			switch (selectedProvider) {
-				case "vscode-lm":
-					return vsCodeLmModelSelector || unknownModel
-				case "together":
-					return togetherModelId || selectedModelId || unknownModel
-				case "lmstudio":
-					return lmStudioModelId || selectedModelId || unknownModel
-				case "ollama":
-					return ollamaModelId || selectedModelId || unknownModel
-				case "litellm":
-					return liteLlmModelId || selectedModelId || unknownModel
-				case "requesty":
-					return requestyModelId || selectedModelId || unknownModel
-				case "vercel-ai-gateway":
-					return vercelAiGatewayModelId || selectedModelId || unknownModel
-				default:
-					return selectedModelId || selectedProvider
-			}
+			// era harness: 仅 DeepSeek / OpenAI 兼容，直接显示模型名。
+			return selectedModelId || selectedProvider
 		}, [apiConfiguration, mode])
 
 		// Function to show error message for unsupported files for drag and drop
