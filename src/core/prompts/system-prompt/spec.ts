@@ -402,16 +402,10 @@ export function toOpenAIResponsesAPITool(openAITool: OpenAITool): OpenAIResponse
  * Replaces template placeholders in descriptions for native tool schemas.
  */
 function replacer(description: string, context: SystemPromptContext): string {
-	const width = context.browserSettings?.viewport?.width || 900
-	const height = context.browserSettings?.viewport?.height || 600
 	const cwd = context.cwd || process.cwd()
 	const multiRootHint = context.isMultiRootEnabled ? MULTI_ROOT_HINT : ""
 
-	return description
-		.replace(/{{BROWSER_VIEWPORT_WIDTH}}/g, String(width))
-		.replace(/{{BROWSER_VIEWPORT_HEIGHT}}/g, String(height))
-		.replace(/{{CWD}}/g, cwd)
-		.replace(/{{MULTI_ROOT_HINT}}/g, multiRootHint)
+	return description.replace(/{{CWD}}/g, cwd).replace(/{{MULTI_ROOT_HINT}}/g, multiRootHint)
 }
 
 /**

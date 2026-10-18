@@ -6,7 +6,6 @@ import os from "node:os"
 import { DIFF_VIEW_URI_SCHEME } from "@hosts/vscode/VscodeDiffViewProvider"
 import * as vscode from "vscode"
 import { Logger } from "@/shared/services/Logger"
-import { sendAccountButtonClickedEvent } from "./core/controller/ui/subscribeToAccountButtonClicked"
 import { sendChatButtonClickedEvent } from "./core/controller/ui/subscribeToChatButtonClicked"
 import { sendHistoryButtonClickedEvent } from "./core/controller/ui/subscribeToHistoryButtonClicked"
 import { sendMcpButtonClickedEvent } from "./core/controller/ui/subscribeToMcpButtonClicked"
@@ -14,7 +13,7 @@ import { sendSettingsButtonClickedEvent } from "./core/controller/ui/subscribeTo
 import { sendWorktreesButtonClickedEvent } from "./core/controller/ui/subscribeToWorktreesButtonClicked"
 import { WebviewProvider } from "./core/webview"
 import { createClineAPI } from "./exports"
-import { initializeTestMode } from "./services/test/TestMode"
+
 import "./utils/path" // necessary to have access to String.prototype.toPosix
 import path from "node:path"
 import type { ExtensionContext } from "vscode"
@@ -51,8 +50,6 @@ import { VscodeDiffViewProvider } from "./hosts/vscode/VscodeDiffViewProvider"
 import { VscodeWebviewProvider } from "./hosts/vscode/VscodeWebviewProvider"
 import { exportVSCodeStorageToSharedFiles } from "./hosts/vscode/vscode-to-file-migration"
 import { ExtensionRegistryInfo } from "./registry"
-import { AuthService } from "./services/auth/AuthService"
-import { LogoutReason } from "./services/auth/types"
 import { telemetryService } from "./services/telemetry"
 import { SharedUriHandler, TASK_URI_PATH } from "./services/uri/SharedUriHandler"
 import { ShowMessageType } from "./shared/proto/host/window"
@@ -87,9 +84,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	const webview = (await initialize(storageContext)) as VscodeWebviewProvider
 
 	// 5. Register services and commands specific to VS Code
-	// Initialize test mode and add disposables to context
-	const testModeWatchers = await initializeTestMode(webview)
-	context.subscriptions.push(...testModeWatchers)
 
 	// Initialize hook discovery cache for performance optimization
 	HookDiscoveryCache.getInstance().initialize(
@@ -139,7 +133,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.commands.registerCommand(commands.McpButton, () => sendMcpButtonClickedEvent()))
 	context.subscriptions.push(vscode.commands.registerCommand(commands.SettingsButton, () => sendSettingsButtonClickedEvent()))
 	context.subscriptions.push(vscode.commands.registerCommand(commands.HistoryButton, () => sendHistoryButtonClickedEvent()))
-	context.subscriptions.push(vscode.commands.registerCommand(commands.AccountButton, () => sendAccountButtonClickedEvent()))
 	context.subscriptions.push(vscode.commands.registerCommand(commands.WorktreesButton, () => sendWorktreesButtonClickedEvent()))
 
 	/*
@@ -519,25 +512,6 @@ ${ctx.cellJson || "{}"}
 			abortCommitGeneration()
 		}),
 	)
-
-	// Listen for secrets changes (e.g., cross-window login/logout sync)
-	const unsubSecrets = storageContext.secrets.onDidChange((event) => {
-		if (event.key === "cline:clineAccountId") {
-			const secretValue = storageContext.secrets.get<string>(event.key)
-			const activeWebview = WebviewProvider.getVisibleInstance()
-			const controller = activeWebview?.controller
-
-			const authService = AuthService.getInstance(controller)
-			if (secretValue) {
-				// Secret was added or updated - restore auth info (login from another window)
-				authService?.restoreRefreshTokenAndRetrieveAuthInfo()
-			} else {
-				// Secret was removed - handle logout for all windows
-				authService?.handleDeauth(LogoutReason.CROSS_WINDOW_SYNC)
-			}
-		}
-	})
-	context.subscriptions.push({ dispose: unsubSecrets })
 
 	Logger.log(`[Cline] extension activated in ${performance.now() - activationStartTime} ms`)
 

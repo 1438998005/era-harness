@@ -1,7 +1,6 @@
 import { diagnosticsToProblemsString } from "@integrations/diagnostics"
 import { extractTextFromFile } from "@integrations/misc/extract-text"
 import { openFile } from "@integrations/misc/open-file"
-import { UrlContentFetcher } from "@services/browser/UrlContentFetcher"
 import { telemetryService } from "@services/telemetry"
 import { mentionRegexGlobal } from "@shared/context-mentions"
 import { WorkspaceRoot } from "@shared/multi-root/types"
@@ -14,7 +13,6 @@ import { HostProvider } from "@/hosts/host-provider"
 import { getLatestTerminalOutput } from "@/hosts/vscode/terminal/get-latest-output"
 import { ShowMessageType } from "@/shared/proto/host/window"
 import { DiagnosticSeverity } from "@/shared/proto/index.cline"
-import { Logger } from "@/shared/services/Logger"
 import { isDirectory } from "@/utils/fs"
 import { getCwd } from "@/utils/path"
 import { FileContextTracker } from "../context/context-tracking/FileContextTracker"
@@ -56,10 +54,14 @@ export async function getFileMentionFromPath(filePath: string) {
 	return "@/" + relativePath
 }
 
+/**
+ * @param fetchUrlContent 可选的网页内容抓取函数（era harness：由调用方用 DeepSeek API Key 构造）。
+ *        传入 undefined 时 @网址 mention 会返回配置指引而非静默失败。
+ */
 export async function parseMentions(
 	text: string,
 	cwd: string,
-	urlContentFetcher: UrlContentFetcher,
+	fetchUrlContent?: (url: string) => Promise<{ title: string; content: string }>,
 	fileContextTracker?: FileContextTracker,
 	workspaceManager?: WorkspaceRootManager,
 ): Promise<string> {
@@ -92,20 +94,6 @@ export async function parseMentions(
 		return match
 	})
 
-	const urlMention = Array.from(mentions).find((mention) => mention.startsWith("http"))
-	let launchBrowserError: Error | undefined
-	if (urlMention) {
-		try {
-			await urlContentFetcher.launchBrowser()
-		} catch (error) {
-			launchBrowserError = error
-			HostProvider.window.showMessage({
-				type: ShowMessageType.ERROR,
-				message: `Error fetching content for ${urlMention}: ${error.message}`,
-			})
-		}
-	}
-
 	// Filter out duplicate mentions while preserving order
 	const uniqueMentions = Array.from(new Set(mentions))
 
@@ -120,24 +108,26 @@ export async function parseMentions(
 
 		if (mention.startsWith("http")) {
 			let result: string
-			if (launchBrowserError) {
-				result = `Error fetching content: ${launchBrowserError.message}`
-				// Track failed URL mention
-				telemetryService.captureMentionFailed("url", "network_error", launchBrowserError?.message || "")
+			if (!fetchUrlContent) {
+				// era harness：无 DeepSeek API Key 时给出可行动提示，而非静默失败
+				result = "未配置 DeepSeek API Key，无法抓取网页内容。请在设置中填写 API Key，或手动将网页内容粘贴到对话中。"
+				telemetryService.captureMentionFailed("url", "permission_denied", "missing deepseek api key")
 			} else {
 				try {
-					const markdown = await urlContentFetcher.urlToMarkdown(mention)
-					result = markdown
-					// Track successful URL mention
-					telemetryService.captureMentionUsed("url", markdown.length)
+					const { title, content } = await fetchUrlContent(mention)
+					result = content ? (title ? `# ${title}\n\n${content}` : content) : ""
+					if (!result) {
+						throw new Error("页面未返回正文内容（URL 可能不可用或内容类型不支持）")
+					}
+					telemetryService.captureMentionUsed("url", result.length)
 				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error)
 					HostProvider.window.showMessage({
 						type: ShowMessageType.ERROR,
-						message: `Error fetching content for ${mention}: ${error.message}`,
+						message: `Error fetching content for ${mention}: ${message}`,
 					})
-					result = `Error fetching content: ${error.message}`
-					// Track failed URL mention
-					telemetryService.captureMentionFailed("url", "network_error", error.message)
+					result = `Error fetching content: ${message}`
+					telemetryService.captureMentionFailed("url", "network_error", message)
 				}
 			}
 			parsedText += `\n\n<url_content url="${mention}">\n${result}\n</url_content>`
@@ -313,14 +303,6 @@ export async function parseMentions(
 				// Track failed commit mention
 				telemetryService.captureMentionFailed("commit", "unknown", error.message)
 			}
-		}
-	}
-
-	if (urlMention) {
-		try {
-			await urlContentFetcher.closeBrowser()
-		} catch (error) {
-			Logger.error(`Error closing browser: ${error.message}`)
 		}
 	}
 

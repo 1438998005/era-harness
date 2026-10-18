@@ -1,7 +1,6 @@
 import { BannerAction, BannerCardData } from "@shared/cline/banner"
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { useMount } from "react-use"
 import DiscordIcon from "@/assets/DiscordIcon"
 import GitHubIcon from "@/assets/GitHubIcon"
 import LinkedInIcon from "@/assets/LinkedInIcon"
@@ -9,7 +8,6 @@ import RedditIcon from "@/assets/RedditIcon"
 import XIcon from "@/assets/XIcon"
 import WhatsNewItems from "@/components/common/WhatsNewItems"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { useExtensionState } from "@/context/ExtensionStateContext"
 
 interface WhatsNewModalProps {
 	open: boolean
@@ -21,10 +19,6 @@ interface WhatsNewModalProps {
 
 export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({ open, onClose, version, welcomeBanners, onBannerAction }) => {
 	const { t } = useTranslation("misc")
-	const { refreshOpenRouterModels } = useExtensionState()
-
-	// Get latest model list in case user hits shortcut button to set model
-	useMount(refreshOpenRouterModels)
 
 	const inlineCodeStyle: React.CSSProperties = {
 		backgroundColor: "var(--vscode-textCodeBlock-background)",

@@ -1,4 +1,4 @@
-import { ApiConfiguration, ModelInfo, openRouterDefaultModelId } from "@shared/api"
+import { ApiConfiguration } from "@shared/api"
 import { Mode } from "@shared/storage/types"
 import { getModeSpecificFields } from "@/components/settings/utils/providerUtils"
 
@@ -175,39 +175,6 @@ export function validateApiConfiguration(currentMode: Mode, apiConfiguration?: A
 			case "wandb":
 				if (!apiConfiguration.wandbApiKey) {
 					return "请填写有效的 API 密钥，或改用其他提供方。"
-				}
-				break
-		}
-	}
-	return undefined
-}
-
-export function validateModelId(
-	currentMode: Mode,
-	apiConfiguration?: ApiConfiguration,
-	openRouterModels?: Record<string, ModelInfo>,
-	clineModels?: Record<string, ModelInfo>,
-): string | undefined {
-	if (apiConfiguration) {
-		const { apiProvider, openRouterModelId, clineModelId } = getModeSpecificFields(apiConfiguration, currentMode)
-		switch (apiProvider) {
-			case "openrouter":
-				const modelId = openRouterModelId || openRouterDefaultModelId // in case the user hasn't changed the model id, it will be undefined by default
-				if (!modelId) {
-					return "请填写模型 ID。"
-				}
-				if (openRouterModels && !Object.keys(openRouterModels).includes(modelId)) {
-					// even if the model list endpoint failed, extensionstatecontext will always have the default model info
-					return "该模型 ID 不可用，请换一个模型。"
-				}
-				break
-			case "cline":
-				const clineResolvedModelId = clineModelId || openRouterDefaultModelId
-				if (!clineResolvedModelId) {
-					return "请填写模型 ID。"
-				}
-				if (clineModels && !Object.keys(clineModels).includes(clineResolvedModelId)) {
-					return "该模型 ID 不可用，请换一个模型。"
 				}
 				break
 		}

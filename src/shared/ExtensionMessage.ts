@@ -5,7 +5,6 @@ import { RemoteConfigFields } from "@shared/storage/state-keys"
 import type { Environment } from "../config"
 import { AutoApprovalSettings } from "./AutoApprovalSettings"
 import { ApiConfiguration } from "./api"
-import { BrowserSettings } from "./BrowserSettings"
 import { ClineFeatureSetting } from "./ClineFeatureSetting"
 import { BannerCardData } from "./cline/banner"
 import { ClineRulesToggles } from "./cline-rules"
@@ -42,8 +41,6 @@ export interface ExtensionState {
 	onboardingModels: OnboardingModelGroup | undefined
 	apiConfiguration?: ApiConfiguration
 	autoApprovalSettings: AutoApprovalSettings
-	browserSettings: BrowserSettings
-	remoteBrowserHost?: string
 	preferredLanguage?: string
 	mode: Mode
 	checkpointManagerErrorMessage?: string

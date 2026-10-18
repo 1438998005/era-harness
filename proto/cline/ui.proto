@@ -255,9 +255,6 @@ service UiService {
   // Subscribe to chat button clicked events (when the chat button is clicked in VSCode)
   rpc subscribeToChatButtonClicked(EmptyRequest) returns (stream Empty);
 
-  // Subscribe to account button click events
-  rpc subscribeToAccountButtonClicked(EmptyRequest) returns (stream Empty);
-
   // Subscribe to settings button clicked events
   rpc subscribeToSettingsButtonClicked(EmptyRequest) returns (stream Empty);
 
@@ -275,9 +272,6 @@ service UiService {
 
   // Subscribe to show webview events
   rpc subscribeToShowWebview(EmptyRequest) returns (stream ShowWebviewEvent);
-
-  // Returns the HTML for the webview index page. This is only used by external clients, not by the vscode webview.
-  rpc getWebviewHtml(EmptyRequest) returns (String);
 
   // Opens a URL in the default browser
   rpc openUrl(StringRequest) returns (Empty);

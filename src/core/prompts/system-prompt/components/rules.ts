@@ -1,15 +1,6 @@
 import { isZhCN } from "../i18n/getLocaleText"
-import { SystemPromptSection } from "../templates/placeholders"
 import { TemplateEngine } from "../templates/TemplateEngine"
 import type { PromptVariant, SystemPromptContext } from "../types"
-
-const BROWSER_RULES = `- The user may ask generic non-development tasks, such as "what\\'s the latest news" or "look up the weather in San Diego", in which case you might use the browser_action tool to complete the task if it makes sense to do so, rather than trying to create a website or using curl to answer the question. However, if an available MCP server tool or resource can be used instead, you should prefer to use it over browser_action.\n`
-
-const BROWSER_RULES_ZH_CN = `- 用户可能会提出非开发类的通用任务，例如「最新的新闻是什么」或「查看圣地亚哥的天气」，在这种情况下，如果合理的话，你可以使用 browser_action 工具来完成该任务，而不是尝试创建网站或使用 curl 来回答问题。但是，如果有可用的 MCP 服务器工具或资源可以替代使用，你应该优先使用它们而不是 browser_action。\n`
-
-const BROWSER_WAIT_RULES = ` Then if you want to test your work, you might use browser_action to launch the site, wait for the user's response confirming the site was launched along with a screenshot, then perhaps e.g., click a button to test functionality if needed, wait for the user's response confirming the button was clicked along with a screenshot of the new state, before finally closing the browser.`
-
-const BROWSER_WAIT_RULES_ZH_CN = ` 然后，如果你想测试你的工作，可以使用 browser_action 启动网站，等待用户的响应确认网站已启动并附带截图，然后例如根据需要点击按钮测试功能，等待用户的响应确认按钮已点击并附带新状态的截图，最后关闭浏览器。`
 
 const CLI_RULES = `- After making code changes, consider running any available validation tools for the project (such as type checkers, linters, test suites, or build scripts) to catch errors, since you won't receive automatic diagnostics after edits.\n`
 
@@ -36,7 +27,7 @@ const getRulesTemplateText = (context: SystemPromptContext) => `RULES
 	- When the task specifies numerical thresholds or accuracy targets, verify your result meets the criteria before completing. If close but not passing, iterate rather than declaring completion.
 	- When fixing a bug, if existing tests fail after your change, your code is likely wrong. Fix your code to pass the tests rather than modifying test assertions to match your new behavior, unless the user explicitly asks you to update tests.
 	- After fixing a bug, verify your change by running the project's existing test suite rather than only a reproduction script you wrote. If you're unsure which tests to run, search for test files related to the code you changed.
-	{{BROWSER_RULES}}{{CLI_RULES}}- NEVER end attempt_completion result with a question or request to engage in further conversation! Formulate the end of your result in a way that is final and does not require further input from the user.
+	{{CLI_RULES}}- NEVER end attempt_completion result with a question or request to engage in further conversation! Formulate the end of your result in a way that is final and does not require further input from the user.
 	- You are STRICTLY FORBIDDEN from starting your messages with "Great", "Certainly", "Okay", "Sure". You should NOT be conversational in your responses, but rather direct and to the point. For example you should NOT say "Great, I've updated the CSS" but instead something like "I've updated the CSS". It is important you be clear and technical in your messages.
 	- When presented with images, utilize your vision capabilities to thoroughly examine them and extract meaningful information. Incorporate these insights into your thought process as you accomplish the user's task.
 	- At the end of each user message, you will automatically receive environment_details. This information is not written by the user themselves, but is auto-generated to provide potentially relevant context about the project structure and environment. While this information can be valuable for understanding the project context, do not treat it as a direct part of the user's request or response. Use it to inform your actions and decisions, but don't assume the user is explicitly asking about or referring to this information unless they clearly do so in their message. When using environment_details, explain your actions clearly to ensure the user understands, as they may not be aware of these details.
@@ -44,10 +35,10 @@ const getRulesTemplateText = (context: SystemPromptContext) => `RULES
 	- When using the replace_in_file tool, you must include complete lines in your SEARCH blocks, not partial lines. The system requires exact line matches and cannot match partial lines. For example, if you want to match a line containing "const x = 5;", your SEARCH block must include the entire line, not just "x = 5" or other fragments.
 	- When using the replace_in_file tool, if you use multiple SEARCH/REPLACE blocks, list them in the order they appear in the file. For example if you need to make changes to both line 10 and line 50, first include the SEARCH/REPLACE block for line 10, followed by the SEARCH/REPLACE block for line 50.
 	- When using the replace_in_file tool, Do NOT add extra characters to the markers (e.g., ------- SEARCH> is INVALID). Do NOT forget to use the closing +++++++ REPLACE marker. Do NOT modify the marker format in any way. Malformed XML will cause complete tool failure and break the entire editing process.
-	- It is critical you wait for the user's response after each tool use, in order to confirm the success of the tool use. For example, if asked to make a todo app, you would create a file, wait for the user's response it was created successfully, then create another file if needed, wait for the user's response it was created successfully, etc.{{BROWSER_WAIT_RULES}}
+	- It is critical you wait for the user's response after each tool use, in order to confirm the success of the tool use. For example, if asked to make a todo app, you would create a file, wait for the user's response it was created successfully, then create another file if needed, wait for the user's response it was created successfully, etc.
 	- MCP operations should be used one at a time, similar to other tool usage. Wait for confirmation of success before proceeding with additional operations.`
 
-const getRulesTemplateTextZhCN = (context: SystemPromptContext) => `RULES
+const _getRulesTemplateTextZhCN = (context: SystemPromptContext) => `RULES
 
 	- 你当前的工作目录是：{{CWD}}
 	- 你不能使用 \`cd\` 进入不同的目录来完成任务。你只能在 '{{CWD}}' 下操作，因此在使用需要路径参数的工具时，务必传递正确的 'path' 参数。
@@ -68,7 +59,7 @@ const getRulesTemplateTextZhCN = (context: SystemPromptContext) => `RULES
 	- 当任务指定数值阈值或准确性目标时，在完成之前验证你的结果是否满足标准。如果接近但未通过，请迭代而不是宣布完成。
 	- 在修复错误时，如果你的更改后现有测试失败，你的代码可能是错误的。修复你的代码以通过测试，而不是修改测试断言以匹配你的新行为，除非用户明确要求你更新测试。
 	- 修复错误后，通过运行项目现有的测试套件来验证你的更改，而不是只运行你编写的重现脚本。如果你不确定应该运行哪些测试，搜索与你更改的代码相关的测试文件。
-	{{BROWSER_RULES}}{{CLI_RULES}}- 永远不要在 attempt_completion 结果末尾以问题或请求进一步对话结束！以一种最终的方式表达你的结果，不需要用户进一步输入。
+	{{CLI_RULES}}- 永远不要在 attempt_completion 结果末尾以问题或请求进一步对话结束！以一种最终的方式表达你的结果，不需要用户进一步输入。
 	- 你被严格禁止以 "Great"、"Certainly"、"Okay"、"Sure" 开始你的消息。你不应该在回复中对话式地回应，而应该直接切中要点。例如，你不应该说 "Great, I've updated the CSS"，而应该类似于 "I've updated the CSS"。在消息中保持清晰和技术性很重要。
 	- 当面对图像时，利用你的视觉能力仔细检查它们并提取有意义的信息。将这些洞察纳入你的思考过程，以完成用户的任务。
 	- 在每条用户消息末尾，你将自动收到 environment_details。此信息不是用户自己编写的，而是自动生成的，以提供关于项目结构和环境的潜在相关上下文。虽然此信息对于理解项目上下文很有价值，但不要将其视为用户请求或回复的直接部分。用它来指导你的行动和决策，但不要假设用户明确询问或提及此信息，除非他们在消息中清楚地表明。使用 environment_details 时，清楚地解释你的行动，以确保用户理解，因为他们可能不知道这些细节。
@@ -76,22 +67,16 @@ const getRulesTemplateTextZhCN = (context: SystemPromptContext) => `RULES
 	- 使用 replace_in_file 工具时，必须在 SEARCH 块中包含完整的行，而不是部分行。系统需要精确的行匹配，无法匹配部分行。例如，如果你想匹配包含 "const x = 5;" 的行，你的 SEARCH 块必须包含整行，而不是只有 "x = 5" 或其他片段。
 	- 使用 replace_in_file 工具时，如果你使用多个 SEARCH/REPLACE 块，请按它们在文件中出现的顺序列出。例如，如果你需要在第 10 行和第 50 行都进行更改，首先包含第 10 行的 SEARCH/REPLACE 块，然后是第 50 行的 SEARCH/REPLACE 块。
 	- 使用 replace_in_file 工具时，不要向标记添加额外字符（例如，------- SEARCH> 是无效的）。不要忘记使用结束标记 +++++++ REPLACE。不要以任何方式修改标记格式。格式错误的 XML 将导致工具完全失败并破坏整个编辑过程。
-	- 在每次使用工具后，你必须等待用户的响应，以确认工具使用的成功。例如，如果被要求制作一个待办应用，你将创建一个文件，等待用户响应它创建成功，然后根据需要创建另一个文件，等待用户响应它创建成功，等等。{{BROWSER_WAIT_RULES}}
+	- 在每次使用工具后，你必须等待用户的响应，以确认工具使用的成功。例如，如果被要求制作一个待办应用，你将创建一个文件，等待用户响应它创建成功，然后根据需要创建另一个文件，等待用户响应它创建成功，等等。
 	- MCP 操作应一次使用一个，类似于其他工具的使用。在继续进行额外操作之前等待成功的确认。`
 
-export async function getRulesSection(variant: PromptVariant, context: SystemPromptContext): Promise<string> {
+export async function getRulesSection(_variant: PromptVariant, context: SystemPromptContext): Promise<string> {
 	const isZh = isZhCN(context.locale)
-	const templateFn = isZh ? getRulesTemplateTextZhCN : getRulesTemplateText
-	const template = variant.componentOverrides?.[SystemPromptSection.RULES]?.template || templateFn
-
-	const browserRules = context.supportsBrowserUse ? (isZh ? BROWSER_RULES_ZH_CN : BROWSER_RULES) : ""
-	const browserWaitRules = context.supportsBrowserUse ? (isZh ? BROWSER_WAIT_RULES_ZH_CN : BROWSER_WAIT_RULES) : ""
 	const cliRules = context.isCliEnvironment ? (isZh ? CLI_RULES_ZH_CN : CLI_RULES) : ""
+	const template = getRulesTemplateText(context)
 
 	return new TemplateEngine().resolve(template, context, {
 		CWD: context.cwd || process.cwd(),
-		BROWSER_RULES: browserRules,
-		BROWSER_WAIT_RULES: browserWaitRules,
 		CLI_RULES: cliRules,
 	})
 }

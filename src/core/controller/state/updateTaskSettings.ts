@@ -40,8 +40,6 @@ export async function updateTaskSettings(controller: Controller, request: Update
 				customPrompt,
 				planModeApiProvider,
 				actModeApiProvider,
-				// Fields requiring special logic
-				browserSettings,
 				...simpleSettings
 			} = request.settings
 
@@ -101,36 +99,6 @@ export async function updateTaskSettings(controller: Controller, request: Update
 			if (actModeApiProvider !== undefined) {
 				const converted = convertProtoToApiProvider(actModeApiProvider)
 				controller.stateManager.setTaskSettings(taskId, "actModeApiProvider", converted)
-			}
-
-			// Update browser settings (requires careful merging to avoid protobuf defaults)
-			if (browserSettings !== undefined) {
-				const currentSettings = controller.stateManager.getGlobalSettingsKey("browserSettings")
-
-				const newBrowserSettings = {
-					...currentSettings,
-					viewport: {
-						width: browserSettings.viewport?.width || currentSettings.viewport.width,
-						height: browserSettings.viewport?.height || currentSettings.viewport.height,
-					},
-					...(browserSettings.remoteBrowserEnabled !== undefined && {
-						remoteBrowserEnabled: browserSettings.remoteBrowserEnabled,
-					}),
-					...(browserSettings.remoteBrowserHost !== undefined && {
-						remoteBrowserHost: browserSettings.remoteBrowserHost,
-					}),
-					...(browserSettings.chromeExecutablePath !== undefined && {
-						chromeExecutablePath: browserSettings.chromeExecutablePath,
-					}),
-					...(browserSettings.disableToolUse !== undefined && {
-						disableToolUse: browserSettings.disableToolUse,
-					}),
-					...(browserSettings.customArgs !== undefined && {
-						customArgs: browserSettings.customArgs,
-					}),
-				}
-
-				controller.stateManager.setTaskSettings(taskId, "browserSettings", newBrowserSettings)
 			}
 		}
 

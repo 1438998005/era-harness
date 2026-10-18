@@ -1,5 +1,4 @@
 import {
-	LiteLLMModelInfo,
 	OpenAiCompatibleModelInfo,
 	OpenRouterModelInfo,
 	ModelsApiConfiguration as ProtoApiConfiguration,
@@ -11,9 +10,7 @@ import {
 import {
 	ApiConfiguration,
 	ApiProvider,
-	LiteLLMModelInfo as AppLiteLLMModelInfo,
 	OpenAiCompatibleModelInfo as AppOpenAiCompatibleModelInfo,
-	BedrockModelId,
 	ModelInfo,
 	OcaModelInfo,
 } from "../../api"
@@ -140,54 +137,6 @@ function convertProtoOcaModelInfoToOcaModelInfo(info: ProtoOcaModelInfo | undefi
 		apiFormat: info.apiFormat,
 		supportsReasoning: info.supportsReasoning,
 		reasoningEffortOptions: info.reasoningEffortOptions,
-	}
-}
-
-// Convert application LiteLLMModelInfo to proto LiteLLMModelInfo
-function convertLiteLLMModelInfoToProto(info: AppLiteLLMModelInfo | undefined): LiteLLMModelInfo | undefined {
-	if (!info) {
-		return undefined
-	}
-
-	return {
-		maxTokens: info.maxTokens,
-		contextWindow: info.contextWindow,
-		supportsImages: info.supportsImages,
-		supportsPromptCache: info.supportsPromptCache ?? false,
-		inputPrice: info.inputPrice,
-		outputPrice: info.outputPrice,
-		thinkingConfig: convertThinkingConfigToProto(info.thinkingConfig),
-		supportsGlobalEndpoint: info.supportsGlobalEndpoint,
-		cacheWritesPrice: info.cacheWritesPrice,
-		cacheReadsPrice: info.cacheReadsPrice,
-		description: info.description,
-		tiers: info.tiers || [],
-		temperature: info.temperature,
-		supportsReasoning: info.supportsReasoning,
-	}
-}
-
-// Convert proto LiteLLMModelInfo to application LiteLLMModelInfo
-function convertProtoToLiteLLMModelInfo(info: LiteLLMModelInfo | undefined): AppLiteLLMModelInfo | undefined {
-	if (!info) {
-		return undefined
-	}
-
-	return {
-		maxTokens: info.maxTokens,
-		contextWindow: info.contextWindow,
-		supportsImages: info.supportsImages,
-		supportsPromptCache: info.supportsPromptCache,
-		inputPrice: info.inputPrice,
-		outputPrice: info.outputPrice,
-		thinkingConfig: convertProtoToThinkingConfig(info.thinkingConfig),
-		supportsGlobalEndpoint: info.supportsGlobalEndpoint,
-		cacheWritesPrice: info.cacheWritesPrice,
-		cacheReadsPrice: info.cacheReadsPrice,
-		description: info.description,
-		tiers: info.tiers.length > 0 ? info.tiers : undefined,
-		temperature: info.temperature,
-		supportsReasoning: info.supportsReasoning,
 	}
 }
 
@@ -541,7 +490,6 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		planModeOllamaModelId: config.planModeOllamaModelId,
 		planModeLmStudioModelId: config.planModeLmStudioModelId,
 		planModeLiteLlmModelId: config.planModeLiteLlmModelId,
-		planModeLiteLlmModelInfo: convertLiteLLMModelInfoToProto(config.planModeLiteLlmModelInfo),
 		planModeRequestyModelId: config.planModeRequestyModelId,
 		planModeRequestyModelInfo: convertModelInfoToProtoOpenRouter(config.planModeRequestyModelInfo),
 		planModeTogetherModelId: config.planModeTogetherModelId,
@@ -588,7 +536,6 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		actModeOllamaModelId: config.actModeOllamaModelId,
 		actModeLmStudioModelId: config.actModeLmStudioModelId,
 		actModeLiteLlmModelId: config.actModeLiteLlmModelId,
-		actModeLiteLlmModelInfo: convertLiteLLMModelInfoToProto(config.actModeLiteLlmModelInfo),
 		actModeRequestyModelId: config.actModeRequestyModelId,
 		actModeRequestyModelInfo: convertModelInfoToProtoOpenRouter(config.actModeRequestyModelInfo),
 		actModeTogetherModelId: config.actModeTogetherModelId,
@@ -720,7 +667,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		planModeReasoningEffort: protoConfig.planModeReasoningEffort as OpenaiReasoningEffort | undefined,
 		planModeVsCodeLmModelSelector: protoConfig.planModeVsCodeLmModelSelector,
 		planModeAwsBedrockCustomSelected: protoConfig.planModeAwsBedrockCustomSelected,
-		planModeAwsBedrockCustomModelBaseId: protoConfig.planModeAwsBedrockCustomModelBaseId as BedrockModelId | undefined,
+		planModeAwsBedrockCustomModelBaseId: protoConfig.planModeAwsBedrockCustomModelBaseId,
 		planModeOpenRouterModelId: protoConfig.planModeOpenRouterModelId,
 		planModeOpenRouterModelInfo: convertProtoToModelInfo(protoConfig.planModeOpenRouterModelInfo),
 		planModeClineModelId: protoConfig.planModeClineModelId,
@@ -731,7 +678,6 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		planModeOllamaModelId: protoConfig.planModeOllamaModelId,
 		planModeLmStudioModelId: protoConfig.planModeLmStudioModelId,
 		planModeLiteLlmModelId: protoConfig.planModeLiteLlmModelId,
-		planModeLiteLlmModelInfo: convertProtoToLiteLLMModelInfo(protoConfig.planModeLiteLlmModelInfo),
 		planModeRequestyModelId: protoConfig.planModeRequestyModelId,
 		planModeRequestyModelInfo: convertProtoToModelInfo(protoConfig.planModeRequestyModelInfo),
 		planModeTogetherModelId: protoConfig.planModeTogetherModelId,
@@ -768,7 +714,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		actModeReasoningEffort: protoConfig.actModeReasoningEffort as OpenaiReasoningEffort | undefined,
 		actModeVsCodeLmModelSelector: protoConfig.actModeVsCodeLmModelSelector,
 		actModeAwsBedrockCustomSelected: protoConfig.actModeAwsBedrockCustomSelected,
-		actModeAwsBedrockCustomModelBaseId: protoConfig.actModeAwsBedrockCustomModelBaseId as BedrockModelId | undefined,
+		actModeAwsBedrockCustomModelBaseId: protoConfig.actModeAwsBedrockCustomModelBaseId,
 		actModeOpenRouterModelId: protoConfig.actModeOpenRouterModelId,
 		actModeOpenRouterModelInfo: convertProtoToModelInfo(protoConfig.actModeOpenRouterModelInfo),
 		actModeClineModelId: protoConfig.actModeClineModelId,
@@ -779,7 +725,6 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		actModeOllamaModelId: protoConfig.actModeOllamaModelId,
 		actModeLmStudioModelId: protoConfig.actModeLmStudioModelId,
 		actModeLiteLlmModelId: protoConfig.actModeLiteLlmModelId,
-		actModeLiteLlmModelInfo: convertProtoToLiteLLMModelInfo(protoConfig.actModeLiteLlmModelInfo),
 		actModeRequestyModelId: protoConfig.actModeRequestyModelId,
 		actModeRequestyModelInfo: convertProtoToModelInfo(protoConfig.actModeRequestyModelInfo),
 		actModeTogetherModelId: protoConfig.actModeTogetherModelId,

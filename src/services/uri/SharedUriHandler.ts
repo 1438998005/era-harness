@@ -57,32 +57,7 @@ export class SharedUriHandler {
 					Logger.warn("SharedUriHandler: Missing code parameter for Requesty callback")
 					return false
 				}
-				case "/auth": {
-					const provider = query.get("provider")
-
-					Logger.info(`SharedUriHandler - Auth callback received for ${provider} - ${path}`)
-
-					const token = query.get("refreshToken") || query.get("idToken") || query.get("code")
-					if (token) {
-						await visibleWebview.controller.handleAuthCallback(token, provider)
-						return true
-					}
-					Logger.warn("SharedUriHandler: Missing idToken parameter for auth callback")
-					return false
-				}
-				case "/auth/oca": {
-					Logger.log("SharedUriHandler: Oca Auth callback received:", { path: path })
-
-					const code = query.get("code")
-					const state = query.get("state")
-
-					if (code && state) {
-						await visibleWebview.controller.handleOcaAuthCallback(code, state)
-						return true
-					}
-					Logger.warn("SharedUriHandler: Missing code parameter for auth callback")
-					return false
-				}
+				// era harness 减法：/auth 与 /auth/oca 路由（Cline/OCA 登录回调）已移除
 				case TASK_URI_PATH: {
 					const prompt = query.get("prompt")
 					if (prompt) {

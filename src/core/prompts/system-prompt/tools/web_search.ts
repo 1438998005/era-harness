@@ -45,7 +45,7 @@ const GENERIC: ClineToolSpec = {
 	id: ClineDefaultTool.WEB_SEARCH,
 	name: "web_search",
 	description: (context: SystemPromptContext) => (isZhCN(context.locale) ? DESCRIPTION_GENERIC_ZH_CN : DESCRIPTION_GENERIC_EN),
-	contextRequirements: (context) => context.providerInfo.providerId === "cline" && context.clineWebToolsEnabled === true,
+	contextRequirements: (context) => context.providerInfo.providerId === "deepseek",
 	parameters: [
 		{
 			name: "query",
@@ -77,7 +77,7 @@ const NATIVE_NEXT_GEN: ClineToolSpec = {
 	id: ClineDefaultTool.WEB_SEARCH,
 	name: "web_search",
 	description: (context: SystemPromptContext) => (isZhCN(context.locale) ? DESCRIPTION_NATIVE_ZH_CN : DESCRIPTION_NATIVE_EN),
-	contextRequirements: (context) => context.providerInfo.providerId === "cline" && context.clineWebToolsEnabled === true,
+	contextRequirements: (context) => context.providerInfo.providerId === "deepseek",
 	parameters: [
 		{
 			name: "query",

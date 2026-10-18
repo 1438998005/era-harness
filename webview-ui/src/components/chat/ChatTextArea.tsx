@@ -216,7 +216,6 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 		const {
 			mode,
 			apiConfiguration,
-			openRouterModels,
 			platform,
 			localWorkflowToggles,
 			globalWorkflowToggles,
@@ -1111,27 +1110,25 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			if (!apiConfiguration) {
 				return unknownModel
 			}
+			// 只显示模型名：`provider:model` 在 DeepSeek 下会变成
+			// 「deepseek:deepseek-flash」这种重复又占宽度的写法，容易把底部工具栏挤爆。
 			switch (selectedProvider) {
-				case "cline":
-					return `${selectedProvider}:${selectedModelId}`
-				case "openai":
-					return `openai-compat:${selectedModelId}`
 				case "vscode-lm":
-					return `vscode-lm:${vsCodeLmModelSelector ? `${vsCodeLmModelSelector.vendor ?? ""}/${vsCodeLmModelSelector.family ?? ""}` : unknownModel}`
+					return vsCodeLmModelSelector || unknownModel
 				case "together":
-					return `${selectedProvider}:${togetherModelId}`
+					return togetherModelId || selectedModelId || unknownModel
 				case "lmstudio":
-					return `${selectedProvider}:${lmStudioModelId}`
+					return lmStudioModelId || selectedModelId || unknownModel
 				case "ollama":
-					return `${selectedProvider}:${ollamaModelId}`
+					return ollamaModelId || selectedModelId || unknownModel
 				case "litellm":
-					return `${selectedProvider}:${liteLlmModelId}`
+					return liteLlmModelId || selectedModelId || unknownModel
 				case "requesty":
-					return `${selectedProvider}:${requestyModelId}`
+					return requestyModelId || selectedModelId || unknownModel
 				case "vercel-ai-gateway":
-					return `${selectedProvider}:${vercelAiGatewayModelId || selectedModelId}`
+					return vercelAiGatewayModelId || selectedModelId || unknownModel
 				default:
-					return `${selectedProvider}:${selectedModelId}`
+					return selectedModelId || selectedProvider
 			}
 		}, [apiConfiguration, mode])
 

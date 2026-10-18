@@ -1,48 +1,22 @@
 import { DEFAULT_AUTO_APPROVAL_SETTINGS } from "@shared/AutoApprovalSettings"
 import { findLastIndex } from "@shared/array"
-import { DEFAULT_BROWSER_SETTINGS } from "@shared/BrowserSettings"
 import { DEFAULT_PLATFORM, type ExtensionState } from "@shared/ExtensionMessage"
 import { DEFAULT_FOCUS_CHAIN_SETTINGS } from "@shared/FocusChainSettings"
 import { DEFAULT_MCP_DISPLAY_MODE } from "@shared/McpDisplayMode"
 import type { UserInfo } from "@shared/proto/cline/account"
 import { EmptyRequest } from "@shared/proto/cline/common"
-import type { OpenRouterCompatibleModelInfo, ShengSuanYunModelInfo } from "@shared/proto/cline/models"
-import { OnboardingModelGroup, type TerminalProfile } from "@shared/proto/cline/state"
+import { type TerminalProfile } from "@shared/proto/cline/state"
 import { convertProtoToClineMessage } from "@shared/proto-conversions/cline-message"
 import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mcp/mcp-server-conversion"
-import { fromProtobufModels } from "@shared/proto-conversions/models/typeConversion"
 import type React from "react"
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
-import {
-	basetenDefaultModelId,
-	basetenModels,
-	groqDefaultModelId,
-	groqModels,
-	type ModelInfo,
-	openRouterDefaultModelId,
-	openRouterDefaultModelInfo,
-	requestyDefaultModelId,
-	requestyDefaultModelInfo,
-} from "../../../src/shared/api"
 import { Environment } from "../../../src/shared/config-types"
 import type { McpMarketplaceCatalog, McpServer, McpViewTab } from "../../../src/shared/mcp"
-import { McpServiceClient, ModelsServiceClient, StateServiceClient, UiServiceClient } from "../services/grpc-client"
+import { McpServiceClient, StateServiceClient, UiServiceClient } from "../services/grpc-client"
 
 export interface ExtensionStateContextType extends ExtensionState {
 	didHydrateState: boolean
 	showWelcome: boolean
-	onboardingModels: OnboardingModelGroup | undefined
-	clineModels: Record<string, ModelInfo> | null
-	openRouterModels: Record<string, ModelInfo>
-	vercelAiGatewayModels: Record<string, ModelInfo>
-	hicapModels: Record<string, ModelInfo>
-	shengSuanYunModels: Record<string, ShengSuanYunModelInfo>
-	liteLlmModels: Record<string, ModelInfo>
-	openAiModels: string[]
-	requestyModels: Record<string, ModelInfo>
-	groqModels: Record<string, ModelInfo>
-	basetenModels: Record<string, ModelInfo>
-	huggingFaceModels: Record<string, ModelInfo>
 	mcpServers: McpServer[]
 	mcpMarketplaceCatalog: McpMarketplaceCatalog
 	totalTasksSize: number | null
@@ -58,7 +32,6 @@ export interface ExtensionStateContextType extends ExtensionState {
 	settingsTargetSection?: string
 	settingsInitialModelTab?: "recommended" | "free"
 	showHistory: boolean
-	showAccount: boolean
 	showWorktrees: boolean
 	showAnnouncement: boolean
 	expandTaskHeader: boolean
@@ -67,11 +40,6 @@ export interface ExtensionStateContextType extends ExtensionState {
 	setShowAnnouncement: (value: boolean) => void
 	setShouldShowAnnouncement: (value: boolean) => void
 	setMcpServers: (value: McpServer[]) => void
-	setRequestyModels: (value: Record<string, ModelInfo>) => void
-	setGroqModels: (value: Record<string, ModelInfo>) => void
-	setBasetenModels: (value: Record<string, ModelInfo>) => void
-	setHuggingFaceModels: (value: Record<string, ModelInfo>) => void
-	setShengSuanYunModels: (value: Record<string, ShengSuanYunModelInfo>) => void
 	setGlobalClineRulesToggles: (toggles: Record<string, boolean>) => void
 	setLocalClineRulesToggles: (toggles: Record<string, boolean>) => void
 	setLocalCursorRulesToggles: (toggles: Record<string, boolean>) => void
@@ -87,15 +55,7 @@ export interface ExtensionStateContextType extends ExtensionState {
 	setTotalTasksSize: (value: number | null) => void
 	setExpandTaskHeader: (value: boolean) => void
 	setShowWelcome: (value: boolean) => void
-	setOnboardingModels: (value: OnboardingModelGroup | undefined) => void
 
-	// Refresh functions
-	refreshClineModels: () => void
-	refreshOpenRouterModels: () => void
-	refreshVercelAiGatewayModels: () => void
-	refreshHicapModels: () => void
-	refreshShengSuanYunModels: () => void
-	refreshLiteLlmModels: () => Promise<void>
 	setUserInfo: (userInfo?: UserInfo) => void
 
 	// Navigation state setters
@@ -107,14 +67,12 @@ export interface ExtensionStateContextType extends ExtensionState {
 	navigateToSettings: (targetSection?: string) => void
 	navigateToSettingsModelPicker: (opts: { targetSection?: string; initialModelTab?: "recommended" | "free" }) => void
 	navigateToHistory: () => void
-	navigateToAccount: () => void
 	navigateToWorktrees: () => void
 	navigateToChat: () => void
 
 	// Hide functions
 	hideSettings: () => void
 	hideHistory: () => void
-	hideAccount: () => void
 	hideWorktrees: () => void
 	hideAnnouncement: () => void
 	closeMcpView: () => void
@@ -135,7 +93,6 @@ export const ExtensionStateContextProvider: React.FC<{
 	const [settingsTargetSection, setSettingsTargetSection] = useState<string | undefined>(undefined)
 	const [settingsInitialModelTab, setSettingsInitialModelTab] = useState<"recommended" | "free" | undefined>(undefined)
 	const [showHistory, setShowHistory] = useState(false)
-	const [showAccount, setShowAccount] = useState(false)
 	const [showWorktrees, setShowWorktrees] = useState(false)
 	const [showAnnouncement, setShowAnnouncement] = useState(false)
 
@@ -152,7 +109,6 @@ export const ExtensionStateContextProvider: React.FC<{
 		setSettingsInitialModelTab(undefined)
 	}, [])
 	const hideHistory = useCallback(() => setShowHistory(false), [setShowHistory])
-	const hideAccount = useCallback(() => setShowAccount(false), [setShowAccount])
 	const hideWorktrees = useCallback(() => setShowWorktrees(false), [setShowWorktrees])
 	const hideAnnouncement = useCallback(() => setShowAnnouncement(false), [setShowAnnouncement])
 
@@ -161,21 +117,19 @@ export const ExtensionStateContextProvider: React.FC<{
 		(tab?: McpViewTab) => {
 			setShowSettings(false)
 			setShowHistory(false)
-			setShowAccount(false)
 			setShowWorktrees(false)
 			if (tab) {
 				setMcpTab(tab)
 			}
 			setShowMcp(true)
 		},
-		[setShowMcp, setMcpTab, setShowSettings, setShowHistory, setShowAccount, setShowWorktrees],
+		[setShowMcp, setMcpTab, setShowSettings, setShowHistory, setShowWorktrees],
 	)
 
 	const navigateToSettings = useCallback(
 		(targetSection?: string) => {
 			setShowHistory(false)
 			closeMcpView()
-			setShowAccount(false)
 			setShowWorktrees(false)
 			setSettingsTargetSection(targetSection)
 			setSettingsInitialModelTab(undefined)
@@ -188,7 +142,6 @@ export const ExtensionStateContextProvider: React.FC<{
 		(opts: { targetSection?: string; initialModelTab?: "recommended" | "free" }) => {
 			setShowHistory(false)
 			closeMcpView()
-			setShowAccount(false)
 			setShowWorktrees(false)
 			setSettingsTargetSection(opts.targetSection)
 			setSettingsInitialModelTab(opts.initialModelTab)
@@ -200,34 +153,23 @@ export const ExtensionStateContextProvider: React.FC<{
 	const navigateToHistory = useCallback(() => {
 		setShowSettings(false)
 		closeMcpView()
-		setShowAccount(false)
 		setShowWorktrees(false)
 		setShowHistory(true)
-	}, [setShowSettings, closeMcpView, setShowAccount, setShowWorktrees, setShowHistory])
-
-	const navigateToAccount = useCallback(() => {
-		setShowSettings(false)
-		closeMcpView()
-		setShowHistory(false)
-		setShowWorktrees(false)
-		setShowAccount(true)
-	}, [setShowSettings, closeMcpView, setShowHistory, setShowWorktrees, setShowAccount])
+	}, [setShowSettings, closeMcpView, setShowWorktrees, setShowHistory])
 
 	const navigateToWorktrees = useCallback(() => {
 		setShowSettings(false)
 		closeMcpView()
 		setShowHistory(false)
-		setShowAccount(false)
 		setShowWorktrees(true)
-	}, [setShowSettings, closeMcpView, setShowHistory, setShowAccount, setShowWorktrees])
+	}, [setShowSettings, closeMcpView, setShowHistory, setShowWorktrees])
 
 	const navigateToChat = useCallback(() => {
 		setShowSettings(false)
 		closeMcpView()
 		setShowHistory(false)
-		setShowAccount(false)
 		setShowWorktrees(false)
-	}, [setShowSettings, closeMcpView, setShowHistory, setShowAccount, setShowWorktrees])
+	}, [setShowSettings, closeMcpView, setShowHistory, setShowWorktrees])
 
 	const [state, setState] = useState<ExtensionState>({
 		version: "",
@@ -235,7 +177,6 @@ export const ExtensionStateContextProvider: React.FC<{
 		taskHistory: [],
 		shouldShowAnnouncement: false,
 		autoApprovalSettings: DEFAULT_AUTO_APPROVAL_SETTINGS,
-		browserSettings: DEFAULT_BROWSER_SETTINGS,
 		focusChainSettings: DEFAULT_FOCUS_CHAIN_SETTINGS,
 		preferredLanguage: "Simplified Chinese - 简体中文",
 		mode: "act",
@@ -298,31 +239,9 @@ export const ExtensionStateContextProvider: React.FC<{
 	const [didHydrateState, setDidHydrateState] = useState(false)
 
 	const [showWelcome, setShowWelcome] = useState(false)
-	const [onboardingModels, setOnboardingModels] = useState<OnboardingModelGroup | undefined>(undefined)
-
-	const [clineModels, setClineModels] = useState<Record<string, ModelInfo> | null>(null)
-	const [openRouterModels, setOpenRouterModels] = useState<Record<string, ModelInfo>>({
-		[openRouterDefaultModelId]: openRouterDefaultModelInfo,
-	})
-	const [vercelAiGatewayModels, setVercelAiGatewayModels] = useState<Record<string, ModelInfo>>({})
-	const [hicapModels, setHicapModels] = useState<Record<string, ModelInfo>>({})
-	const [shengSuanYunModels, setShengSuanYunModels] = useState<Record<string, ShengSuanYunModelInfo>>({})
-	const [liteLlmModels, setLiteLlmModels] = useState<Record<string, ModelInfo>>({})
 	const [totalTasksSize, setTotalTasksSize] = useState<number | null>(null)
 	const [availableTerminalProfiles, setAvailableTerminalProfiles] = useState<TerminalProfile[]>([])
 
-	const [openAiModels, _setOpenAiModels] = useState<string[]>([])
-	const [requestyModels, setRequestyModels] = useState<Record<string, ModelInfo>>({
-		[requestyDefaultModelId]: requestyDefaultModelInfo,
-	})
-	const [groqModelsState, setGroqModels] = useState<Record<string, ModelInfo>>({
-		[groqDefaultModelId]: groqModels[groqDefaultModelId],
-	})
-	const [basetenModelsState, setBasetenModels] = useState<Record<string, ModelInfo>>({
-		...basetenModels,
-		[basetenDefaultModelId]: basetenModels[basetenDefaultModelId],
-	})
-	const [huggingFaceModels, setHuggingFaceModels] = useState<Record<string, ModelInfo>>({})
 	const [mcpServers, setMcpServers] = useState<McpServer[]>([])
 	const [mcpMarketplaceCatalog, setMcpMarketplaceCatalog] = useState<McpMarketplaceCatalog>({ items: [] })
 
@@ -332,13 +251,11 @@ export const ExtensionStateContextProvider: React.FC<{
 	const mcpButtonUnsubscribeRef = useRef<(() => void) | null>(null)
 	const historyButtonClickedSubscriptionRef = useRef<(() => void) | null>(null)
 	const chatButtonUnsubscribeRef = useRef<(() => void) | null>(null)
-	const accountButtonClickedSubscriptionRef = useRef<(() => void) | null>(null)
 	const settingsButtonClickedSubscriptionRef = useRef<(() => void) | null>(null)
 	const worktreesButtonClickedSubscriptionRef = useRef<(() => void) | null>(null)
 	const partialMessageUnsubscribeRef = useRef<(() => void) | null>(null)
 	const mcpMarketplaceUnsubscribeRef = useRef<(() => void) | null>(null)
-	const openRouterModelsUnsubscribeRef = useRef<(() => void) | null>(null)
-	const liteLlmModelsUnsubscribeRef = useRef<(() => void) | null>(null)
+
 	const workspaceUpdatesUnsubscribeRef = useRef<(() => void) | null>(null)
 	const relinquishControlUnsubscribeRef = useRef<(() => void) | null>(null)
 
@@ -382,13 +299,7 @@ export const ExtensionStateContextProvider: React.FC<{
 							}
 
 							// Update welcome screen state based on API configuration if welcome view not in progress
-							if (!newState.welcomeViewCompleted && !showWelcome) {
-								setShowWelcome(true)
-								setOnboardingModels(newState.onboardingModels)
-							} else if (newState.welcomeViewCompleted) {
-								setShowWelcome(false)
-								setOnboardingModels(undefined)
-							}
+							setShowWelcome(!newState.welcomeViewCompleted && !showWelcome)
 
 							setDidHydrateState(true)
 
@@ -554,37 +465,6 @@ export const ExtensionStateContextProvider: React.FC<{
 			},
 		})
 
-		// Subscribe to OpenRouter models updates
-		openRouterModelsUnsubscribeRef.current = ModelsServiceClient.subscribeToOpenRouterModels(EmptyRequest.create({}), {
-			onResponse: (response: OpenRouterCompatibleModelInfo) => {
-				const models = fromProtobufModels(response.models)
-				setOpenRouterModels({
-					[openRouterDefaultModelId]: openRouterDefaultModelInfo, // in case the extension sent a model list without the default model
-					...models,
-				})
-			},
-			onError: (error) => {
-				console.error("Error in OpenRouter models subscription:", error)
-			},
-			onComplete: () => {
-				console.log("OpenRouter models subscription completed")
-			},
-		})
-
-		// Subscribe to LiteLLM models updates
-		liteLlmModelsUnsubscribeRef.current = ModelsServiceClient.subscribeToLiteLlmModels(EmptyRequest.create({}), {
-			onResponse: (response: OpenRouterCompatibleModelInfo) => {
-				const models = fromProtobufModels(response.models)
-				setLiteLlmModels(models)
-			},
-			onError: (error) => {
-				console.error("Error in LiteLLM models subscription:", error)
-			},
-			onComplete: () => {
-				console.log("LiteLLM models subscription completed")
-			},
-		})
-
 		// Initialize webview using gRPC
 		UiServiceClient.initializeWebview(EmptyRequest.create({}))
 			.then(() => {
@@ -593,21 +473,6 @@ export const ExtensionStateContextProvider: React.FC<{
 			.catch((error) => {
 				console.error("Failed to initialize webview via gRPC:", error)
 			})
-
-		// Set up account button clicked subscription
-		accountButtonClickedSubscriptionRef.current = UiServiceClient.subscribeToAccountButtonClicked(EmptyRequest.create(), {
-			onResponse: () => {
-				// When account button is clicked, navigate to account view
-				console.log("[DEBUG] Received account button clicked event from gRPC stream")
-				navigateToAccount()
-			},
-			onError: (error) => {
-				console.error("Error in account button clicked subscription:", error)
-			},
-			onComplete: () => {
-				console.log("Account button clicked subscription completed")
-			},
-		})
 
 		// Fetch available terminal profiles on launch
 		StateServiceClient.getAvailableTerminalProfiles(EmptyRequest.create({}))
@@ -650,10 +515,6 @@ export const ExtensionStateContextProvider: React.FC<{
 				chatButtonUnsubscribeRef.current()
 				chatButtonUnsubscribeRef.current = null
 			}
-			if (accountButtonClickedSubscriptionRef.current) {
-				accountButtonClickedSubscriptionRef.current()
-				accountButtonClickedSubscriptionRef.current = null
-			}
 			if (settingsButtonClickedSubscriptionRef.current) {
 				settingsButtonClickedSubscriptionRef.current()
 				settingsButtonClickedSubscriptionRef.current = null
@@ -670,14 +531,6 @@ export const ExtensionStateContextProvider: React.FC<{
 				mcpMarketplaceUnsubscribeRef.current()
 				mcpMarketplaceUnsubscribeRef.current = null
 			}
-			if (openRouterModelsUnsubscribeRef.current) {
-				openRouterModelsUnsubscribeRef.current()
-				openRouterModelsUnsubscribeRef.current = null
-			}
-			if (liteLlmModelsUnsubscribeRef.current) {
-				liteLlmModelsUnsubscribeRef.current()
-				liteLlmModelsUnsubscribeRef.current = null
-			}
 			if (workspaceUpdatesUnsubscribeRef.current) {
 				workspaceUpdatesUnsubscribeRef.current()
 				workspaceUpdatesUnsubscribeRef.current = null
@@ -693,130 +546,10 @@ export const ExtensionStateContextProvider: React.FC<{
 		}
 	}, [])
 
-	const refreshOpenRouterModels = useCallback(() => {
-		ModelsServiceClient.refreshOpenRouterModelsRpc(EmptyRequest.create({}))
-			.then((response: OpenRouterCompatibleModelInfo) => {
-				const models = fromProtobufModels(response.models)
-				setOpenRouterModels({
-					[openRouterDefaultModelId]: openRouterDefaultModelInfo, // in case the extension sent a model list without the default model
-					...models,
-				})
-			})
-			.catch((error: Error) => console.error("Failed to refresh OpenRouter models:", error))
-	}, [])
-
-	const refreshShengSuanYunModels = useCallback(() => {
-		ModelsServiceClient.refreshShengSuanYunModels(EmptyRequest.create({}))
-			.then((response) => {
-				const models = response.models
-				setShengSuanYunModels({
-					...models,
-				})
-			})
-			.catch((error: Error) => console.error("Failed to refresh ShengSuanYun models:", error))
-	}, [])
-
-	const refreshHicapModels = useCallback(() => {
-		ModelsServiceClient.refreshHicapModels(EmptyRequest.create({}))
-			.then((response: OpenRouterCompatibleModelInfo) => {
-				const models = response.models
-				setHicapModels({
-					...models,
-				})
-			})
-			.catch((error: Error) => console.error("Failed to refresh Hicap models:", error))
-	}, [])
-
-	const refreshLiteLlmModels = useCallback(() => {
-		return ModelsServiceClient.refreshLiteLlmModelsRpc(EmptyRequest.create({}))
-			.then((response: OpenRouterCompatibleModelInfo) => {
-				const models = fromProtobufModels(response.models)
-				setLiteLlmModels(models)
-			})
-			.catch((error: Error) => console.error("Failed to refresh LiteLLM models:", error))
-	}, [])
-
-	const refreshBasetenModels = useCallback(() => {
-		ModelsServiceClient.refreshBasetenModelsRpc(EmptyRequest.create({}))
-			.then((response) => {
-				setBasetenModels({
-					[basetenDefaultModelId]: basetenModels[basetenDefaultModelId],
-					...fromProtobufModels(response.models),
-				})
-			})
-			.catch((err) => console.error("Failed to refresh Baseten models:", err))
-	}, [])
-
-	const refreshVercelAiGatewayModels = useCallback(() => {
-		ModelsServiceClient.refreshVercelAiGatewayModelsRpc(EmptyRequest.create({}))
-			.then((response: OpenRouterCompatibleModelInfo) => {
-				const models = fromProtobufModels(response.models)
-				setVercelAiGatewayModels(models)
-			})
-			.catch((error: Error) => console.error("Failed to refresh Vercel AI Gateway models:", error))
-	}, [])
-
-	// Auto-refresh model lists on API key availability
-	useEffect(() => {
-		if (!openRouterModels || Object.keys(openRouterModels).length <= 1) {
-			refreshOpenRouterModels()
-		}
-		if (!vercelAiGatewayModels || Object.keys(vercelAiGatewayModels).length === 0) {
-			refreshVercelAiGatewayModels()
-		}
-		if (state.apiConfiguration?.basetenApiKey) {
-			refreshBasetenModels()
-			if (state.apiConfiguration?.shengSuanYunApiKey) {
-				refreshShengSuanYunModels()
-			}
-		}
-		if (state.apiConfiguration?.liteLlmApiKey) {
-			refreshLiteLlmModels()
-		}
-	}, [
-		refreshOpenRouterModels,
-		refreshVercelAiGatewayModels,
-		state?.apiConfiguration?.basetenApiKey,
-		refreshBasetenModels,
-		state?.apiConfiguration?.liteLlmApiKey,
-		refreshLiteLlmModels,
-	])
-
-	// Refresh Cline models function
-	const refreshClineModels = useCallback(() => {
-		ModelsServiceClient.refreshClineModelsRpc(EmptyRequest.create({}))
-			.then((response: OpenRouterCompatibleModelInfo) => {
-				const models = fromProtobufModels(response.models)
-				setClineModels((prev) => (Object.keys(models).length > 0 ? models : (prev ?? null)))
-			})
-			.catch((error: Error) => console.error("Failed to refresh Cline models:", error))
-	}, [])
-
-	// Auto-refresh Cline models when provider is cline
-	useEffect(() => {
-		const hasClineProvider =
-			state.apiConfiguration?.actModeApiProvider === "cline" || state.apiConfiguration?.planModeApiProvider === "cline"
-		if (hasClineProvider && clineModels === null) {
-			refreshClineModels()
-		}
-	}, [state.apiConfiguration?.actModeApiProvider, state.apiConfiguration?.planModeApiProvider, clineModels, refreshClineModels])
-
 	const contextValue: ExtensionStateContextType = {
 		...state,
 		didHydrateState,
 		showWelcome,
-		onboardingModels,
-		clineModels,
-		openRouterModels,
-		vercelAiGatewayModels,
-		hicapModels,
-		shengSuanYunModels,
-		liteLlmModels,
-		openAiModels,
-		requestyModels,
-		groqModels: groqModelsState,
-		basetenModels: basetenModelsState,
-		huggingFaceModels,
 		mcpServers,
 		mcpMarketplaceCatalog,
 		totalTasksSize,
@@ -827,7 +560,6 @@ export const ExtensionStateContextProvider: React.FC<{
 		settingsTargetSection,
 		settingsInitialModelTab,
 		showHistory,
-		showAccount,
 		showWorktrees,
 		showAnnouncement,
 		globalClineRulesToggles: state.globalClineRulesToggles || {},
@@ -847,30 +579,22 @@ export const ExtensionStateContextProvider: React.FC<{
 		navigateToSettings,
 		navigateToSettingsModelPicker,
 		navigateToHistory,
-		navigateToAccount,
 		navigateToWorktrees,
 		navigateToChat,
 
 		// Hide functions
 		hideSettings,
 		hideHistory,
-		hideAccount,
 		hideWorktrees,
 		hideAnnouncement,
 		setShowAnnouncement,
 		setShowWelcome,
-		setOnboardingModels,
 		setShouldShowAnnouncement: (value) =>
 			setState((prevState) => ({
 				...prevState,
 				shouldShowAnnouncement: value,
 			})),
 		setMcpServers,
-		setRequestyModels,
-		setGroqModels,
-		setBasetenModels,
-		setHuggingFaceModels,
-		setShengSuanYunModels,
 		setMcpMarketplaceCatalog,
 		setShowMcp,
 		closeMcpView,
@@ -931,12 +655,6 @@ export const ExtensionStateContextProvider: React.FC<{
 			})),
 		setMcpTab,
 		setTotalTasksSize,
-		refreshClineModels,
-		refreshOpenRouterModels,
-		refreshVercelAiGatewayModels,
-		refreshHicapModels,
-		refreshShengSuanYunModels,
-		refreshLiteLlmModels,
 		onRelinquishControl,
 		setUserInfo: (userInfo?: UserInfo) => setState((prevState) => ({ ...prevState, userInfo })),
 		expandTaskHeader,

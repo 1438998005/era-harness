@@ -2,11 +2,12 @@ import type { ModelInfo } from "@shared/api"
 
 /**
  * Formats a price as a currency string
+ * @param currency 计价货币，默认美元；DeepSeek 等国内模型用人民币
  */
-export const formatPrice = (price: number) => {
-	return new Intl.NumberFormat("en-US", {
+export const formatPrice = (price: number, currency: "USD" | "CNY" = "USD") => {
+	return new Intl.NumberFormat(currency === "CNY" ? "zh-CN" : "en-US", {
 		style: "currency",
-		currency: "USD",
+		currency,
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
 	}).format(price)
@@ -16,9 +17,19 @@ export const formatPrice = (price: number) => {
  * Helper function to format token prices for display
  * @param price The price per million tokens
  */
-export const formatTokenPrice = (price: number) => {
-	return `${formatPrice(price)}/million tokens`
+export const formatTokenPrice = (price: number, currency: "USD" | "CNY" = "USD") => {
+	return `${formatPrice(price, currency)}/million tokens`
 }
+
+/**
+ * 计价货币。DeepSeek 官方定价以人民币计，其余提供方按美元。
+ * 直接由模型名推导，避免为了一个展示字段去改 proto 传输层。
+ */
+export const getPriceCurrency = (modelId?: string): "USD" | "CNY" =>
+	modelId && modelId.toLowerCase().includes("deepseek") ? "CNY" : "USD"
+
+/** 货币符号，用于紧凑显示 */
+export const currencySymbol = (currency: "USD" | "CNY" = "USD") => (currency === "CNY" ? "¥" : "$")
 
 /**
  * Helper function to determine if a model supports thinking budget

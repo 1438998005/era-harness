@@ -35,8 +35,6 @@ export async function getToolUseToolsSection(variant: PromptVariant, context: Sy
 		TASK_PROGRESS: shouldIncludeTaskProgress ? taskProgress : "",
 		FOCUS_CHAIN_ATTEMPT: shouldIncludeTaskProgress ? focusChainAttempt : "",
 		FOCUS_CHAIN_USAGE: shouldIncludeTaskProgress ? FOCUS_CHAIN_USAGE : "",
-		BROWSER_VIEWPORT_WIDTH: context.browserSettings?.viewport?.width || 0,
-		BROWSER_VIEWPORT_HEIGHT: context.browserSettings?.viewport?.height || 0,
 		CWD: context.cwd,
 		MULTI_ROOT_HINT: multiRootHint,
 	})

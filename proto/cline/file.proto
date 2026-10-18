@@ -34,6 +34,9 @@ service FileService {
   // Select images and other files from the file system and returns as data URLs & paths respectively
   rpc selectFiles(BooleanRequest) returns (StringArrays);
 
+  // 弹出系统文件夹选择器，并把选中的目录打开为工作区（未打开工作区时引导用户）
+  rpc openWorkspaceFolder(EmptyRequest) returns (Empty);
+
   // Convert URIs to workspace-relative paths
   rpc getRelativePaths(RelativePathsRequest) returns (RelativePaths);
 

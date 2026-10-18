@@ -1,5 +1,5 @@
 import { UpdateSettingsRequest } from "@shared/proto/cline/state"
-import { memo, type ReactNode, useCallback } from "react"
+import { memo, type ReactNode, useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -283,6 +283,21 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 
 	const isYoloRemoteLocked = remoteConfigSettings?.yoloModeToggled !== undefined
 
+	// era harness 只暴露和 eraTW 开发直接相关的开关；子代理、worktree、Web 工具、
+	// 功能提示这些属于上游遗留，先不显示，避免用户被无关选项淹没。
+	const ERA_FEATURE_ALLOWLIST = new Set([
+		"native-tool-call",
+		"parallel-tool-calling",
+		"strict-plan-mode",
+		"auto-compact",
+		"checkpoints",
+		"hooks",
+	])
+	const keepFeature = (feature: FeatureToggle) => ERA_FEATURE_ALLOWLIST.has(feature.id)
+	const visibleAgentFeatures = useMemo(() => agentFeatures.filter(keepFeature), [])
+	const visibleEditorFeatures = useMemo(() => editorFeatures.filter(keepFeature), [])
+	const visibleExperimentalFeatures = useMemo(() => experimentalFeatures.filter(keepFeature), [])
+
 	// State lookup for mapped features
 	const featureState: Record<string, boolean | undefined> = {
 		showFeatureTips,
@@ -338,7 +353,7 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 						<div
 							className="relative p-3 pt-0 my-3 rounded-md border border-editor-widget-border/50"
 							id="agent-features">
-							{agentFeatures.map((feature) => (
+							{visibleAgentFeatures.map((feature) => (
 								<div key={feature.id}>
 									<FeatureRow
 										checked={featureState[feature.stateKey]}
@@ -376,7 +391,7 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 						<div
 							className="relative p-3 pt-0 my-3 rounded-md border border-editor-widget-border/50"
 							id="optional-features">
-							{editorFeatures.map((feature) => (
+							{visibleEditorFeatures.map((feature) => (
 								<FeatureRow
 									checked={featureState[feature.stateKey]}
 									description={featureTranslations[feature.id]?.description || feature.description}
@@ -397,7 +412,7 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 						<div
 							className="relative p-3 pt-0 my-3 rounded-md border border-editor-widget-border/50 w-full"
 							id="experimental-features">
-							{experimentalFeatures.map((feature) => (
+							{visibleExperimentalFeatures.map((feature) => (
 								<FeatureRow
 									checked={featureState[feature.stateKey]}
 									description={featureTranslations[feature.id]?.description || feature.description}

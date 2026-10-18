@@ -7,9 +7,8 @@ import { detectWorkspaceRoots } from "@core/workspace/detection"
 import { setupWorkspaceManager } from "@core/workspace/setup"
 import type { WorkspaceRootManager } from "@core/workspace/WorkspaceRootManager"
 import { cleanupLegacyCheckpoints } from "@integrations/checkpoints/CheckpointMigration"
-import { ClineAccountService } from "@services/account/ClineAccountService"
 import { McpHub } from "@services/mcp/McpHub"
-import type { ApiProvider, ModelInfo } from "@shared/api"
+import type { ApiProvider } from "@shared/api"
 import type { ChatContent } from "@shared/ChatContent"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import type { HistoryItem } from "@shared/HistoryItem"
@@ -28,9 +27,6 @@ import { ClineEnv } from "@/config"
 import type { FolderLockWithRetryResult } from "@/core/locks/types"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
-import { AuthService } from "@/services/auth/AuthService"
-import { OcaAuthService } from "@/services/auth/oca/OcaAuthService"
-import { LogoutReason } from "@/services/auth/types"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
 import { getDistinctId } from "@/services/logging/distinctId"
@@ -43,19 +39,11 @@ import { Session } from "@/shared/services/Session"
 import { getLatestAnnouncementId } from "@/utils/announcements"
 import { getCwd } from "@/utils/path"
 import { PromptRegistry } from "../prompts/system-prompt"
-import {
-	ensureCacheDirectoryExists,
-	ensureMcpServersDirectoryExists,
-	ensureSettingsDirectoryExists,
-	GlobalFileNames,
-} from "../storage/disk"
+import { ensureMcpServersDirectoryExists, ensureSettingsDirectoryExists, GlobalFileNames } from "../storage/disk"
 import { fetchRemoteConfig } from "../storage/remote-config/fetch"
-import { clearRemoteConfig } from "../storage/remote-config/utils"
 import { type PersistenceErrorEvent, StateManager } from "../storage/StateManager"
 import { Task } from "../task"
 import { sendMcpMarketplaceCatalogEvent } from "./mcp/subscribeToMcpMarketplaceCatalog"
-import { getClineOnboardingModels } from "./models/getClineOnboardingModels"
-import { appendClineStealthModels } from "./models/refreshOpenRouterModels"
 import { checkCliInstallation } from "./state/checkCliInstallation"
 import { sendStateUpdate } from "./state/subscribeToState"
 import { sendChatButtonClickedEvent } from "./ui/subscribeToChatButtonClicked"
@@ -70,9 +58,6 @@ export class Controller {
 	task?: Task
 
 	mcpHub: McpHub
-	accountService: ClineAccountService
-	authService: AuthService
-	ocaAuthService: OcaAuthService
 	readonly stateManager: StateManager
 
 	// NEW: Add workspace manager (optional initially)
@@ -82,9 +67,6 @@ export class Controller {
 
 	// Flag to prevent duplicate cancellations from spam clicking
 	private cancelInProgress = false
-
-	// Timer for periodic remote config fetching
-	private remoteConfigTimer?: NodeJS.Timeout
 
 	// Public getter for workspace manager with lazy initialization - To get workspaces when task isn't initialized (Used by file mentions)
 	async ensureWorkspaceManager(): Promise<WorkspaceRootManager | undefined> {
@@ -106,17 +88,6 @@ export class Controller {
 		return this.workspaceManager
 	}
 
-	/**
-	 * Starts the periodic remote config fetching timer
-	 * Fetches immediately and then every hour
-	 */
-	private startRemoteConfigTimer() {
-		// Initial fetch
-		fetchRemoteConfig(this)
-		// Set up 1-hour interval
-		this.remoteConfigTimer = setInterval(() => fetchRemoteConfig(this), 3600000) // 1 hour
-	}
-
 	constructor(readonly context: ClineExtensionContext) {
 		Session.reset() // Reset session on controller initialization
 		PromptRegistry.getInstance() // Ensure prompts and tools are registered
@@ -132,14 +103,7 @@ export class Controller {
 				await this.postStateToWebview()
 			},
 		})
-		this.authService = AuthService.getInstance(this)
-		this.ocaAuthService = OcaAuthService.initialize(this)
-		this.accountService = ClineAccountService.getInstance()
 		BannerService.initialize(this)
-
-		this.authService.restoreRefreshTokenAndRetrieveAuthInfo().then(() => {
-			this.startRemoteConfigTimer()
-		})
 
 		this.mcpHub = new McpHub(
 			() => ensureMcpServersDirectoryExists(),
@@ -165,53 +129,10 @@ export class Controller {
 	- https://github.com/microsoft/vscode-extension-samples/blob/main/webview-sample/src/extension.ts
 	*/
 	async dispose() {
-		// Clear the remote config timer
-		if (this.remoteConfigTimer) {
-			clearInterval(this.remoteConfigTimer)
-			this.remoteConfigTimer = undefined
-		}
-
 		await this.clearTask()
 		this.mcpHub.dispose()
 
 		Logger.error("Controller disposed")
-	}
-
-	// Auth methods
-	async handleSignOut() {
-		try {
-			// AuthService now handles its own storage cleanup in handleDeauth()
-			this.stateManager.setGlobalState("userInfo", undefined)
-			clearRemoteConfig()
-
-			await this.postStateToWebview()
-			HostProvider.window.showMessage({
-				type: ShowMessageType.INFORMATION,
-				message: "Successfully logged out of Cline",
-			})
-		} catch (_error) {
-			HostProvider.window.showMessage({
-				type: ShowMessageType.INFORMATION,
-				message: "Logout failed",
-			})
-		}
-	}
-
-	// Oca Auth methods
-	async handleOcaSignOut() {
-		try {
-			await this.ocaAuthService.handleDeauth(LogoutReason.USER_INITIATED)
-			await this.postStateToWebview()
-			HostProvider.window.showMessage({
-				type: ShowMessageType.INFORMATION,
-				message: "Successfully logged out of OCA",
-			})
-		} catch (_error) {
-			HostProvider.window.showMessage({
-				type: ShowMessageType.INFORMATION,
-				message: "OCA Logout failed",
-			})
-		}
 	}
 
 	async setUserInfo(info?: UserInfo) {
@@ -232,12 +153,8 @@ export class Controller {
 		}
 
 		// Fire-and-forget: We intentionally don't await fetchRemoteConfig here.
-		// Remote config is already fetched in startRemoteConfigTimer() which runs in the constructor,
-		// so enterprise policies (yoloModeAllowed, allowedMCPServers, etc.) are already applied.
-		// This call just ensures we have the latest state, but we shouldn't block the UI for it.
-		// getGlobalSettingsKey() reads from remoteConfigCache on each call, so any updates
-		// will apply as soon as this fetch completes. The function also calls postStateToWebview()
-		// when done and catches all errors internally.
+		// Remote config was removed in the era harness local-only build; this call is a no-op
+		// kept for call-site compatibility.
 		fetchRemoteConfig(this)
 
 		await this.clearTask() // ensures that an existing task doesn't exist before starting a new one, although this shouldn't be possible since user must clear task before starting a new one
@@ -507,78 +424,6 @@ export class Controller {
 		}
 	}
 
-	async handleAuthCallback(customToken: string, provider: string | null = null) {
-		try {
-			await this.authService.handleAuthCallback(customToken, provider ? provider : "google")
-
-			// Mark welcome view as completed since user has successfully logged in
-			this.stateManager.setGlobalState("welcomeViewCompleted", true)
-
-			await fetchRemoteConfig(this)
-
-			await this.postStateToWebview()
-		} catch (error) {
-			Logger.error("Failed to handle auth callback:", error)
-			HostProvider.window.showMessage({
-				type: ShowMessageType.ERROR,
-				message: "Failed to log in to Cline",
-			})
-			// Even on login failure, we preserve any existing tokens
-			// Only clear tokens on explicit logout
-		}
-	}
-
-	async handleOcaAuthCallback(code: string, state: string) {
-		try {
-			await this.ocaAuthService.handleAuthCallback(code, state)
-
-			const ocaProvider: ApiProvider = "oca"
-
-			// Get current settings to determine how to update providers
-			const planActSeparateModelsSetting = this.stateManager.getGlobalSettingsKey("planActSeparateModelsSetting")
-
-			const currentMode = this.stateManager.getGlobalSettingsKey("mode")
-
-			// Get current API configuration from cache
-			const currentApiConfiguration = this.stateManager.getApiConfiguration()
-
-			const updatedConfig = { ...currentApiConfiguration }
-
-			if (planActSeparateModelsSetting) {
-				// Only update the current mode's provider
-				if (currentMode === "plan") {
-					updatedConfig.planModeApiProvider = ocaProvider
-				} else {
-					updatedConfig.actModeApiProvider = ocaProvider
-				}
-			} else {
-				// Update both modes to keep them in sync
-				updatedConfig.planModeApiProvider = ocaProvider
-				updatedConfig.actModeApiProvider = ocaProvider
-			}
-
-			// Update the API configuration through cache service
-			this.stateManager.setApiConfiguration(updatedConfig)
-
-			// Mark welcome view as completed since user has successfully logged in
-			this.stateManager.setGlobalState("welcomeViewCompleted", true)
-
-			if (this.task) {
-				this.task.api = buildApiHandler({ ...updatedConfig, ulid: this.task.ulid }, currentMode)
-			}
-
-			await this.postStateToWebview()
-		} catch (error) {
-			Logger.error("Failed to handle auth callback:", error)
-			HostProvider.window.showMessage({
-				type: ShowMessageType.ERROR,
-				message: "Failed to log in to OCA",
-			})
-			// Even on login failure, we preserve any existing tokens
-			// Only clear tokens on explicit logout
-		}
-	}
-
 	async handleMcpOAuthCallback(serverHash: string, code: string, state: string | null) {
 		try {
 			await this.mcpHub.completeOAuth(serverHash, code, state)
@@ -713,22 +558,6 @@ export class Controller {
 		}
 	}
 
-	// Read OpenRouter models from disk cache
-	async readOpenRouterModels(): Promise<Record<string, ModelInfo> | undefined> {
-		const openRouterModelsFilePath = path.join(await ensureCacheDirectoryExists(), GlobalFileNames.openRouterModels)
-		try {
-			if (await fileExistsAtPath(openRouterModelsFilePath)) {
-				const fileContents = await fs.readFile(openRouterModelsFilePath, "utf8")
-				const models = JSON.parse(fileContents)
-				// Append stealth models
-				return appendClineStealthModels(models)
-			}
-		} catch (error) {
-			Logger.error("Error reading cached OpenRouter models:", error)
-		}
-		return undefined
-	}
-
 	// Hicap
 	async handleHicapCallback(code: string) {
 		const apiKey: string = code
@@ -747,7 +576,6 @@ export class Controller {
 		this.stateManager.setApiConfiguration(updatedConfig)
 
 		await this.postStateToWebview()
-		this.accountService
 		if (this.task) {
 			this.task.api = buildApiHandler({ ...updatedConfig, ulid: this.task.ulid }, currentMode)
 		}
@@ -817,12 +645,10 @@ export class Controller {
 
 	async getStateToPostToWebview(): Promise<ExtensionState> {
 		// Get API configuration from cache for immediate access
-		const onboardingModels = getClineOnboardingModels()
 		const apiConfiguration = this.stateManager.getApiConfiguration()
 		const lastShownAnnouncementId = this.stateManager.getGlobalStateKey("lastShownAnnouncementId")
 		const taskHistory = this.stateManager.getGlobalStateKey("taskHistory")
 		const autoApprovalSettings = this.stateManager.getGlobalSettingsKey("autoApprovalSettings")
-		const browserSettings = this.stateManager.getGlobalSettingsKey("browserSettings")
 		const focusChainSettings = this.stateManager.getGlobalSettingsKey("focusChainSettings")
 		const preferredLanguage = this.stateManager.getGlobalSettingsKey("preferredLanguage")
 		const mode = this.stateManager.getGlobalSettingsKey("mode")
@@ -901,7 +727,6 @@ export class Controller {
 			currentFocusChainChecklist: this.task?.taskState.currentFocusChainChecklist || null,
 			checkpointManagerErrorMessage,
 			autoApprovalSettings,
-			browserSettings,
 			focusChainSettings,
 			preferredLanguage,
 			mode,
@@ -935,7 +760,8 @@ export class Controller {
 			defaultTerminalProfile,
 			isNewUser,
 			welcomeViewCompleted,
-			onboardingModels,
+			// era harness：Cline 免费模型引导已移除，字段恒为空
+			onboardingModels: undefined,
 			mcpResponsesCollapsed,
 			terminalOutputLineLimit,
 			maxConsecutiveMistakes,

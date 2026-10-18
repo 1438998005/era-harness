@@ -5,20 +5,19 @@ import { useTranslation } from "react-i18next"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
 import { ApiKeyField } from "../common/ApiKeyField"
-import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
-import { getModeSpecificFields, normalizeApiConfiguration } from "../utils/providerUtils"
+import { normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 const BUILTIN_MODELS = deepSeekModels as Record<string, ModelInfo>
 
-/** API 返回了本地没有的模型时用的保守元数据；用户可在下方手动改上下文/输出上限 */
+/** API 返回了本地没有的模型时用的保守元数据 */
 const FALLBACK_MODEL_INFO: ModelInfo = {
-	contextWindow: 128_000,
-	maxTokens: 8_000,
+	contextWindow: 1_000_000,
+	maxTokens: 384_000,
 	supportsImages: false,
 	supportsPromptCache: true,
 }
@@ -39,11 +38,10 @@ interface DeepSeekProviderProps {
 export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: DeepSeekProviderProps) => {
 	const { t } = useTranslation("settings")
 	const { apiConfiguration } = useExtensionState()
-	const { handleFieldChange, handleModeFieldChange, handleModeFieldsChange } = useApiConfigurationHandlers()
+	const { handleFieldChange, handleModeFieldsChange } = useApiConfigurationHandlers()
 
 	// Get the normalized configuration
 	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
-	const { deepSeekModelInfo } = getModeSpecificFields(apiConfiguration, currentMode)
 
 	const apiKey = apiConfiguration?.deepSeekApiKey || ""
 	const [liveModelIds, setLiveModelIds] = useState<string[] | null>(null)
@@ -146,41 +144,13 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 
 					{liveModelIds && selectedModelId && !BUILTIN_MODELS[selectedModelId] && (
 						<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-editorWarning-foreground)" }}>
-							该模型不在内置清单中，上下文与输出上限为保守默认值，请按官方文档在下方核对。
+							该模型不在内置清单中，上下文与输出上限按保守默认值处理。
 						</p>
 					)}
 
-					<div style={{ display: "flex", gap: 10, marginTop: "5px" }}>
-						<DebouncedTextField
-							initialValue={selectedModelInfo.contextWindow?.toString() ?? ""}
-							onChange={(value) => {
-								const modelInfo = deepSeekModelInfo ? { ...deepSeekModelInfo } : { ...selectedModelInfo }
-								modelInfo.contextWindow = Number(value)
-								handleModeFieldChange(
-									{ plan: "planModeDeepSeekModelInfo", act: "actModeDeepSeekModelInfo" },
-									modelInfo,
-									currentMode,
-								)
-							}}
-							style={{ flex: 1 }}>
-							<span style={{ fontWeight: 500 }}>{t("providers.openaiCompatible.contextWindowSize")}</span>
-						</DebouncedTextField>
-
-						<DebouncedTextField
-							initialValue={selectedModelInfo.maxTokens?.toString() ?? ""}
-							onChange={(value) => {
-								const modelInfo = deepSeekModelInfo ? { ...deepSeekModelInfo } : { ...selectedModelInfo }
-								modelInfo.maxTokens = Number(value)
-								handleModeFieldChange(
-									{ plan: "planModeDeepSeekModelInfo", act: "actModeDeepSeekModelInfo" },
-									modelInfo,
-									currentMode,
-								)
-							}}
-							style={{ flex: 1 }}>
-							<span style={{ fontWeight: 500 }}>{t("providers.openaiCompatible.maxOutputTokens")}</span>
-						</DebouncedTextField>
-					</div>
+					<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-descriptionForeground)" }}>
+						价格为官方空闲时段单价（元 / 百万 tokens）。高峰时段（工作日 9:00–12:00、14:00–18:00）为 2 倍。
+					</p>
 				</>
 			)}
 		</div>

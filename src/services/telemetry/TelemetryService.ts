@@ -1,15 +1,13 @@
 import { HostProvider } from "@hosts/host-provider"
-import type { BrowserSettings } from "@shared/BrowserSettings"
 import { ApiFormat, apiFormatToJSON } from "@shared/proto/cline/models"
 import { ShowMessageType } from "@shared/proto/host/window"
 import type { TaskFeedbackType } from "@shared/WebviewMessage"
 import * as os from "os"
-import { ClineAccountUserInfo } from "@/services/auth/AuthService"
 import { Setting } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
 import { Mode } from "@/shared/storage/types"
+import type { UserInfo } from "@/shared/UserInfo"
 import { version as extensionVersion } from "../../../package.json"
-import { setDistinctId } from "../logging/distinctId"
 import type { ITelemetryProvider, TelemetryProperties } from "./providers/ITelemetryProvider"
 import { NoopTelemetryProvider } from "./providers/NoopTelemetryProvider"
 
@@ -639,22 +637,14 @@ export class TelemetryService {
 	 * Identifies the accounts user
 	 * @param userInfo The user's information
 	 */
-	public identifyAccount(userInfo: ClineAccountUserInfo) {
+	public identifyAccount(userInfo: UserInfo) {
 		const propertiesWithMetadata: TelemetryProperties = {
 			...this.telemetryMetadata,
 		}
 
-		this.userId = userInfo.id
-		const activeOrg = userInfo.organizations?.find((org) => org.active)
-		if (activeOrg) {
-			this.activeOrg = {
-				organization_id: activeOrg.organizationId,
-				organization_name: activeOrg.name,
-				member_id: activeOrg.memberId,
-			}
-		} else {
-			this.activeOrg = null
-		}
+		// era harness 减法：账号/组织体系已移除，仅保留本地识别
+		this.userId = userInfo.email
+		this.activeOrg = null
 		// Update all providers with error isolation
 		this.providers.forEach((provider) => {
 			try {
@@ -663,10 +653,6 @@ export class TelemetryService {
 				Logger.error(`[TelemetryService] Provider failed for user identification:`, error)
 			}
 		})
-
-		if (userInfo.id) {
-			setDistinctId(userInfo.id)
-		}
 	}
 
 	// Task events
@@ -1149,28 +1135,6 @@ export class TelemetryService {
 				model,
 				provider,
 				ulid,
-			},
-		})
-	}
-
-	/**
-	 * Records when the browser tool is started
-	 * @param ulid Unique identifier for the task
-	 * @param browserSettings The browser settings being used
-	 */
-	public captureBrowserToolStart(ulid: string, browserSettings: BrowserSettings) {
-		if (!this.isCategoryEnabled("browser")) {
-			return
-		}
-
-		this.capture({
-			event: TelemetryService.EVENTS.TASK.BROWSER_TOOL_START,
-			properties: {
-				ulid,
-				viewport: browserSettings.viewport,
-				isRemote: !!browserSettings.remoteBrowserEnabled,
-				remoteBrowserHost: browserSettings.remoteBrowserHost,
-				timestamp: new Date().toISOString(),
 			},
 		})
 	}

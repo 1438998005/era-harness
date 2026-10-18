@@ -26,7 +26,6 @@ export const TASK_CONFIG_KEYS = [
 	"services",
 	"autoApprovalSettings",
 	"autoApprover",
-	"browserSettings",
 	"focusChainSettings",
 	"callbacks",
 	"coordinator",
@@ -38,8 +37,6 @@ export const TASK_CONFIG_KEYS = [
  */
 export const TASK_SERVICES_KEYS = [
 	"mcpHub",
-	"browserSession",
-	"urlContentFetcher",
 	"diffViewProvider",
 	"fileContextTracker",
 	"clineIgnoreController",
@@ -88,11 +85,6 @@ export const PATH_REQUIRED_TOOLS = [
 ] as const
 
 /**
- * Browser action types for validation
- */
-export const BROWSER_ACTIONS = ["launch", "click", "type", "scroll_down", "scroll_up", "close"] as const
-
-/**
  * Common validation error patterns
  */
 export const VALIDATION_ERROR_PATTERNS = ["Missing required parameter", "blocked by .clineignore"] as const
@@ -104,7 +96,6 @@ export type TaskConfigKey = (typeof TASK_CONFIG_KEYS)[number]
 export type TaskServicesKey = (typeof TASK_SERVICES_KEYS)[number]
 export type TaskCallbacksKey = (typeof TASK_CALLBACKS_KEYS)[number]
 export type PathRequiredTool = (typeof PATH_REQUIRED_TOOLS)[number]
-export type BrowserAction = (typeof BROWSER_ACTIONS)[number]
 
 /**
  * Shared utility functions for tools

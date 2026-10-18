@@ -3,8 +3,7 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import React, { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import VSCodeButtonLink from "@/components/common/VSCodeButtonLink"
-import { useClineAuth } from "@/context/ClineAuthContext"
-import { AccountServiceClient, TaskServiceClient } from "@/services/grpc-client"
+import { TaskServiceClient } from "@/services/grpc-client"
 
 interface CreditLimitErrorProps {
 	currentBalance: number
@@ -14,10 +13,7 @@ interface CreditLimitErrorProps {
 	buyCreditsUrl?: string
 }
 
-const DEFAULT_BUY_CREDITS_URL = {
-	USER: "https://app.cline.bot/dashboard/account?tab=credits&redirect=true",
-	ORG: "https://app.cline.bot/dashboard/organization?tab=credits&redirect=true",
-}
+const DEFAULT_BUY_CREDITS_URL = "https://app.cline.bot/dashboard/account?tab=credits&redirect=true"
 
 const CreditLimitError: React.FC<CreditLimitErrorProps> = ({
 	message,
@@ -27,27 +23,14 @@ const CreditLimitError: React.FC<CreditLimitErrorProps> = ({
 	totalSpent,
 }) => {
 	const { t } = useTranslation("common")
-	const { activeOrganization } = useClineAuth()
 	const [fullBuyCreditsUrl, setFullBuyCreditsUrl] = useState<string>("")
 
 	const dashboardUrl = useMemo(() => {
-		return buyCreditsUrl ?? (activeOrganization?.organizationId ? DEFAULT_BUY_CREDITS_URL.ORG : DEFAULT_BUY_CREDITS_URL.USER)
-	}, [buyCreditsUrl, activeOrganization?.organizationId])
+		return buyCreditsUrl ?? DEFAULT_BUY_CREDITS_URL
+	}, [buyCreditsUrl])
 
 	useEffect(() => {
-		const fetchCallbackUrl = async () => {
-			try {
-				const callbackUrl = (await AccountServiceClient.getRedirectUrl({})).value
-				const url = new URL(dashboardUrl)
-				url.searchParams.set("callback_url", callbackUrl)
-				setFullBuyCreditsUrl(url.toString())
-			} catch (error) {
-				console.error("Error fetching callback URL:", error)
-				// Fallback to URL without callback if the API call fails
-				setFullBuyCreditsUrl(dashboardUrl)
-			}
-		}
-		fetchCallbackUrl()
+		setFullBuyCreditsUrl(dashboardUrl)
 	}, [dashboardUrl])
 
 	// We have to divide because the balance is stored in microcredits

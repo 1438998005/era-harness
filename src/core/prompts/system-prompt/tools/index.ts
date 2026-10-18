@@ -3,7 +3,7 @@ export * from "./act_mode_respond"
 export * from "./apply_patch"
 export * from "./ask_followup_question"
 export * from "./attempt_completion"
-export * from "./browser_action"
+
 export * from "./execute_command"
 export * from "./focus_chain"
 export * from "./init"

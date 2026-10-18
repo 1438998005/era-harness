@@ -2,7 +2,6 @@ import { Empty } from "@shared/proto/cline/common"
 import { UpdateApiConfigurationRequest } from "@shared/proto/cline/models"
 import { convertProtoToApiProvider } from "@shared/proto-conversions/models/api-configuration-conversion"
 import {
-	fromProtobufLiteLLMModelInfo,
 	fromProtobufModelInfo,
 	fromProtobufOcaModelInfo,
 	fromProtobufOpenAiCompatibleModelInfo,
@@ -59,9 +58,6 @@ export async function updateApiConfigurationProto(
 			planModeHuggingFaceModelInfo: protoApiConfiguration.planModeHuggingFaceModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeHuggingFaceModelInfo)
 				: undefined,
-			planModeLiteLlmModelInfo: protoApiConfiguration.planModeLiteLlmModelInfo
-				? fromProtobufLiteLLMModelInfo(protoApiConfiguration.planModeLiteLlmModelInfo)
-				: undefined,
 			planModeRequestyModelInfo: protoApiConfiguration.planModeRequestyModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeRequestyModelInfo)
 				: undefined,
@@ -96,9 +92,6 @@ export async function updateApiConfigurationProto(
 				: undefined,
 			actModeDeepSeekModelInfo: protoApiConfiguration.actModeDeepSeekModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeDeepSeekModelInfo)
-				: undefined,
-			actModeLiteLlmModelInfo: protoApiConfiguration.actModeLiteLlmModelInfo
-				? fromProtobufLiteLLMModelInfo(protoApiConfiguration.actModeLiteLlmModelInfo)
 				: undefined,
 			actModeRequestyModelInfo: protoApiConfiguration.actModeRequestyModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeRequestyModelInfo)

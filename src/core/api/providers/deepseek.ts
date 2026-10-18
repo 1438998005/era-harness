@@ -84,7 +84,8 @@ export class DeepSeekHandler implements ApiHandler {
 
 		// V4 起不再用模型名区分思考能力（旧名 deepseek-reasoner 已停用），
 		// 用前缀匹配以兼容在线同步回来的带日期后缀的 id。
-		const isDeepSeekThinkingModel = model.id.includes("deepseek-v4") || model.id.includes("deepseek-reasoner")
+		const isDeepSeekThinkingModel =
+			model.id.includes("deepseek-flash") || model.id.includes("deepseek-v4") || model.id.includes("deepseek-reasoner")
 
 		const convertedMessages = convertToOpenAiMessages(messages)
 		const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = isDeepSeekThinkingModel
