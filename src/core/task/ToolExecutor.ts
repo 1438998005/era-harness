@@ -6,14 +6,12 @@ import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
 import { CommandPermissionController } from "@core/permissions"
 import { DiffViewProvider } from "@integrations/editor/DiffViewProvider"
 import type { CommandExecutionOptions } from "@integrations/terminal"
-import { BrowserSession } from "@services/browser/BrowserSession"
-import { UrlContentFetcher } from "@services/browser/UrlContentFetcher"
 import { McpHub } from "@services/mcp/McpHub"
 import { ClineAsk, ClineSay } from "@shared/ExtensionMessage"
 import { ClineContent } from "@shared/messages/content"
 import { ClineDefaultTool, toolUseNames } from "@shared/tools"
 import { ClineAskResponse } from "@shared/WebviewMessage"
-import { isParallelToolCallingEnabled, modelDoesntSupportWebp } from "@/utils/model-utils"
+import { isParallelToolCallingEnabled } from "@/utils/model-utils"
 import { ToolUse } from "../assistant-message"
 import { ContextManager } from "../context/context-management/ContextManager"
 import { formatResponse } from "../prompts/responses"
@@ -61,8 +59,6 @@ export class ToolExecutor {
 		private taskState: TaskState,
 		private messageStateHandler: MessageStateHandler,
 		private api: ApiHandler,
-		private urlContentFetcher: UrlContentFetcher,
-		private browserSession: BrowserSession,
 		private diffViewProvider: DiffViewProvider,
 		private mcpHub: McpHub,
 		private fileContextTracker: FileContextTracker,
@@ -131,7 +127,7 @@ export class ToolExecutor {
 	}
 
 	// Create a properly typed TaskConfig object for handlers
-	// NOTE: modifying this object in the tool handlers is okay since these are all references to the singular ToolExecutor instance's variables. However, be careful modifying this object assuming it will update the ToolExecutor instance, e.g. config.browserSession = ... will not update the ToolExecutor.browserSession instance variable. Use applyLatestBrowserSettings() instead.
+	// NOTE: modifying this object in the tool handlers is okay since these are all references to the singular ToolExecutor instance's variables.
 	private asToolConfig(): TaskConfig {
 		const config: TaskConfig = {
 			taskId: this.taskId,
@@ -151,12 +147,9 @@ export class ToolExecutor {
 			api: this.api,
 			autoApprovalSettings: this.stateManager.getGlobalSettingsKey("autoApprovalSettings"),
 			autoApprover: this.autoApprover,
-			browserSettings: this.stateManager.getGlobalSettingsKey("browserSettings"),
 			focusChainSettings: this.stateManager.getGlobalSettingsKey("focusChainSettings"),
 			services: {
 				mcpHub: this.mcpHub,
-				browserSession: this.browserSession,
-				urlContentFetcher: this.urlContentFetcher,
 				diffViewProvider: this.diffViewProvider,
 				fileContextTracker: this.fileContextTracker,
 				clineIgnoreController: this.clineIgnoreController,
@@ -180,7 +173,6 @@ export class ToolExecutor {
 				removeLastPartialMessageIfExistsWithType: this.removeLastPartialMessageIfExistsWithType,
 				shouldAutoApproveTool: this.shouldAutoApproveTool.bind(this),
 				shouldAutoApproveToolWithPath: this.shouldAutoApproveToolWithPath.bind(this),
-				applyLatestBrowserSettings: this.applyLatestBrowserSettings.bind(this),
 				switchToActMode: this.switchToActMode,
 				setActiveHookExecution: this.setActiveHookExecution,
 				clearActiveHookExecution: this.clearActiveHookExecution,
@@ -211,17 +203,6 @@ export class ToolExecutor {
 	 */
 	public async executeTool(block: ToolUse): Promise<void> {
 		await this.execute(block)
-	}
-
-	/**
-	 * Updates the browser settings
-	 */
-	public async applyLatestBrowserSettings() {
-		await this.browserSession.dispose()
-		const apiHandlerModel = this.api.getModel()
-		const useWebp = this.api ? !modelDoesntSupportWebp(apiHandlerModel) : true
-		this.browserSession = new BrowserSession(this.stateManager, useWebp)
-		return this.browserSession
 	}
 
 	/**
@@ -354,11 +335,6 @@ export class ToolExecutor {
 					this.pushToolResult(formatResponse.toolError(errorMessage), block)
 				}
 				return true
-			}
-
-			// Close browser for non-browser tools
-			if (block.name !== "browser_action") {
-				await this.browserSession.closeBrowser()
 			}
 
 			// Handle partial blocks

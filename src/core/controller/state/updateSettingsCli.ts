@@ -12,7 +12,6 @@ import { Logger } from "@/shared/services/Logger"
 import { Mode } from "@/shared/storage/types"
 import { telemetryService } from "../../../services/telemetry"
 import { Controller } from ".."
-import { accountLogoutClicked } from "../account/accountLogoutClicked"
 import { normalizeOpenaiReasoningEffort } from "./reasoningEffort"
 
 /**
@@ -29,7 +28,6 @@ export async function updateSettingsCli(controller: Controller, request: UpdateS
 	try {
 		if (request.environment !== undefined) {
 			ClineEnv.setEnvironment(request.environment)
-			await accountLogoutClicked(controller, Empty.create())
 		}
 
 		if (request.settings) {
@@ -52,7 +50,6 @@ export async function updateSettingsCli(controller: Controller, request: UpdateS
 				worktreesEnabled,
 				subagentsEnabled,
 				focusChainSettings,
-				browserSettings,
 				defaultTerminalProfile,
 				...simpleSettings
 			} = request.settings
@@ -192,36 +189,6 @@ export async function updateSettingsCli(controller: Controller, request: UpdateS
 				if (wasEnabled !== isEnabled) {
 					telemetryService.captureFocusChainToggle(isEnabled)
 				}
-			}
-
-			// Update browser settings (requires careful merging to avoid protobuf defaults)
-			if (browserSettings !== undefined) {
-				const currentSettings = controller.stateManager.getGlobalSettingsKey("browserSettings")
-
-				const newBrowserSettings = {
-					...currentSettings,
-					viewport: {
-						width: browserSettings.viewport?.width || currentSettings.viewport.width,
-						height: browserSettings.viewport?.height || currentSettings.viewport.height,
-					},
-					...(browserSettings.remoteBrowserEnabled !== undefined && {
-						remoteBrowserEnabled: browserSettings.remoteBrowserEnabled,
-					}),
-					...(browserSettings.remoteBrowserHost !== undefined && {
-						remoteBrowserHost: browserSettings.remoteBrowserHost,
-					}),
-					...(browserSettings.chromeExecutablePath !== undefined && {
-						chromeExecutablePath: browserSettings.chromeExecutablePath,
-					}),
-					...(browserSettings.disableToolUse !== undefined && {
-						disableToolUse: browserSettings.disableToolUse,
-					}),
-					...(browserSettings.customArgs !== undefined && {
-						customArgs: browserSettings.customArgs,
-					}),
-				}
-
-				controller.stateManager.setGlobalState("browserSettings", newBrowserSettings)
 			}
 
 			// Update default terminal profile (requires terminal manager updates and notifications)

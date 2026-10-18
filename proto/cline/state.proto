@@ -1,7 +1,6 @@
 syntax = "proto3";
 package cline;
 
-import "cline/browser.proto";
 import "cline/common.proto";
 import "cline/models.proto";
 
@@ -160,7 +159,7 @@ message Settings {
   optional string gemini_plan_mode_thinking_level = 46;
   optional string plan_mode_reasoning_effort = 47;
   optional string plan_mode_verbosity = 48;
-  optional LanguageModelChatSelector plan_mode_vs_code_lm_model_selector = 49;
+  optional string plan_mode_vs_code_lm_model_selector = 49;
   optional bool plan_mode_aws_bedrock_custom_selected = 50;
   optional string plan_mode_aws_bedrock_custom_model_base_id = 51;
   optional string plan_mode_open_router_model_id = 52;
@@ -170,7 +169,6 @@ message Settings {
   optional string plan_mode_ollama_model_id = 56;
   optional string plan_mode_lm_studio_model_id = 57;
   optional string plan_mode_lite_llm_model_id = 58;
-  optional LiteLLMModelInfo plan_mode_lite_llm_model_info = 59;
   optional string plan_mode_requesty_model_id = 60;
   optional OpenRouterModelInfo plan_mode_requesty_model_info = 61;
   optional string plan_mode_together_model_id = 62;
@@ -200,7 +198,7 @@ message Settings {
   optional string gemini_act_mode_thinking_level = 86;
   optional string act_mode_reasoning_effort = 87;
   optional string act_mode_verbosity = 88;
-  optional LanguageModelChatSelector act_mode_vs_code_lm_model_selector = 89;
+  optional string act_mode_vs_code_lm_model_selector = 89;
   optional bool act_mode_aws_bedrock_custom_selected = 90;
   optional string act_mode_aws_bedrock_custom_model_base_id = 91;
   optional string act_mode_open_router_model_id = 92;
@@ -210,7 +208,6 @@ message Settings {
   optional string act_mode_ollama_model_id = 96;
   optional string act_mode_lm_studio_model_id = 97;
   optional string act_mode_lite_llm_model_id = 98;
-  optional LiteLLMModelInfo act_mode_lite_llm_model_info = 99;
   optional string act_mode_requesty_model_id = 100;
   optional OpenRouterModelInfo act_mode_requesty_model_info = 101;
   optional string act_mode_together_model_id = 102;
@@ -243,7 +240,6 @@ message Settings {
   optional string global_cline_rules_toggles = 129;
   optional string global_workflow_toggles = 130;
   optional string global_skills_toggles = 131;
-  optional BrowserSettings browser_settings = 132;
   optional string telemetry_setting = 133;
   optional bool plan_act_separate_models_setting = 134;
   optional bool enable_checkpoints_setting = 135;
@@ -370,16 +366,6 @@ message TelemetrySettingRequest {
   TelemetrySettingEnum setting = 2;
 }
 
-// Browser settings for UpdateSettingsRequest
-message BrowserSettingsUpdate {
-  optional Viewport viewport = 1;
-  optional string remote_browser_host = 2;
-  optional bool remote_browser_enabled = 3;
-  optional string chrome_executable_path = 4;
-  optional bool disable_tool_use = 5;
-  optional string custom_args = 6;
-}
-
 message UpdateSettingsRequestCli {
   Metadata metadata = 1;
   optional Settings settings = 2;
@@ -416,7 +402,6 @@ message UpdateSettingsRequest {
   optional FocusChainSettings focus_chain_settings = 17;
   optional bool use_auto_condense = 18;
   optional string custom_prompt = 19;
-  optional BrowserSettingsUpdate browser_settings = 20;
   optional string default_terminal_profile = 21;
   optional bool yolo_mode_toggled = 22;
   optional bool multi_root_enabled = 25;

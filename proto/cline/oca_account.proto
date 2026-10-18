@@ -8,20 +8,8 @@ option go_package = "github.com/cline/grpc-go/cline";
 option java_multiple_files = true;
 option java_package = "bot.cline.proto";
 
-// Service for account-related operations
-service OcaAccountService {
-  // Handles the user clicking the login link in the UI.
-  // Generates a secure nonce for state validation, stores it in secrets,
-  // and opens the authentication URL in the external browser.
-  rpc ocaAccountLoginClicked(EmptyRequest) returns (String);
-
-  // Handles the user clicking the logout button in the UI.
-  // Clears API keys and user state.
-  rpc ocaAccountLogoutClicked(EmptyRequest) returns (Empty);
-
-  // Subscribe to auth status update events (when authentication state changes)
-  rpc ocaSubscribeToAuthStatusUpdate(EmptyRequest) returns (stream OcaAuthState);
-}
+// era harness 减法：OCA（Oracle Code Assist）账号体系整体移除。
+// 原 OcaAccountService 的 3 个 RPC 全部删除；消息保留（无引用，随 tree-shaking 消失）。
 
 message OcaAuthState {
   optional OcaUserInfo user = 1;

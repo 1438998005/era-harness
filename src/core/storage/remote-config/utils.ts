@@ -2,7 +2,6 @@ import { synchronizeRemoteRuleToggles } from "@core/context/instructions/user-in
 import { parseRemoteSkillEntries } from "@core/context/instructions/user-instructions/skills"
 import type { RemoteConfig, S3AccessKeySettings } from "@shared/remote-config/schema"
 import { ConfiguredAPIKeys, GlobalStateAndSettings, RemoteConfigFields } from "@shared/storage/state-keys"
-import { AuthService } from "@/services/auth/AuthService"
 import { getDistinctId } from "@/services/logging/distinctId"
 import { type McpHub } from "@/services/mcp/McpHub"
 import { ApiProvider } from "@/shared/api"
@@ -367,19 +366,9 @@ export function filterAllowedRemoteConfigFields(config: Partial<GlobalStateAndSe
 	return updatedFields
 }
 
-const canDisableRemoteConfig = (orgId: string) => {
-	// Check if they're an admin/owner
-	const authService = AuthService.getInstance()
-	const userOrgs = authService.getUserOrganizations()
-
-	if (!userOrgs) {
-		return false
-	}
-
-	const org = userOrgs.find((org) => org.organizationId === orgId)
-	const isAdminOrOwner = org?.roles?.some((role) => role === "admin" || role === "owner")
-
-	return isAdminOrOwner
+const canDisableRemoteConfig = (_orgId: string) => {
+	// era harness 减法：远端配置与组织体系已移除，无 admin/owner 概念
+	return false
 }
 
 export const isRemoteConfigEnabled = (orgId: string) => {

@@ -186,8 +186,13 @@ function isDeepSeek32ModelFamily(id: string): boolean {
 
 export function isDeepSeekNativeModelFamily(id: string): boolean {
 	const modelId = normalize(id)
-	// 旧名 deepseek-chat / deepseek-reasoner 已于 2026-07-24 停用，V4 为现行命名
-	return modelId.includes("deepseek-v4") || modelId.includes("deepseek-chat") || modelId.includes("deepseek-reasoner")
+	// 现行名为 deepseek-flash；旧名 deepseek-v4-* / deepseek-chat / deepseek-reasoner 保留兼容
+	return (
+		modelId.includes("deepseek-flash") ||
+		modelId.includes("deepseek-v4") ||
+		modelId.includes("deepseek-chat") ||
+		modelId.includes("deepseek-reasoner")
+	)
 }
 
 export function isPoolsideModelFamily(id: string): boolean {

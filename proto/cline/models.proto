@@ -10,66 +10,16 @@ option java_multiple_files = true;
 option java_package = "bot.cline.proto";
 
 // Service for model-related operations
+// era harness 减法：仅保留 OpenAI 兼容（自定义端点）模型列表与配置更新框架
 service ModelsService {
-  // Fetches available models from Ollama
-  rpc getOllamaModels(StringRequest) returns (StringArray);
-  // Fetches available models from LM Studio
-  rpc getLmStudioModels(StringRequest) returns (StringArray);
-  // Fetches available models from VS Code LM API
-  rpc getVsCodeLmModels(EmptyRequest) returns (VsCodeLmModelsArray);
-  // Refreshes and returns OpenRouter models
-  rpc refreshOpenRouterModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns recommended and free Cline models
-  rpc refreshClineRecommendedModelsRpc(EmptyRequest) returns (ClineRecommendedModelsResponse);
-  // Refreshes and returns Cline provider models
-  rpc refreshClineModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns Hugging Face models
-  rpc refreshHuggingFaceModels(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns OpenAI models
+  // Refreshes and returns OpenAI-compatible models
   rpc refreshOpenAiModels(OpenAiModelsRequest) returns (StringArray);
-  // Refreshes and returns Requesty models
-  rpc refreshRequestyModels(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns Hicap models
-  rpc refreshHicapModels(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns LiteLLM models
-  rpc refreshLiteLlmModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Subscribe to OpenRouter models updates
-  rpc subscribeToOpenRouterModels(EmptyRequest) returns (stream OpenRouterCompatibleModelInfo);
-  // Subscribe to LiteLLM models updates
-  rpc subscribeToLiteLlmModels(EmptyRequest) returns (stream OpenRouterCompatibleModelInfo);
   // Updates API configuration (legacy - uses combined configuration)
   rpc updateApiConfigurationProto(UpdateApiConfigurationRequest) returns (Empty);
   // Updates API configuration (new - uses separate options and secrets)
   rpc updateApiConfiguration(UpdateApiConfigurationRequestNew) returns (Empty);
   // Updates API configuration with partial values (only updates fields that are explicitly set)
   rpc updateApiConfigurationPartial(UpdateApiConfigurationPartialRequest) returns (Empty);
-  // Refreshes and returns Groq models
-  rpc refreshGroqModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns Baseten models
-  rpc refreshBasetenModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Fetches available models from SAP AI Core
-  rpc getSapAiCoreModels(SapAiCoreModelsRequest) returns (SapAiCoreModelsResponse);
-  // Fetches available models from OCA
-  rpc refreshOcaModels(StringRequest) returns (OcaCompatibleModelInfo);
-  // Fetches available models from AIhubmix
-  rpc getAihubmixModels(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns Vercel AI Gateway models
-  rpc refreshVercelAiGatewayModelsRpc(EmptyRequest) returns (OpenRouterCompatibleModelInfo);
-  // Refreshes and returns ShengSuanYun models
-  rpc refreshShengSuanYunModels(EmptyRequest) returns (ShengSuanYunCompatibleModelInfo);
-}
-
-// List of VS Code LM models
-message VsCodeLmModelsArray {
-  repeated LanguageModelChatSelector models = 1;
-}
-
-// Structure representing a language model chat selector
-message LanguageModelChatSelector {
-  optional string vendor = 1;
-  optional string family = 2;
-  optional string version = 3;
-  optional string id = 4;
 }
 
 // Price tier for tiered pricing models
@@ -257,7 +207,7 @@ message ModelsApiOptions {
   optional string plan_mode_api_model_id = 101;
   optional int64 plan_mode_thinking_budget_tokens = 102;
   optional string plan_mode_reasoning_effort = 103;
-  optional LanguageModelChatSelector plan_mode_vs_code_lm_model_selector = 104;
+  optional string plan_mode_vs_code_lm_model_selector = 104;
   optional bool plan_mode_aws_bedrock_custom_selected = 105;
   optional string plan_mode_aws_bedrock_custom_model_base_id = 106;
   optional string plan_mode_open_router_model_id = 107;
@@ -299,7 +249,7 @@ message ModelsApiOptions {
   optional string act_mode_api_model_id = 201;
   optional int64 act_mode_thinking_budget_tokens = 202;
   optional string act_mode_reasoning_effort = 203;
-  optional LanguageModelChatSelector act_mode_vs_code_lm_model_selector = 204;
+  optional string act_mode_vs_code_lm_model_selector = 204;
   optional bool act_mode_aws_bedrock_custom_selected = 205;
   optional string act_mode_aws_bedrock_custom_model_base_id = 206;
   optional string act_mode_open_router_model_id = 207;
@@ -638,7 +588,7 @@ message ModelsApiConfiguration {
   optional string plan_mode_api_model_id = 101;
   optional int64 plan_mode_thinking_budget_tokens = 102;
   optional string plan_mode_reasoning_effort = 103;
-  optional LanguageModelChatSelector plan_mode_vs_code_lm_model_selector = 104;
+  optional string plan_mode_vs_code_lm_model_selector = 104;
   optional bool plan_mode_aws_bedrock_custom_selected = 105;
   optional string plan_mode_aws_bedrock_custom_model_base_id = 106;
   optional string plan_mode_open_router_model_id = 107;
@@ -685,7 +635,7 @@ message ModelsApiConfiguration {
   optional string act_mode_api_model_id = 201;
   optional int64 act_mode_thinking_budget_tokens = 202;
   optional string act_mode_reasoning_effort = 203;
-  optional LanguageModelChatSelector act_mode_vs_code_lm_model_selector = 204;
+  optional string act_mode_vs_code_lm_model_selector = 204;
   optional bool act_mode_aws_bedrock_custom_selected = 205;
   optional string act_mode_aws_bedrock_custom_model_base_id = 206;
   optional string act_mode_open_router_model_id = 207;

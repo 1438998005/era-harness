@@ -5,7 +5,6 @@ import { HostProvider } from "@/hosts/host-provider"
 import { Logger } from "@/shared/services/Logger"
 import type { StorageContext } from "@/shared/storage/storage-context"
 import { FileContextTracker } from "./core/context/context-tracking/FileContextTracker"
-import { clearOnboardingModelsCache } from "./core/controller/models/getClineOnboardingModels"
 import { HookDiscoveryCache } from "./core/hooks/HookDiscoveryCache"
 import { HookProcessRegistry } from "./core/hooks/HookProcessRegistry"
 import { StateManager } from "./core/storage/StateManager"
@@ -16,7 +15,7 @@ import { featureFlagsService } from "./services/feature-flags"
 import { getDistinctId } from "./services/logging/distinctId"
 import { telemetryService } from "./services/telemetry"
 import { ClineTempManager } from "./services/temp"
-import { cleanupTestMode } from "./services/test/TestMode"
+
 import { ShowMessageType } from "./shared/proto/host/window"
 import { syncWorker } from "./shared/services/worker/sync"
 import { getBlobStoreSettingsFromEnv } from "./shared/services/worker/worker"
@@ -153,7 +152,6 @@ export async function tearDown(): Promise<void> {
 	// Dispose all webview instances
 	await WebviewProvider.disposeAllInstances()
 	syncWorker().dispose()
-	clearOnboardingModelsCache()
 
 	// Kill any running hook processes to prevent zombies
 	await HookProcessRegistry.terminateAll()
@@ -161,7 +159,4 @@ export async function tearDown(): Promise<void> {
 	HookDiscoveryCache.getInstance().dispose()
 	// Stop periodic temp file cleanup
 	ClineTempManager.stopPeriodicCleanup()
-
-	// Clean up test mode
-	cleanupTestMode()
 }

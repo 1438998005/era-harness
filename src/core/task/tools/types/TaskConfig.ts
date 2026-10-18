@@ -4,11 +4,8 @@ import type { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
 import type { CommandPermissionController } from "@core/permissions"
 import type { DiffViewProvider } from "@integrations/editor/DiffViewProvider"
 import type { CommandExecutionOptions } from "@integrations/terminal"
-import type { BrowserSession } from "@services/browser/BrowserSession"
-import type { UrlContentFetcher } from "@services/browser/UrlContentFetcher"
 import type { McpHub } from "@services/mcp/McpHub"
 import type { AutoApprovalSettings } from "@shared/AutoApprovalSettings"
-import type { BrowserSettings } from "@shared/BrowserSettings"
 import type { ClineAsk, ClineSay } from "@shared/ExtensionMessage"
 import type { FocusChainSettings } from "@shared/FocusChainSettings"
 import type { ClineContent } from "@shared/messages/content"
@@ -56,7 +53,6 @@ export interface TaskConfig {
 	// Settings
 	autoApprovalSettings: AutoApprovalSettings
 	autoApprover: AutoApprove
-	browserSettings: BrowserSettings
 	focusChainSettings: FocusChainSettings
 
 	// Callbacks (strongly typed)
@@ -71,8 +67,6 @@ export interface TaskConfig {
  */
 export interface TaskServices {
 	mcpHub: McpHub
-	browserSession: BrowserSession
-	urlContentFetcher: UrlContentFetcher
 	diffViewProvider: DiffViewProvider
 	fileContextTracker: FileContextTracker
 	clineIgnoreController: ClineIgnoreController
@@ -123,8 +117,6 @@ export interface TaskCallbacks {
 	reinitExistingTaskFromId: (taskId: string) => Promise<void>
 	cancelTask: () => Promise<void>
 	updateTaskHistory: (update: any) => Promise<any[]>
-
-	applyLatestBrowserSettings: () => Promise<BrowserSession>
 
 	switchToActMode: () => Promise<boolean>
 

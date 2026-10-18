@@ -12,9 +12,7 @@ import { McpDisplayMode } from "@/shared/McpDisplayMode"
 import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { telemetryService } from "../../../services/telemetry"
-import { BrowserSettings as SharedBrowserSettings } from "../../../shared/BrowserSettings"
 import { Controller } from ".."
-import { accountLogoutClicked } from "../account/accountLogoutClicked"
 
 /**
  * Updates multiple extension settings in a single request
@@ -26,7 +24,6 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 	try {
 		if (request.clineEnv !== undefined) {
 			ClineEnv.setEnvironment(request.clineEnv)
-			await accountLogoutClicked(controller, Empty.create())
 		}
 
 		if (request.apiConfiguration) {
@@ -215,46 +212,6 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 		if (request.customPrompt !== undefined) {
 			const value = request.customPrompt === "compact" ? "compact" : undefined
 			controller.stateManager.setGlobalState("customPrompt", value)
-		}
-
-		// Update browser settings
-		if (request.browserSettings !== undefined) {
-			// Get current browser settings to preserve fields not in the request
-			const currentSettings = controller.stateManager.getGlobalSettingsKey("browserSettings")
-
-			// Convert from protobuf format to shared format, merging with existing settings
-			const newBrowserSettings: SharedBrowserSettings = {
-				...currentSettings, // Start with existing settings (and defaults)
-				viewport: {
-					// Apply updates from request
-					width: request.browserSettings.viewport?.width || currentSettings.viewport.width,
-					height: request.browserSettings.viewport?.height || currentSettings.viewport.height,
-				},
-				// Explicitly handle optional boolean and string fields from the request
-				remoteBrowserEnabled:
-					request.browserSettings.remoteBrowserEnabled === undefined
-						? currentSettings.remoteBrowserEnabled
-						: request.browserSettings.remoteBrowserEnabled,
-				remoteBrowserHost:
-					request.browserSettings.remoteBrowserHost === undefined
-						? currentSettings.remoteBrowserHost
-						: request.browserSettings.remoteBrowserHost,
-				chromeExecutablePath:
-					// If chromeExecutablePath is explicitly in the request (even as ""), use it.
-					// Otherwise, fall back to mergedWithDefaults.
-					"chromeExecutablePath" in request.browserSettings
-						? request.browserSettings.chromeExecutablePath
-						: currentSettings.chromeExecutablePath,
-				disableToolUse:
-					request.browserSettings.disableToolUse === undefined
-						? currentSettings.disableToolUse
-						: request.browserSettings.disableToolUse,
-				customArgs:
-					"customArgs" in request.browserSettings ? request.browserSettings.customArgs : currentSettings.customArgs,
-			}
-
-			// Update global state with new settings
-			controller.stateManager.setGlobalState("browserSettings", newBrowserSettings)
 		}
 
 		// Update default terminal profile

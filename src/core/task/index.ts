@@ -49,8 +49,7 @@ import { formatContentBlockToMarkdown } from "@integrations/misc/export-markdown
 import { processFilesIntoText } from "@integrations/misc/extract-text"
 import { showSystemNotification } from "@integrations/notifications"
 import { ITerminalManager } from "@integrations/terminal/types"
-import { BrowserSession } from "@services/browser/BrowserSession"
-import { UrlContentFetcher } from "@services/browser/UrlContentFetcher"
+import { DeepSeekWebClient } from "@services/deepseek-web/DeepSeekWebClient"
 import { featureFlagsService } from "@services/feature-flags"
 import { listFiles } from "@services/glob/list-files"
 import { McpHub } from "@services/mcp/McpHub"
@@ -218,8 +217,6 @@ export class Task {
 	// Service handlers
 	api: ApiHandler
 	terminalManager: ITerminalManager
-	private urlContentFetcher: UrlContentFetcher
-	browserSession: BrowserSession
 	contextManager: ContextManager
 	private diffViewProvider: DiffViewProvider
 	public checkpointManager?: ICheckpointManager
@@ -337,8 +334,6 @@ export class Task {
 		this.terminalManager.setTerminalOutputLineLimit(terminalOutputLineLimit)
 		this.terminalManager.setDefaultTerminalProfile(defaultTerminalProfile)
 
-		this.urlContentFetcher = new UrlContentFetcher()
-		this.browserSession = new BrowserSession(stateManager)
 		this.contextManager = new ContextManager()
 		this.streamHandler = new StreamResponseHandler()
 		this.cwd = cwd
@@ -493,9 +488,6 @@ export class Task {
 		// Now that ulid is initialized, we can build the API handler
 		this.api = buildApiHandler(effectiveApiConfiguration, mode)
 
-		// Set ulid on browserSession for telemetry tracking
-		this.browserSession.setUlid(this.ulid)
-
 		// Note: Task initialization (startTask/resumeTaskFromHistory) is now called
 		// from Controller.initTask() AFTER the task instance is fully assigned.
 		// This prevents race conditions where hooks run before controller.task is ready.
@@ -584,8 +576,6 @@ export class Task {
 			this.taskState,
 			this.messageStateHandler,
 			this.api,
-			this.urlContentFetcher,
-			this.browserSession,
 			this.diffViewProvider,
 			this.mcpHub,
 			this.fileContextTracker,
@@ -1648,8 +1638,6 @@ export class Task {
 
 			// PHASE 7: Clean up resources
 			this.terminalManager.disposeAll()
-			this.urlContentFetcher.closeBrowser()
-			await this.browserSession.dispose()
 			this.clineIgnoreController.dispose()
 			this.fileContextTracker.dispose()
 			// need to await for when we want to make sure directories/files are reverted before
@@ -1880,12 +1868,6 @@ export class Task {
 		const host = await HostProvider.env.getHostVersion({})
 		const ide = host?.platform || "Unknown"
 		const isCliEnvironment = host.clineType === ClineClient.Cli
-		const browserSettings = this.stateManager.getGlobalSettingsKey("browserSettings")
-		const disableBrowserTool = browserSettings.disableToolUse ?? false
-		// cline browser tool uses image recognition for navigation (requires model image support).
-		const modelSupportsBrowserUse = providerInfo.model.info.supportsImages ?? false
-
-		const supportsBrowserUse = modelSupportsBrowserUse && !disableBrowserTool // only enable browser use if the model supports it and the user hasn't disabled it
 		const preferredLanguageRaw = this.stateManager.getGlobalSettingsKey("preferredLanguage")
 		const preferredLanguage = getLanguageKey(preferredLanguageRaw as LanguageDisplay)
 		const languageInstructionMap: Record<string, string> = {
@@ -1991,7 +1973,6 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			ide,
 			providerInfo,
 			editorTabs,
-			supportsBrowserUse,
 			mcpHub: this.mcpHub,
 			skills: availableSkills,
 			focusChainSettings: this.stateManager.getGlobalSettingsKey("focusChainSettings"),
@@ -2003,7 +1984,6 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			localAgentsRulesFileInstructions,
 			clineIgnoreInstructions,
 			preferredLanguageInstructions,
-			browserSettings: this.stateManager.getGlobalSettingsKey("browserSettings"),
 			yoloModeToggled: this.stateManager.getGlobalSettingsKey("yoloModeToggled"),
 			subagentsEnabled: this.stateManager.getGlobalSettingsKey("subagentsEnabled"),
 			clineWebToolsEnabled:
@@ -3368,13 +3348,12 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		}
 
 		const parseTextBlock = async (text: string): Promise<string> => {
-			const parsedText = await parseMentions(
-				text,
-				cwd,
-				this.urlContentFetcher,
-				this.fileContextTracker,
-				this.workspaceManager,
-			)
+			// era harness：@网址 mention 走 DeepSeek Fetch API（无 Key 时降级为配置指引）
+			const deepSeekApiKey = this.stateManager.getApiConfiguration()?.deepSeekApiKey
+			const fetchUrlContent = deepSeekApiKey
+				? (url: string) => new DeepSeekWebClient(deepSeekApiKey).fetchUrl(url)
+				: undefined
+			const parsedText = await parseMentions(text, cwd, fetchUrlContent, this.fileContextTracker, this.workspaceManager)
 
 			// Create MCP prompt fetcher callback that wraps mcpHub.getPrompt
 			const mcpPromptFetcher = async (serverName: string, promptName: string) => {

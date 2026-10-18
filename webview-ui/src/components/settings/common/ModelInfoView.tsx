@@ -1,10 +1,18 @@
-import { geminiModels, ModelInfo } from "@shared/api"
+import { ModelInfo } from "@shared/api"
 import { VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import styled from "styled-components"
 import { ModelDescriptionMarkdown } from "../ModelDescriptionMarkdown"
-import { formatPrice, hasThinkingBudget, supportsBrowserUse, supportsImages, supportsPromptCache } from "../utils/pricingUtils"
+import {
+	currencySymbol,
+	formatPrice,
+	getPriceCurrency,
+	hasThinkingBudget,
+	supportsBrowserUse,
+	supportsImages,
+	supportsPromptCache,
+} from "../utils/pricingUtils"
 
 // ========== Styled Components ==========
 
@@ -93,23 +101,24 @@ const ProviderRoutingLabel = styled.label`
 // ========== Helper Functions ==========
 
 /**
- * Format price for compact display (e.g., "$5/M" for $5 per million tokens)
- * Price is already in per-million format from OpenRouter
+ * Format price for compact display (e.g., "¥4/M" for 4 元 per million tokens)
+ * Price is already in per-million format
  */
-const formatCompactPrice = (price: number | undefined): string => {
+const formatCompactPrice = (price: number | undefined, currency: "USD" | "CNY" = "USD"): string => {
 	if (price === undefined) {
 		return "N/A"
 	}
+	const symbol = currencySymbol(currency)
 	if (price === 0) {
-		return "Free"
+		return `${symbol}0/M`
 	}
 	if (price < 0.01) {
-		return `$${price.toFixed(4)}/M`
+		return `${symbol}${price.toFixed(4)}/M`
 	}
 	if (price < 1) {
-		return `$${price.toFixed(2)}/M`
+		return `${symbol}${price.toFixed(2)}/M`
 	}
-	return `$${price % 1 === 0 ? price : price.toFixed(2)}/M`
+	return `${symbol}${price % 1 === 0 ? price : price.toFixed(2)}/M`
 }
 
 /**
@@ -131,6 +140,7 @@ const formatCompactContext = (contextWindow: number | undefined): string => {
 const formatTiers = (
 	tiers: ModelInfo["tiers"],
 	priceType: "inputPrice" | "outputPrice" | "cacheReadsPrice" | "cacheWritesPrice",
+	currency: "USD" | "CNY" = "USD",
 ): JSX.Element[] => {
 	if (!tiers || tiers.length === 0) {
 		return []
@@ -147,7 +157,7 @@ const formatTiers = (
 
 			return (
 				<span key={`tier-${tier.contextWindow}`} style={{ paddingLeft: "15px" }}>
-					{formatPrice(price)}/million tokens (
+					{formatPrice(price, currency)}/million tokens (
 					{tier.contextWindow === Number.POSITIVE_INFINITY || tier.contextWindow >= Number.MAX_SAFE_INTEGER ? (
 						<span>
 							{">"} {prevLimit.toLocaleString()}
@@ -190,14 +200,19 @@ export const ModelInfoView = ({
 	const { t } = useTranslation("settings")
 	const [advancedExpanded, setAdvancedExpanded] = useState(false)
 
-	const isGemini = Object.keys(geminiModels).includes(selectedModelId)
 	const hasThinkingConfig = hasThinkingBudget(modelInfo)
 	const hasTiers = !!modelInfo.tiers && modelInfo.tiers.length > 0
+	const currency = getPriceCurrency(selectedModelId)
 
 	// Capability checks
 	const hasImages = supportsImages(modelInfo)
 	const hasBrowser = supportsBrowserUse(modelInfo)
-	const hasCaching = !isGemini && supportsPromptCache(modelInfo)
+	const hasCaching = supportsPromptCache(modelInfo)
+
+	// DeepSeek 这类模型输入全部按缓存命中/未命中计价，inputPrice 为 0，
+	// 直接显示「输入 Free」会误导，改成把两档输入价都列出来。
+	const cachePricedInput =
+		!!modelInfo.supportsPromptCache && modelInfo.inputPrice === 0 && modelInfo.cacheReadsPrice !== undefined
 
 	// Check if we have cache pricing to show in Advanced section
 	const hasCachePricing = modelInfo.supportsPromptCache && (modelInfo.cacheWritesPrice || modelInfo.cacheReadsPrice)
@@ -217,19 +232,36 @@ export const ModelInfoView = ({
 						<InfoValue>{formatCompactContext(modelInfo.contextWindow)}</InfoValue>
 					</InfoItem>
 				)}
-				{modelInfo.inputPrice !== undefined && (
-					<InfoItem>
-						<InfoLabel>{t("commonFields.inputLabel")} </InfoLabel>
-						<InfoValue>{formatCompactPrice(modelInfo.inputPrice)}</InfoValue>
-					</InfoItem>
+				{cachePricedInput ? (
+					<>
+						{modelInfo.cacheReadsPrice !== undefined && (
+							<InfoItem>
+								<InfoLabel>{t("commonFields.cacheReads")} </InfoLabel>
+								<InfoValue>{formatCompactPrice(modelInfo.cacheReadsPrice, currency)}</InfoValue>
+							</InfoItem>
+						)}
+						{modelInfo.cacheWritesPrice !== undefined && (
+							<InfoItem>
+								<InfoLabel>{t("commonFields.cacheWrites")} </InfoLabel>
+								<InfoValue>{formatCompactPrice(modelInfo.cacheWritesPrice, currency)}</InfoValue>
+							</InfoItem>
+						)}
+					</>
+				) : (
+					modelInfo.inputPrice !== undefined && (
+						<InfoItem>
+							<InfoLabel>{t("commonFields.inputLabel")} </InfoLabel>
+							<InfoValue>{formatCompactPrice(modelInfo.inputPrice, currency)}</InfoValue>
+						</InfoItem>
+					)
 				)}
 				{modelInfo.outputPrice !== undefined && (
 					<InfoItem>
 						<InfoLabel>{t("commonFields.outputLabel")} </InfoLabel>
 						<InfoValue>
 							{hasThinkingConfig && modelInfo.thinkingConfig?.outputPrice !== undefined
-								? formatCompactPrice(modelInfo.thinkingConfig.outputPrice)
-								: formatCompactPrice(modelInfo.outputPrice)}
+								? formatCompactPrice(modelInfo.thinkingConfig.outputPrice, currency)
+								: formatCompactPrice(modelInfo.outputPrice, currency)}
 						</InfoValue>
 					</InfoItem>
 				)}
@@ -251,12 +283,10 @@ export const ModelInfoView = ({
 						<AdvancedLabel>{t("commonFields.browser")}</AdvancedLabel>
 						<AdvancedValue>{hasBrowser ? t("commonFields.yes") : t("commonFields.no")}</AdvancedValue>
 					</AdvancedRow>
-					{!isGemini && (
-						<AdvancedRow>
-							<AdvancedLabel>{t("commonFields.promptCaching")}</AdvancedLabel>
-							<AdvancedValue>{hasCaching ? t("commonFields.yes") : t("commonFields.no")}</AdvancedValue>
-						</AdvancedRow>
-					)}
+					<AdvancedRow>
+						<AdvancedLabel>{t("commonFields.promptCaching")}</AdvancedLabel>
+						<AdvancedValue>{hasCaching ? t("commonFields.yes") : t("commonFields.no")}</AdvancedValue>
+					</AdvancedRow>
 
 					{/* Cache Pricing */}
 					{hasCachePricing && (
@@ -264,13 +294,13 @@ export const ModelInfoView = ({
 							{modelInfo.cacheReadsPrice !== undefined && (
 								<AdvancedRow>
 									<AdvancedLabel>{t("commonFields.cacheReads")}</AdvancedLabel>
-									<AdvancedValue>{formatCompactPrice(modelInfo.cacheReadsPrice)}</AdvancedValue>
+									<AdvancedValue>{formatCompactPrice(modelInfo.cacheReadsPrice, currency)}</AdvancedValue>
 								</AdvancedRow>
 							)}
 							{modelInfo.cacheWritesPrice !== undefined && (
 								<AdvancedRow>
 									<AdvancedLabel>{t("commonFields.cacheWrites")}</AdvancedLabel>
-									<AdvancedValue>{formatCompactPrice(modelInfo.cacheWritesPrice)}</AdvancedValue>
+									<AdvancedValue>{formatCompactPrice(modelInfo.cacheWritesPrice, currency)}</AdvancedValue>
 								</AdvancedRow>
 							)}
 						</>
@@ -285,12 +315,12 @@ export const ModelInfoView = ({
 									<div>
 										<span style={{ fontWeight: 500 }}>{t("commonFields.inputLabel")}</span>
 										<br />
-										{formatTiers(modelInfo.tiers, "inputPrice")}
+										{formatTiers(modelInfo.tiers, "inputPrice", currency)}
 									</div>
 									<div style={{ marginTop: 4 }}>
 										<span style={{ fontWeight: 500 }}>{t("commonFields.outputLabel")}</span>
 										<br />
-										{formatTiers(modelInfo.tiers, "outputPrice")}
+										{formatTiers(modelInfo.tiers, "outputPrice", currency)}
 									</div>
 								</>
 							)}

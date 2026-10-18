@@ -7,6 +7,7 @@ import { BooleanRequest, StringRequest } from "@shared/proto/cline/common"
 import { useCallback, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { useMount } from "react-use"
+import { getPriceCurrency } from "@/components/settings/utils/pricingUtils"
 import { normalizeApiConfiguration } from "@/components/settings/utils/providerUtils"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useShowNavbar } from "@/context/PlatformContext"
@@ -188,7 +189,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 	// Use message handlers hook
 	const messageHandlers = useMessageHandlers(messages, chatState, identity.mode)
 
-	const { selectedModelInfo } = useMemo(() => {
+	const { selectedModelInfo, selectedModelId } = useMemo(() => {
 		return normalizeApiConfiguration(apiConfiguration, mode)
 	}, [apiConfiguration, mode])
 
@@ -346,6 +347,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 						selectedModelInfo={{
 							supportsPromptCache: selectedModelInfo.supportsPromptCache,
 							supportsImages: selectedModelInfo.supportsImages || false,
+							priceCurrency: getPriceCurrency(selectedModelId),
 						}}
 						showFocusChainPlaceholder={showFocusChainPlaceholder}
 						task={task}

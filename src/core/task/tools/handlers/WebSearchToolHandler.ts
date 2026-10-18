@@ -1,14 +1,7 @@
 import { ClineAsk, ClineSayTool } from "@shared/ExtensionMessage"
 import { ClineDefaultTool } from "@shared/tools"
-import axios from "axios"
-import { ClineEnv } from "@/config"
-import { AuthService } from "@/services/auth/AuthService"
-import { buildClineExtraHeaders } from "@/services/EnvUtils"
-import { featureFlagsService } from "@/services/feature-flags"
-import { telemetryService } from "@/services/telemetry"
+import { DeepSeekWebClient } from "@/services/deepseek-web/DeepSeekWebClient"
 import { parsePartialArrayString } from "@/shared/array"
-import { CLINE_ACCOUNT_AUTH_ERROR_MESSAGE } from "@/shared/ClineAccount"
-import { getAxiosSettings } from "@/shared/net"
 import { ToolUse } from "../../../assistant-message"
 import { formatResponse } from "../../../prompts/responses"
 import { ToolResponse } from "../.."
@@ -18,6 +11,11 @@ import type { TaskConfig } from "../types/TaskConfig"
 import type { StronglyTypedUIHelpers } from "../types/UIHelpers"
 import { ToolResultUtils } from "../utils/ToolResultUtils"
 
+/**
+ * web_search：era harness 联网搜索工具。
+ * 底层为 DeepSeek 官方 Search API（Bearer 鉴权，按次计费 5 元/千次）。
+ * 未配置 DeepSeek API Key 时返回明确的中文提示，不静默失败。
+ */
 export class WebSearchToolHandler implements IFullyManagedTool {
 	readonly name = ClineDefaultTool.WEB_SEARCH
 
@@ -31,176 +29,81 @@ export class WebSearchToolHandler implements IFullyManagedTool {
 			tool: "webSearch",
 			path: uiHelpers.removeClosingTag(block, "query", query),
 			content: `Searching for: ${uiHelpers.removeClosingTag(block, "query", query)}`,
-			operationIsLocatedInWorkspace: false, // web_search is always external
+			operationIsLocatedInWorkspace: false,
 		} satisfies ClineSayTool
 
 		const partialMessage = JSON.stringify(sharedMessageProps)
-
-		// For partial blocks, we'll let the ToolExecutor handle auto-approval logic
-		// Just stream the UI update for now
 		await uiHelpers.removeLastPartialMessageIfExistsWithType("say", "tool")
 		await uiHelpers.ask("tool" as ClineAsk, partialMessage, block.partial).catch(() => {})
 	}
 
 	async execute(config: TaskConfig, block: ToolUse): Promise<ToolResponse> {
+		const query: string | undefined = block.params.query
+		const allowedDomainsRaw: string | undefined = block.params.allowed_domains
+		const blockedDomainsRaw: string | undefined = block.params.blocked_domains
+
+		if (!query) {
+			config.taskState.consecutiveMistakeCount++
+			return await config.callbacks.sayAndCreateMissingParamError(this.name, "query")
+		}
+		config.taskState.consecutiveMistakeCount = 0
+
+		const apiKey = config.services.stateManager.getApiConfiguration()?.deepSeekApiKey
+		if (!apiKey) {
+			return formatResponse.toolError("未配置 DeepSeek API Key，无法联网搜索。请在设置中填写 DeepSeek API Key。")
+		}
+
+		const allowedDomains = parsePartialArrayString(allowedDomainsRaw || "[]")
+		const blockedDomains = parsePartialArrayString(blockedDomainsRaw || "[]")
+		if (allowedDomains.length > 0 && blockedDomains.length > 0) {
+			return formatResponse.toolError("allowed_domains 与 blocked_domains 不能同时提供，请只用一个。")
+		}
+
+		// 审批流（尊重用户的自动批准设置）
+		const sharedMessageProps: ClineSayTool = {
+			tool: "webSearch",
+			path: query,
+			content: `Searching for: ${query}`,
+			operationIsLocatedInWorkspace: false,
+		}
+		const completeMessage = JSON.stringify(sharedMessageProps)
+
+		if (config.callbacks.shouldAutoApproveTool(this.name)) {
+			await config.callbacks.removeLastPartialMessageIfExistsWithType("ask", "tool")
+			await config.callbacks.say("tool", completeMessage, undefined, undefined, false)
+		} else {
+			showNotificationForApproval(`era harness 想搜索：${query}`, config.autoApprovalSettings.enableNotifications)
+			await config.callbacks.removeLastPartialMessageIfExistsWithType("say", "tool")
+			const didApprove = await ToolResultUtils.askApprovalAndPushFeedback("tool", completeMessage, config)
+			if (!didApprove) {
+				return formatResponse.toolDenied()
+			}
+		}
+
 		try {
-			const query: string | undefined = block.params.query
-			const allowedDomainsRaw: string | undefined = block.params.allowed_domains
-			const blockedDomainsRaw: string | undefined = block.params.blocked_domains
-
-			// Extract provider information for telemetry
-			const apiConfig = config.services.stateManager.getApiConfiguration()
-			const currentMode = config.services.stateManager.getGlobalSettingsKey("mode")
-			const provider = (currentMode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
-
-			// Check if Cline web tools are enabled (both user setting and feature flag)
-			const clineWebToolsEnabled = config.services.stateManager.getGlobalSettingsKey("clineWebToolsEnabled")
-			const featureFlagEnabled = featureFlagsService.getWebtoolsEnabled()
-			if (provider !== "cline" || !clineWebToolsEnabled || !featureFlagEnabled) {
-				return formatResponse.toolError("Cline web tools are currently disabled.")
-			}
-
-			// Validate required parameters
-			if (!query) {
-				config.taskState.consecutiveMistakeCount++
-				return await config.callbacks.sayAndCreateMissingParamError(this.name, "query")
-			}
-			config.taskState.consecutiveMistakeCount = 0
-
-			// Parse domain arrays
-			const allowedDomains = parsePartialArrayString(allowedDomainsRaw || "[]")
-			const blockedDomains = parsePartialArrayString(blockedDomainsRaw || "[]")
-
-			// Validate mutual exclusivity
-			if (allowedDomains.length > 0 && blockedDomains.length > 0) {
-				config.taskState.consecutiveMistakeCount++
-				return formatResponse.toolError("Cannot specify both allowed_domains and blocked_domains")
-			}
-
-			// Create message for approval
-			const sharedMessageProps: ClineSayTool = {
-				tool: "webSearch",
-				path: query,
-				content: `Searching for: ${query}`,
-				operationIsLocatedInWorkspace: false,
-			}
-			const completeMessage = JSON.stringify(sharedMessageProps)
-
-			if (config.callbacks.shouldAutoApproveTool(this.name)) {
-				// Auto-approve flow
-				await config.callbacks.removeLastPartialMessageIfExistsWithType("ask", "tool")
-				await config.callbacks.say("tool", completeMessage, undefined, undefined, false)
-				telemetryService.captureToolUsage(
-					config.ulid,
-					"web_search",
-					config.api.getModel().id,
-					provider,
-					true,
-					true,
-					undefined,
-					block.isNativeToolCall,
-				)
-			} else {
-				// Manual approval flow
-				showNotificationForApproval(
-					`Cline wants to search for: ${query}`,
-					config.autoApprovalSettings.enableNotifications,
-				)
-				await config.callbacks.removeLastPartialMessageIfExistsWithType("say", "tool")
-
-				const didApprove = await ToolResultUtils.askApprovalAndPushFeedback("tool", completeMessage, config)
-				if (!didApprove) {
-					telemetryService.captureToolUsage(
-						config.ulid,
-						block.name,
-						config.api.getModel().id,
-						provider,
-						false,
-						false,
-						undefined,
-						block.isNativeToolCall,
-					)
-					return formatResponse.toolDenied()
-				} else {
-					telemetryService.captureToolUsage(
-						config.ulid,
-						block.name,
-						config.api.getModel().id,
-						provider,
-						false,
-						true,
-						undefined,
-						block.isNativeToolCall,
-					)
-				}
-			}
-
-			// Run PreToolUse hook after approval but before execution
-			try {
-				const { ToolHookUtils } = await import("../utils/ToolHookUtils")
-				await ToolHookUtils.runPreToolUseIfEnabled(config, block)
-			} catch (error) {
-				const { PreToolUseHookCancellationError } = await import("@core/hooks/PreToolUseHookCancellationError")
-				if (error instanceof PreToolUseHookCancellationError) {
-					return formatResponse.toolDenied()
-				}
-				throw error
-			}
-
-			// Execute the actual search
-			const baseUrl = ClineEnv.config().apiBaseUrl
-			const authToken = await AuthService.getInstance().getAuthToken()
-
-			if (!authToken) {
-				throw new Error(CLINE_ACCOUNT_AUTH_ERROR_MESSAGE)
-			}
-
-			const requestBody: {
-				query: string
-				allowed_domains?: string[]
-				blocked_domains?: string[]
-			} = {
-				query: query,
-			}
-
-			// Only include domain filters if they have values
-			if (allowedDomains.length > 0) {
-				requestBody.allowed_domains = allowedDomains
-			}
-			if (blockedDomains.length > 0) {
-				requestBody.blocked_domains = blockedDomains
-			}
-
-			const response = await axios.post(`${baseUrl}/api/v1/search/websearch`, requestBody, {
-				headers: {
-					Authorization: `Bearer ${authToken}`,
-					"Content-Type": "application/json",
-					"X-Task-ID": config.ulid || "",
-					...(await buildClineExtraHeaders()),
-				},
-				timeout: 15000,
-				...getAxiosSettings(),
+			const client = new DeepSeekWebClient(apiKey)
+			const results = await client.search(query, {
+				count: 10,
+				needContent: false,
+				oriQuestion: query,
+				domainFilters: { allowed: allowedDomains, blocked: blockedDomains },
 			})
 
-			// Parse response
-			// Axios will throw on non-200 status, so no need to check fetchStatus
-			const data = response.data.data
-
-			// Format results for display
-			const results = data.results || []
-			const resultCount = results.length
-
-			let resultText = `Search completed (${resultCount} results found)`
-			if (results.length > 0) {
-				resultText += ":\n\n"
-				results.forEach((result: { title: string; url: string }, index: number) => {
-					resultText += `${index + 1}. ${result.title}\n   ${result.url}\n\n`
-				})
+			if (results.length === 0) {
+				return formatResponse.toolResult(`没有找到与「${query}」相关的搜索结果。可以换用更具体的关键词重试。`)
 			}
 
-			return formatResponse.toolResult(resultText)
+			const lines = results.map((r, i) => {
+				const parts = [`${i + 1}. [${r.title || "(无标题)"}](${r.url})`]
+				const digest = r.summary || r.snippet
+				if (digest) {
+					parts.push(`   ${digest}`)
+				}
+				return parts.join("\n")
+			})
+			return formatResponse.toolResult(`「${query}」的搜索结果（共 ${results.length} 条）：\n\n${lines.join("\n\n")}`)
 		} catch (error) {
-			return `Error performing web search: ${(error as Error).message}`
+			return formatResponse.toolError((error as Error).message)
 		}
 	}
 }

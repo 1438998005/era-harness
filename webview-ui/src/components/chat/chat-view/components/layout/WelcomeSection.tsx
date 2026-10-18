@@ -13,9 +13,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import HomeHeader from "@/components/welcome/HomeHeader"
 import { SuggestedTasks } from "@/components/welcome/SuggestedTasks"
 import CreateWorktreeModal from "@/components/worktrees/CreateWorktreeModal"
-import { useClineAuth } from "@/context/ClineAuthContext"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { AccountServiceClient, StateServiceClient, UiServiceClient, WorktreeServiceClient } from "@/services/grpc-client"
+import { StateServiceClient, UiServiceClient, WorktreeServiceClient } from "@/services/grpc-client"
 import { convertBannerData } from "@/utils/bannerUtils"
 import { getCurrentPlatform } from "@/utils/platformUtils"
 import { WelcomeSectionProps } from "../../types/chatTypes"
@@ -59,16 +58,8 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 			.catch(() => setIsGitRepo(false))
 	}, [])
 
-	const { clineUser } = useClineAuth()
-	const {
-		openRouterModels,
-		navigateToSettings,
-		navigateToSettingsModelPicker,
-		navigateToWorktrees,
-		worktreesEnabled,
-		banners,
-		welcomeBanners,
-	} = useExtensionState()
+	const { navigateToSettings, navigateToSettingsModelPicker, navigateToWorktrees, worktreesEnabled, banners, welcomeBanners } =
+		useExtensionState()
 	const { handleFieldsChange } = useApiConfigurationHandlers()
 
 	// Open modal once we have welcome banners
@@ -131,14 +122,10 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 	 * For now, using EXAMPLE_BANNER_DATA with version-based filtering
 	 */
 	const bannerConfig = useMemo((): BannerCardData[] => {
-		// Filter banners based on version tracking and user status
+		// Filter banners based on version tracking
 		return BANNER_DATA.filter((banner) => {
 			if (isBannerDismissed(banner.id)) {
 				return false
-			}
-
-			if (banner.isClineUserOnly !== undefined) {
-				return banner.isClineUserOnly === !!clineUser
 			}
 
 			if (banner.platforms && !banner.platforms.includes(getCurrentPlatform())) {
@@ -147,7 +134,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 
 			return true
 		})
-	}, [isBannerDismissed, clineUser])
+	}, [isBannerDismissed])
 
 	/**
 	 * Action handler - maps action types to actual implementations
@@ -161,24 +148,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 					}
 					break
 
-				case BannerActionType.SetModel: {
-					const modelId = action.arg || "anthropic/claude-sonnet-4.5"
-					const initialModelTab = action.tab || "recommended"
-					handleFieldsChange({
-						planModeOpenRouterModelId: modelId,
-						actModeOpenRouterModelId: modelId,
-						planModeOpenRouterModelInfo: openRouterModels[modelId],
-						actModeOpenRouterModelInfo: openRouterModels[modelId],
-						planModeApiProvider: "cline",
-						actModeApiProvider: "cline",
-					})
-					navigateToSettingsModelPicker({ targetSection: "api-config", initialModelTab })
-					break
-				}
-
-				case BannerActionType.ShowAccount:
-					AccountServiceClient.accountLoginClicked({}).catch((err) => console.error("Failed to get login URL:", err))
-					break
+				// era harness：SetModel 横幅动作已随 Cline/OpenRouter provider 移除
 
 				case BannerActionType.ShowApiSettings:
 					if (action.arg) {
@@ -205,7 +175,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 					console.warn("Unknown banner action:", action.action)
 			}
 		},
-		[handleFieldsChange, openRouterModels, navigateToSettings, navigateToSettingsModelPicker],
+		[handleFieldsChange, navigateToSettings, navigateToSettingsModelPicker],
 	)
 
 	/**

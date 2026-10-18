@@ -8,58 +8,9 @@ option go_package = "github.com/cline/grpc-go/cline";
 option java_multiple_files = true;
 option java_package = "bot.cline.proto";
 
-// Service for account-related operations
-service AccountService {
-  // Handles the user clicking the login link in the UI.
-  // Generates a secure nonce for state validation, stores it in secrets,
-  // and opens the authentication URL in the external browser.
-  rpc accountLoginClicked(EmptyRequest) returns (String);
-
-  // Handles the user clicking the logout button in the UI.
-  // Clears API keys and user state.
-  rpc accountLogoutClicked(EmptyRequest) returns (Empty);
-
-  // Subscribe to auth status update events (when authentication state changes)
-  rpc subscribeToAuthStatusUpdate(EmptyRequest) returns (stream AuthState);
-
-  // Handles authentication state changes from the Firebase context.
-  // Updates the user info in global state and returns the updated value.
-  rpc authStateChanged(AuthStateChangedRequest) returns (AuthState);
-
-  // Fetches all user credits data
-  // (balance, usage transactions, payment transactions)
-  rpc getUserCredits(EmptyRequest) returns (UserCreditsData);
-
-  rpc getOrganizationCredits(GetOrganizationCreditsRequest) returns (OrganizationCreditsData);
-
-  // Fetches all user organizations data
-  // Returns a list of UserOrganization objects
-  rpc getUserOrganizations(EmptyRequest) returns (UserOrganizationsResponse);
-
-  rpc setUserOrganization(UserOrganizationUpdateRequest) returns (Empty);
-
-  rpc openrouterAuthClicked(EmptyRequest) returns (Empty);
-
-  rpc requestyAuthClicked(StringRequest) returns (Empty);
-
-  rpc hicapAuthClicked(EmptyRequest) returns (Empty);
-
-  rpc shengSuanYunLoginClicked(EmptyRequest) returns (Empty);
-
-  // Returns a link the webview can use to redirect back to the user's IDE.
-  rpc getRedirectUrl(EmptyRequest) returns (String);
-
-  // OpenAI Codex OAuth authentication
-  // Starts the OAuth flow and opens browser for user to sign in with ChatGPT Plus/Pro
-  rpc openAiCodexSignIn(EmptyRequest) returns (Empty);
-
-  // Signs out of OpenAI Codex and clears stored credentials
-  rpc openAiCodexSignOut(EmptyRequest) returns (Empty);
-
-  // Submits a spend limit increase request to the user's org admin.
-  // Called when the user hits a SPEND_LIMIT_EXCEEDED (429) error and clicks "Request Increase".
-  rpc submitLimitIncreaseRequest(EmptyRequest) returns (SubmitLimitIncreaseResponse);
-}
+// era harness 减法：账号/登录/组织/额度体系整体移除（本地版无账号）。
+// 原 AccountService 的 16 个 RPC（登录/注销/认证状态/额度/组织/各 provider OAuth）全部删除。
+// 保留的消息（UserInfo 等）仍被 state.proto 的 userInfo 字段引用。
 
 message AuthStateChangedRequest {
   Metadata metadata = 1;

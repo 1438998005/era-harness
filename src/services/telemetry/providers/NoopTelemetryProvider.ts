@@ -1,4 +1,4 @@
-import type { ClineAccountUserInfo } from "@/services/auth/AuthService"
+import type { UserInfo } from "@/shared/UserInfo"
 import type { ITelemetryProvider, TelemetryProperties, TelemetrySettings } from "./ITelemetryProvider"
 
 /**
@@ -18,7 +18,7 @@ export class NoopTelemetryProvider implements ITelemetryProvider {
 		// no-op
 	}
 
-	identifyUser(_userInfo: ClineAccountUserInfo, _properties?: TelemetryProperties): void {
+	identifyUser(_userInfo: UserInfo, _properties?: TelemetryProperties): void {
 		// no-op：不关联任何用户身份
 	}
 
@@ -30,7 +30,13 @@ export class NoopTelemetryProvider implements ITelemetryProvider {
 		return { hostEnabled: false, level: "off" }
 	}
 
-	recordCounter(_name: string, _value: number, _attributes?: TelemetryProperties, _description?: string, _required?: boolean): void {
+	recordCounter(
+		_name: string,
+		_value: number,
+		_attributes?: TelemetryProperties,
+		_description?: string,
+		_required?: boolean,
+	): void {
 		// no-op
 	}
 

@@ -55,7 +55,6 @@ export const config = createVariant(ModelFamily.NEXT_GEN)
 		ClineDefaultTool.SEARCH,
 		ClineDefaultTool.LIST_FILES,
 		ClineDefaultTool.LIST_CODE_DEF,
-		ClineDefaultTool.BROWSER,
 		ClineDefaultTool.WEB_FETCH,
 		ClineDefaultTool.WEB_SEARCH,
 		ClineDefaultTool.MCP_USE,

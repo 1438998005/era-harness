@@ -1,7 +1,6 @@
-import { LiteLLMModelInfo, ModelInfo, OcaModelInfo, OpenAiCompatibleModelInfo } from "@shared/api"
+import { ModelInfo, OcaModelInfo, OpenAiCompatibleModelInfo } from "@shared/api"
 import {
 	OpenRouterModelInfo,
-	LiteLLMModelInfo as ProtoLiteLLMModelInfo,
 	OcaModelInfo as ProtoOcaModelInfo,
 	OpenAiCompatibleModelInfo as ProtoOpenAiCompatibleModelInfo,
 	ThinkingConfig,
@@ -100,28 +99,6 @@ export function fromProtobufOpenAiCompatibleModelInfo(protoInfo: ProtoOpenAiComp
 		tiers: protoInfo.tiers.length > 0 ? protoInfo.tiers : undefined,
 		temperature: protoInfo.temperature,
 		isR1FormatRequired: protoInfo.isR1FormatRequired,
-	}
-}
-
-/**
- * Convert protobuf LiteLLMModelInfo to application LiteLLMModelInfo
- */
-export function fromProtobufLiteLLMModelInfo(protoInfo: ProtoLiteLLMModelInfo): LiteLLMModelInfo {
-	return {
-		maxTokens: protoInfo.maxTokens,
-		contextWindow: protoInfo.contextWindow,
-		supportsImages: protoInfo.supportsImages,
-		supportsPromptCache: protoInfo.supportsPromptCache,
-		supportsReasoning: protoInfo.supportsReasoning,
-		inputPrice: protoInfo.inputPrice,
-		outputPrice: protoInfo.outputPrice,
-		cacheWritesPrice: protoInfo.cacheWritesPrice,
-		cacheReadsPrice: protoInfo.cacheReadsPrice,
-		description: protoInfo.description,
-		thinkingConfig: convertThinkingConfig(protoInfo.thinkingConfig),
-		supportsGlobalEndpoint: protoInfo.supportsGlobalEndpoint,
-		tiers: protoInfo.tiers.length > 0 ? protoInfo.tiers : undefined,
-		temperature: protoInfo.temperature,
 	}
 }
 

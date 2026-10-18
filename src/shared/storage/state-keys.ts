@@ -1,13 +1,5 @@
 import { AutoApprovalSettings, DEFAULT_AUTO_APPROVAL_SETTINGS } from "@shared/AutoApprovalSettings"
-import {
-	ApiProvider,
-	DEFAULT_API_PROVIDER,
-	LiteLLMModelInfo,
-	ModelInfo,
-	type OcaModelInfo,
-	OpenAiCompatibleModelInfo,
-} from "@shared/api"
-import { BrowserSettings, DEFAULT_BROWSER_SETTINGS } from "@shared/BrowserSettings"
+import { ApiProvider, DEFAULT_API_PROVIDER, ModelInfo, type OcaModelInfo, OpenAiCompatibleModelInfo } from "@shared/api"
 import { ClineRulesToggles } from "@shared/cline-rules"
 import { DEFAULT_FOCUS_CHAIN_SETTINGS, FocusChainSettings } from "@shared/FocusChainSettings"
 import { HistoryItem } from "@shared/HistoryItem"
@@ -18,7 +10,6 @@ import { GlobalInstructionsFile } from "@shared/remote-config/schema"
 import { Mode } from "@shared/storage/types"
 import { TelemetrySetting } from "@shared/TelemetrySetting"
 import { UserInfo } from "@shared/UserInfo"
-import { LanguageModelChatSelector } from "vscode"
 import { type BlobStoreSettings } from "./types"
 
 // ============================================================================
@@ -150,7 +141,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	geminiPlanModeThinkingLevel: { default: undefined as string | undefined },
 	planModeReasoningEffort: { default: undefined as string | undefined },
 	planModeVerbosity: { default: undefined as string | undefined },
-	planModeVsCodeLmModelSelector: { default: undefined as LanguageModelChatSelector | undefined },
+	planModeVsCodeLmModelSelector: { default: undefined as string | undefined },
 	planModeAwsBedrockCustomSelected: { default: undefined as boolean | undefined },
 	planModeAwsBedrockCustomModelBaseId: { default: undefined as string | undefined },
 	planModeOpenRouterModelId: { default: undefined as string | undefined },
@@ -163,7 +154,6 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	planModeOllamaModelId: { default: undefined as string | undefined },
 	planModeLmStudioModelId: { default: undefined as string | undefined },
 	planModeLiteLlmModelId: { default: undefined as string | undefined },
-	planModeLiteLlmModelInfo: { default: undefined as LiteLLMModelInfo | undefined },
 	planModeRequestyModelId: { default: undefined as string | undefined },
 	planModeRequestyModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeTogetherModelId: { default: undefined as string | undefined },
@@ -197,7 +187,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	geminiActModeThinkingLevel: { default: undefined as string | undefined },
 	actModeReasoningEffort: { default: undefined as string | undefined },
 	actModeVerbosity: { default: undefined as string | undefined },
-	actModeVsCodeLmModelSelector: { default: undefined as LanguageModelChatSelector | undefined },
+	actModeVsCodeLmModelSelector: { default: undefined as string | undefined },
 	actModeAwsBedrockCustomSelected: { default: undefined as boolean | undefined },
 	actModeAwsBedrockCustomModelBaseId: { default: undefined as string | undefined },
 	actModeOpenRouterModelId: { default: undefined as string | undefined },
@@ -210,7 +200,6 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	actModeOllamaModelId: { default: undefined as string | undefined },
 	actModeLmStudioModelId: { default: undefined as string | undefined },
 	actModeLiteLlmModelId: { default: undefined as string | undefined },
-	actModeLiteLlmModelInfo: { default: undefined as LiteLLMModelInfo | undefined },
 	actModeRequestyModelId: { default: undefined as string | undefined },
 	actModeRequestyModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeTogetherModelId: { default: undefined as string | undefined },
@@ -255,10 +244,6 @@ const USER_SETTINGS_FIELDS = {
 	globalClineRulesToggles: { default: {} as ClineRulesToggles },
 	globalWorkflowToggles: { default: {} as ClineRulesToggles },
 	globalSkillsToggles: { default: {} as Record<string, boolean> },
-	browserSettings: {
-		default: DEFAULT_BROWSER_SETTINGS as BrowserSettings,
-		transform: (v: any) => ({ ...DEFAULT_BROWSER_SETTINGS, ...v }),
-	},
 	telemetrySetting: { default: "unset" as TelemetrySetting },
 	planActSeparateModelsSetting: { default: false as boolean, isComputed: true },
 	enableCheckpointsSetting: { default: true as boolean },

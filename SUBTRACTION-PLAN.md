@@ -96,6 +96,70 @@ package.json 手术：name→`era-harness`、publisher→本地、description �
 - `src/core/controller/account/`（OAuth  clicked 系）：shengSuanYunLoginClicked、hicapAuthClicked 全删；`shengSuanYunLoginClicked` 对应 proto RPC 注册（`src/core/controller/index.ts`）删。
 - webview-ui 对应 provider 设置组件（批次 4）。
 
+### 3.x 执行记录（2026-10-17，compile 全绿 + .vsix 8.7MB sideload 通过）
+
+- **provider 实现层**：`src/core/api/providers/` 44 → 3 个文件（只留 `deepseek.ts`/`openai.ts`/`types.ts`）；`src/core/api/index.ts` 的 470 行 switch 重写为 2 例，未知/未配置 provider 回落 DeepSeek 并 `Logger.warn`。
+- **controller 层**：删 26 个文件（refresh*/get*Models/subscribeTo*），只留 `refreshOpenAiModels` + `updateApiConfiguration` 三件套；`initializeWebview.ts` 重写为只含 MCP 目录 + 遥测初始化。
+- **proto 层**：`proto/cline/models.proto` 的 ModelsService 从 22 个 RPC 删到 4 个（refreshOpenAiModels + 3×updateApiConfiguration）；连带删 `VsCodeLmModelsArray`/`LanguageModelChatSelector` 两个消息；`state.proto`/`models.proto` 的 `vs_code_lm_model_selector` 字段类型改 string（state-keys.ts 同步）。
+- **vscode-lm 全链路清除**：provider 文件（带 `declare module "vscode"` 增强）、transform、controller、webview 卡片、ApiOptions 增强块。**断链 28 处的根源是类型增强被删**，不是普通引用残留。
+- **webview 死 UI**：删 42 个 provider 卡片 + 11 个 ModelPicker + ClineAccountInfoCard + FeaturedModelCard + 3 个残留测试；`ApiOptions.tsx` 从 585 行重写为 ~290 行（只渲染 DeepSeek + OpenAI 兼容两张卡）。
+- **ExtensionStateContext 拆弹**：删 2 个死订阅、7 个死刷新函数、2 个自动刷新 effect 及 context 导出/接口声明（-145 行）。这两处订阅在 webview 挂载时无条件调用已删 RPC，不删必崩。
+- **构建链修复**：`npm prune` 清 extraneous 包（vsce 打包前提）→ 顺带清出批次 1 漏网的测试残留（hooks/prompts/webview 两侧 0 残留）→ `vsce package` 成功（8.7MB/100 文件，比批次 2b 的 9.57MB 小 ~0.9MB）→ PowerShell sideload 安装验证通过。
+- **质量门**：扩展侧 tsc 0 错误 + webview `tsc -b`（app 配置）0 错误 + `npm run compile` exit=0。
+
+## 3.5 账号/登录体系移除（2026-10-18，compile 全绿 + .vsix 8.65MB sideload 通过）
+
+**webview 删除**：`components/account/`（AccountView + AccountWelcomeView）、`RemoteConfigSection`、`ClineAuthContext`、`StorybookDecorator`、18 个 `.stories.tsx`、`SpendLimitError`。
+**webview 清理**：Providers 去 AuthProvider；App 去 AccountView/showAccount；Navbar 重写（去账号项）；SettingsView 去 activeOrganization/UserOrganization；WelcomeSection 去 clineUser 过滤与 AccountServiceClient；CreditLimitError 重写（去组织额度链接）；ErrorRow 去 auth/SpendLimit 分支；ExtensionStateContext 去 showAccount/navigateToAccount/hideAccount + 账号按钮订阅（-60 行）。
+**扩展删除**：`src/services/account/`、`src/services/auth/`（整个 OAuth 体系）、`src/core/controller/account/`、`src/core/controller/ocaAccount/`、`subscribeToAccountButtonClicked`、`src/hosts/external/AuthHandler`。
+**扩展清理**：controller/index.ts（去 3 服务字段/初始化/4 个账号方法/remoteConfigTimer 整套）；extension.ts（去 AccountButton 命令注册 + clineAccountId 密钥监听 + 3 个 import）；updateSettings(+Cli)（去环境切换时的登出调用）；SharedUriHandler（删 /auth、/auth/oca 两个路由）；WebFetch/WebSearch handler 重写为移除提示桩（原为 cline.bot 云端 API 客户端，本地版无账号不可用）；TelemetryService/ITelemetryProvider/NoopTelemetryProvider（ClineAccountUserInfo → UserInfo）；remote-config/utils（canDisableRemoteConfig 恒 false）；registry.ts 去 AccountButton。
+**proto**：account.proto 删 AccountService 16 RPC；oca_account.proto 删 OcaAccountService 3 RPC；ui.proto 删 subscribeToAccountButtonClicked。
+**保留**：state.proto 的 userInfo 字段与 setUserInfo（休眠字段，恒 undefined，同 onboardingModels 处理）。
+
+## 3.6 browser 子系统删除 + 联网能力重建（2026-10-18，compile 全绿 + .vsix 7.64MB sideload 通过）
+
+**决策**：用户确认"不需要操控真实浏览器" → browser 工具整体删除；`@url` mention 改用 **DeepSeek Fetch API**；`web_search`/`web_fetch` 从"移除桩"**复活为真实现**，底层走 DeepSeek Search/Fetch API（模型可自主联网搜索）。
+
+**新增**：`src/services/deepseek-web/DeepSeekWebClient.ts`——DeepSeek 官方 Search/Fetch 客户端（Bearer 鉴权，`/v1/tools/search`、`/v1/tools/fetch`，5 元/千次成功请求，Search/Fetch 各 5 QPS；错误码 401/402/404/429 映射为中文提示）。
+
+**删除**：`BrowserToolHandler`、`src/services/browser/`（4 文件：BrowserDiscovery/BrowserSession/UrlContentFetcher/utils）、`src/core/controller/browser/`（5 controller）、`prompts/.../tools/browser_action.ts`、webview 的 BrowserSettingsMenu/BrowserSessionRow/BrowserSettingsSection、`src/shared/BrowserSettings.ts`、`proto/cline/browser.proto`、`ClineDefaultTool.BROWSER` 枚举项、package.json 的 `puppeteer-core`+`puppeteer-chromium-resolver`；另删 `src/core/prompts/system-prompt-legacy/`（2 文件，全仓零引用的死代码，因引用已删模块而阻塞编译）。
+
+**清理**：ToolExecutorCoordinator 注册、`tools/init.ts`、12 个 prompt 变体配置的 BROWSER 项、`autoApprove.ts`（3 处）、state.proto 的 `browser_settings` 字段与 `BrowserSettingsUpdate` 消息、state-keys、`ExtensionMessage.ExtensionState`、`SystemPromptContext`、capabilities/rules/spec/tool_use 的浏览器提示词占位符、Task/ToolExecutor/TaskConfig/SubagentRunner/TelemetryService/newTask + 三个 update 文件（updateSettings/updateTaskSettings/updateSettingsCli）。
+
+**关键修正（否则功能形同虚设）**：12 个 prompt 变体配置**原本不含** `WEB_SEARCH`/`WEB_FETCH`，仅删 BROWSER 会导致复活的工具永远不会被模型看到——已为缺失的变体（generic/glm/gemini-3/hermes/trinity/template）补齐两项。
+
+**提示词广告条件**：`web_search`/`web_fetch` 的 `contextRequirements` 由 `providerId === "cline" && clineWebToolsEnabled` 改为 `providerId === "deepseek"`；执行期仍有 API Key 门禁（无 Key 返回中文指引而非静默失败）。
+
+## 3.7 测试模式残留 + context 死字段清理（2026-10-18，compile 全绿 + .vsix 7.64MB/98 文件 sideload 通过）
+
+**测试模式删除**：`src/services/test/`（TestMode 107 行 + TestServer 450 行 + GitHelper 218 行）、`src/core/controller/ui/getWebviewHtml.ts`、`src/hosts/vscode/hostbridge/testing/`、`proto/host/testing.proto`（TestingService）、`proto/cline/ui.proto` 的 `getWebviewHtml` RPC；调用点清理 `extension.ts`（initializeTestMode + watchers 注册）与 `common.ts`（cleanupTestMode）。
+- **坑**：`getWebviewHtml` 同名 RPC **同时存在于 host/testing.proto 与 cline/ui.proto**——只删前者会让生成代码继续引用已删控制器；两个都要删。
+
+**context 死字段清理**（webview）：删除 12 个由已删 RPC 供给、恒为空的模型状态字段（onboardingModels/clineModels/openRouterModels/vercelAiGatewayModels/hicapModels/shengSuanYunModels/liteLlmModels/openAiModels/requestyModels/groqModels/basetenModels/huggingFaceModels）及其 setter、state、接口声明、contextValue 导出。
+- 消费方同步清理：`providerUtils.ts` 删两个零引用导出（`getModelsForProvider` 89→ 删、`getProviderInfo` 删，文件 962→788 行）、`validate.ts` 删零引用的 `validateModelId`（216→184 行）、`ChatTextArea`（解构未用）、`WelcomeSection`（删写死 `provider: "cline"` 的 SetModel 横幅动作 + 依赖数组）。
+- **保留**：`onboardingModels` 是 `ExtensionState`（手写接口 + proto）的必需字段，webview 初始 state 与 controller 里均保留 `undefined` 休眠值。
+- **留给后续**：`normalizeApiConfiguration` 里约 40 个不可达 provider 分支（用的是 `@shared/api.ts` 常量、不耦合 context）——归入"api.ts 5323 行死常量清理"批次统一处理。
+
+## 3.8 模型常量与 provider 分支清理（2026-10-18，三绿 + .vsix 7.62MB/98 文件 sideload 通过）
+
+**`src/shared/api.ts`：5323 → 625 行。** `sed` 删除五段死模型常量：`434,918`（claudeCode/bedrock）、`1040,1554`（vertex/vertexGlobal）、`1568,1840`（gemini）、`1841,2304`（openAiNative/openAiCodex）、`2363,5323`（huggingFace/Qwen/doubao/mistral/LiteLLM/askSage/nebius/wandb/xai/sambanova/cerebras/groq/baseten/moonshot/huawei/minimax/nous/shengSuanYun/zai 等）。保留 `ApiProvider`/`ModelInfo`/`OpenAiCompatibleModelInfo`/`OcaModelInfo`/anthropic*/openRouter*/`openAiModelInfoSaneDefaults`/`deepSeek*`/`hicapModelInfoSaneDefaults` 等仍在被引用的部分（备份 `/tmp/api.ts.bak`）。
+
+**provider 相关文件**：
+- `src/shared/storage/provider-keys.ts` 143 → 26 行：只留 `getProviderModelIdKey` + `ProviderKeyMap = { openai: "OpenAiModelId" }`，删 `ProviderToApiKeyMap` / `ProviderDefaultModelMap`。
+- `webview-ui/.../providerUtils.ts` 788 → 352 行：`normalizeApiConfiguration` 只留 `case "deepseek"`、`case "openai"` 与 `default`（其余 provider 一律按 OpenAI 兼容处理，`openAiModelInfoSaneDefaults`）；`getModeSpecificFields` 只留 `case "openai"` + default。
+
+**LiteLLM / Bedrock 状态与转换清理**（api.ts 删掉 `LiteLLMModelInfo` / `BedrockModelId` 后暴露）：
+- `src/shared/storage/state-keys.ts`：删 `planModeLiteLlmModelInfo` / `actModeLiteLlmModelInfo` 两个键及 `LiteLLMModelInfo` import。
+- `src/shared/proto-conversions/models/api-configuration-conversion.ts`：删 `convertLiteLLMModelInfoToProto` / `convertProtoToLiteLLMModelInfo` 两个函数及 4 处调用，去掉两处 `as BedrockModelId` 强转（`state-keys` 里该字段本就是 `string | undefined`）。
+- `src/shared/proto-conversions/models/typeConversion.ts`：删 `fromProtobufLiteLLMModelInfo`；`src/core/controller/models/updateApiConfigurationProto.ts` 同步删两处赋值。
+
+**坑与流程**：
+- 改 `state-keys.ts` 后**必须** `node scripts/generate-state-proto.mjs && npm run protos`（前者只在 lint-staged 里自动跑，本地不 commit 不会触发）。动手前先空跑一次比对 diff，确认 `proto/cline/state.proto` 与 `state-keys` 同步再改。
+- webview 侧会连带报错：`providerUtils.ts` 的 `liteLlmModelInfo`、`ModelInfoView.tsx` 残留的 `isGemini` 守卫（整块 `{!isGemini && (...)}` 删掉，不是替换符号）。**删 import 时只删整行，绝不替换成凭空构造的名字**（老毛病，已复发 6 次）。
+- 未用 import 需 `npx biome check --write --unsafe <file>` 才真正删除，普通 `--write` 不生效。
+
+**剩余（归后续 provider 状态清理批次）**：`state-keys.ts` 仍有 ollama / lmStudio / requesty / together / fireworks / sapAiCore / huggingFace / groq / baseten 等不可达 provider 键；`src/shared/remote-config/schema.ts` 与 `src/core/storage/state-migrations.ts` 里的 bedrock / liteLlm 迁移与字段也未动。
+
 ## 4. 功能删除（批次 3）
 
 - `src/core/controller/worktree/`（多 worktree/多任务并行）、`src/core/task/tools/subagent/`（subagent 工具）。

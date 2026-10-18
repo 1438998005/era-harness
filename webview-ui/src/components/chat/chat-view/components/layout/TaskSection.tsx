@@ -16,6 +16,7 @@ interface TaskSectionProps {
 	selectedModelInfo: {
 		supportsPromptCache: boolean
 		supportsImages: boolean
+		priceCurrency?: "USD" | "CNY"
 	}
 	messageHandlers: MessageHandlers
 	lastProgressMessageText?: string
@@ -44,6 +45,7 @@ export const TaskSection: React.FC<TaskSectionProps> = ({
 			lastProgressMessageText={lastProgressMessageText}
 			onClose={messageHandlers.handleTaskCloseButtonClick}
 			onSendMessage={messageHandlers.handleSendMessage}
+			priceCurrency={selectedModelInfo.priceCurrency}
 			showFocusChainPlaceholder={showFocusChainPlaceholder}
 			task={task}
 			tokensIn={apiMetrics.totalTokensIn}
