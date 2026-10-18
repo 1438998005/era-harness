@@ -31,7 +31,7 @@ export function normalizeApiConfiguration(
 	currentMode: Mode,
 ): NormalizedApiConfig {
 	const provider =
-		(currentMode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "anthropic"
+		(currentMode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "deepseek"
 
 	const modelId = currentMode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
 
@@ -86,6 +86,9 @@ export function normalizeApiConfiguration(
  * @param apiConfiguration The API configuration object
  * @param mode The current mode ("plan" or "act")
  * @returns Object containing mode-specific field values for clean destructuring
+ *
+ * era harness: 保留完整输出键形状以兼容既有消费方；仅 DeepSeek / OpenAI 兼容相关的值有效，
+ * 其余 provider 字段恒为 undefined（其对应的配置字段已随减法剥离）。
  */
 export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undefined, mode: Mode) {
 	if (!apiConfiguration) {
@@ -95,44 +98,11 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			apiModelId: undefined,
 
 			// Provider-specific model IDs
-			togetherModelId: undefined,
-			fireworksModelId: undefined,
-			lmStudioModelId: undefined,
-			ollamaModelId: undefined,
-			liteLlmModelId: undefined,
-			requestyModelId: undefined,
 			openAiModelId: undefined,
-			openRouterModelId: undefined,
-			clineModelId: undefined,
-			groqModelId: undefined,
-			basetenModelId: undefined,
-			huggingFaceModelId: undefined,
-			huaweiCloudMaasModelId: undefined,
-			hicapModelId: undefined,
-			aihubmixModelId: undefined,
-			nousResearchModelId: undefined,
-			shengSuanYunModelId: undefined,
-			vercelAiGatewayModelId: undefined,
 
 			// Model info objects
 			openAiModelInfo: undefined,
-			liteLlmModelInfo: undefined,
-			openRouterModelInfo: undefined,
-			clineModelInfo: undefined,
-			requestyModelInfo: undefined,
-			groqModelInfo: undefined,
-			basetenModelInfo: undefined,
-			huggingFaceModelInfo: undefined,
-			vsCodeLmModelSelector: undefined,
-			aihubmixModelInfo: undefined,
-			shengSuanYunModelInfo: undefined,
-
-			// AWS Bedrock fields
-			awsBedrockCustomSelected: undefined,
-			awsBedrockCustomModelBaseId: undefined,
-
-			// Huawei Cloud Maas Model Info
-			huaweiCloudMaasModelInfo: undefined,
+			deepSeekModelInfo: undefined,
 
 			// Other mode-specific fields
 			thinkingBudgetTokens: undefined,
@@ -140,95 +110,22 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 		}
 	}
 
-	const openRouterModelId =
-		mode === "plan" ? apiConfiguration.planModeOpenRouterModelId : apiConfiguration.actModeOpenRouterModelId
-	const openRouterModelInfo =
-		mode === "plan" ? apiConfiguration.planModeOpenRouterModelInfo : apiConfiguration.actModeOpenRouterModelInfo
-
-	// Backward compatibility: Cline previously stored model selection in OpenRouter keys.
-	const clineModelId =
-		(mode === "plan" ? apiConfiguration.planModeClineModelId : apiConfiguration.actModeClineModelId) || openRouterModelId
-	const clineModelInfo =
-		(mode === "plan" ? apiConfiguration.planModeClineModelInfo : apiConfiguration.actModeClineModelInfo) ||
-		openRouterModelInfo
-
 	return {
 		// Core fields
 		apiProvider: mode === "plan" ? apiConfiguration.planModeApiProvider : apiConfiguration.actModeApiProvider,
 		apiModelId: mode === "plan" ? apiConfiguration.planModeApiModelId : apiConfiguration.actModeApiModelId,
 
-		// Provider-specific model IDs
-		togetherModelId: mode === "plan" ? apiConfiguration.planModeTogetherModelId : apiConfiguration.actModeTogetherModelId,
-		fireworksModelId: mode === "plan" ? apiConfiguration.planModeFireworksModelId : apiConfiguration.actModeFireworksModelId,
-		lmStudioModelId: mode === "plan" ? apiConfiguration.planModeLmStudioModelId : apiConfiguration.actModeLmStudioModelId,
-		ollamaModelId: mode === "plan" ? apiConfiguration.planModeOllamaModelId : apiConfiguration.actModeOllamaModelId,
-		liteLlmModelId: mode === "plan" ? apiConfiguration.planModeLiteLlmModelId : apiConfiguration.actModeLiteLlmModelId,
-		requestyModelId: mode === "plan" ? apiConfiguration.planModeRequestyModelId : apiConfiguration.actModeRequestyModelId,
+		// Provider-specific model IDs (era harness: 仅 OpenAI 兼容保留)
 		openAiModelId: mode === "plan" ? apiConfiguration.planModeOpenAiModelId : apiConfiguration.actModeOpenAiModelId,
-		openRouterModelId,
-		clineModelId,
-		groqModelId: mode === "plan" ? apiConfiguration.planModeGroqModelId : apiConfiguration.actModeGroqModelId,
-		basetenModelId: mode === "plan" ? apiConfiguration.planModeBasetenModelId : apiConfiguration.actModeBasetenModelId,
-		huggingFaceModelId:
-			mode === "plan" ? apiConfiguration.planModeHuggingFaceModelId : apiConfiguration.actModeHuggingFaceModelId,
-		huaweiCloudMaasModelId:
-			mode === "plan" ? apiConfiguration.planModeHuaweiCloudMaasModelId : apiConfiguration.actModeHuaweiCloudMaasModelId,
-		ocaModelId: mode === "plan" ? apiConfiguration.planModeOcaModelId : apiConfiguration.actModeOcaModelId,
-		hicapModelId: mode === "plan" ? apiConfiguration.planModeHicapModelId : apiConfiguration.actModeHicapModelId,
-		aihubmixModelId: mode === "plan" ? apiConfiguration.planModeAihubmixModelId : apiConfiguration.actModeAihubmixModelId,
-		nousResearchModelId:
-			mode === "plan" ? apiConfiguration.planModeNousResearchModelId : apiConfiguration.actModeNousResearchModelId,
-		vercelAiGatewayModelId:
-			mode === "plan" ? apiConfiguration.planModeVercelAiGatewayModelId : apiConfiguration.actModeVercelAiGatewayModelId,
-		shengSuanYunModelId:
-			mode === "plan" ? apiConfiguration.planModeShengSuanYunModelId : apiConfiguration.actModeShengSuanYunModelId,
 
-		// Model info objects
+		// Model info objects (era harness: 仅 OpenAI 兼容 / DeepSeek 保留)
 		openAiModelInfo: mode === "plan" ? apiConfiguration.planModeOpenAiModelInfo : apiConfiguration.actModeOpenAiModelInfo,
 		deepSeekModelInfo:
 			mode === "plan" ? apiConfiguration.planModeDeepSeekModelInfo : apiConfiguration.actModeDeepSeekModelInfo,
-		openRouterModelInfo,
-		clineModelInfo,
-		requestyModelInfo:
-			mode === "plan" ? apiConfiguration.planModeRequestyModelInfo : apiConfiguration.actModeRequestyModelInfo,
-		groqModelInfo: mode === "plan" ? apiConfiguration.planModeGroqModelInfo : apiConfiguration.actModeGroqModelInfo,
-		basetenModelInfo: mode === "plan" ? apiConfiguration.planModeBasetenModelInfo : apiConfiguration.actModeBasetenModelInfo,
-		huggingFaceModelInfo:
-			mode === "plan" ? apiConfiguration.planModeHuggingFaceModelInfo : apiConfiguration.actModeHuggingFaceModelInfo,
-		vsCodeLmModelSelector:
-			mode === "plan" ? apiConfiguration.planModeVsCodeLmModelSelector : apiConfiguration.actModeVsCodeLmModelSelector,
-		hicapModelInfo: mode === "plan" ? apiConfiguration.planModeHicapModelInfo : apiConfiguration.actModeHicapModelInfo,
-		aihubmixModelInfo:
-			mode === "plan" ? apiConfiguration.planModeAihubmixModelInfo : apiConfiguration.actModeAihubmixModelInfo,
-		vercelAiGatewayModelInfo:
-			mode === "plan"
-				? apiConfiguration.planModeVercelAiGatewayModelInfo
-				: apiConfiguration.actModeVercelAiGatewayModelInfo,
-		shengSuanYunModelInfo:
-			mode === "plan" ? apiConfiguration.planModeShengSuanYunModelInfo : apiConfiguration.actModeShengSuanYunModelInfo,
 
-		// AWS Bedrock fields
-		awsBedrockCustomSelected:
-			mode === "plan"
-				? apiConfiguration.planModeAwsBedrockCustomSelected
-				: apiConfiguration.actModeAwsBedrockCustomSelected,
-		awsBedrockCustomModelBaseId:
-			mode === "plan"
-				? apiConfiguration.planModeAwsBedrockCustomModelBaseId
-				: apiConfiguration.actModeAwsBedrockCustomModelBaseId,
-
-		// Huawei Cloud Maas Model Info
-		huaweiCloudMaasModelInfo:
-			mode === "plan"
-				? apiConfiguration.planModeHuaweiCloudMaasModelInfo
-				: apiConfiguration.actModeHuaweiCloudMaasModelInfo,
-
-		// Other mode-specific fields
-		thinkingBudgetTokens:
-			mode === "plan" ? apiConfiguration.planModeThinkingBudgetTokens : apiConfiguration.actModeThinkingBudgetTokens,
+		// Other mode-specific fields (thinking budget 随非目标 provider 已剥离)
+		thinkingBudgetTokens: undefined,
 		reasoningEffort: mode === "plan" ? apiConfiguration.planModeReasoningEffort : apiConfiguration.actModeReasoningEffort,
-		// Oracle Code Assist
-		ocaModelInfo: mode === "plan" ? apiConfiguration.planModeOcaModelInfo : apiConfiguration.actModeOcaModelInfo,
 	}
 }
 
@@ -257,8 +154,6 @@ export async function syncModeConfigurations(
 		// Always sync common fields
 		planModeApiProvider: sourceFields.apiProvider,
 		actModeApiProvider: sourceFields.apiProvider,
-		planModeThinkingBudgetTokens: sourceFields.thinkingBudgetTokens,
-		actModeThinkingBudgetTokens: sourceFields.thinkingBudgetTokens,
 		planModeReasoningEffort: sourceFields.reasoningEffort,
 		actModeReasoningEffort: sourceFields.reasoningEffort,
 	}

@@ -925,14 +925,6 @@ export class StateManager {
 		// Build secrets object
 		const secrets = Object.fromEntries(SecretKeys.map((key) => [key, this.getSecret(key)])) as Secrets
 
-		// Preserve legacy fallback behavior for LiteLLM API key:
-		// if a remoteLiteLlmApiKey is set (via remote config), it should
-		// take precedence over the local liteLlmApiKey.
-		const remoteLiteLlmApiKey = this.secretsCache["remoteLiteLlmApiKey"]
-		if (remoteLiteLlmApiKey !== undefined && remoteLiteLlmApiKey !== null && remoteLiteLlmApiKey !== "") {
-			secrets.liteLlmApiKey = remoteLiteLlmApiKey
-		}
-
 		// Build API handler settings object with task override support
 		const settings = Object.fromEntries(ApiHandlerSettingsKeys.map((key) => [key, this.getSettingWithOverride(key)]))
 

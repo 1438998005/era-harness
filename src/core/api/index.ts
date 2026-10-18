@@ -49,9 +49,6 @@ function createHandlerForProvider(
 				onRetryAttempt: options.onRetryAttempt,
 				openAiApiKey: options.openAiApiKey,
 				openAiBaseUrl: options.openAiBaseUrl,
-				azureApiVersion: options.azureApiVersion,
-				azureIdentity: options.azureIdentity,
-				openAiHeaders: options.openAiHeaders,
 				openAiModelId: mode === "plan" ? options.planModeOpenAiModelId : options.actModeOpenAiModelId,
 				openAiModelInfo: mode === "plan" ? options.planModeOpenAiModelInfo : options.actModeOpenAiModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
@@ -82,28 +79,6 @@ export function buildApiHandler(configuration: ApiConfiguration, mode: Mode): Ap
 
 	const apiProvider = mode === "plan" ? planModeApiProvider : actModeApiProvider
 
-	// Validate thinking budget tokens against model's maxTokens to prevent API errors
-	// wrapped in a try-catch for safety, but this should never throw
-	try {
-		const thinkingBudgetTokens = mode === "plan" ? options.planModeThinkingBudgetTokens : options.actModeThinkingBudgetTokens
-		if (thinkingBudgetTokens && thinkingBudgetTokens > 0) {
-			const handler = createHandlerForProvider(apiProvider, options, mode)
-
-			const modelInfo = handler.getModel().info
-			if (modelInfo?.maxTokens && modelInfo.maxTokens > 0 && thinkingBudgetTokens > modelInfo.maxTokens) {
-				const clippedValue = modelInfo.maxTokens - 1
-				if (mode === "plan") {
-					options.planModeThinkingBudgetTokens = clippedValue
-				} else {
-					options.actModeThinkingBudgetTokens = clippedValue
-				}
-			} else {
-				return handler // don't rebuild unless its necessary
-			}
-		}
-	} catch (error) {
-		Logger.error("buildApiHandler error:", error)
-	}
-
+	// era harness: DeepSeek / OpenAI 兼容不做 thinking budget 裁剪（该字段随非目标 provider 已剥离）
 	return createHandlerForProvider(apiProvider, options, mode)
 }

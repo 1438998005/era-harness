@@ -1,11 +1,9 @@
-import { DefaultAzureCredential, getBearerTokenProvider } from "@azure/identity"
-import { azureOpenAiDefaultApiVersion, ModelInfo, OpenAiCompatibleModelInfo, openAiModelInfoSaneDefaults } from "@shared/api"
+import { ModelInfo, OpenAiCompatibleModelInfo, openAiModelInfoSaneDefaults } from "@shared/api"
 import { normalizeOpenaiReasoningEffort } from "@shared/storage/types"
-import OpenAI, { AzureOpenAI } from "openai"
+import OpenAI from "openai"
 import type { ChatCompletionReasoningEffort, ChatCompletionTool } from "openai/resources/chat/completions"
-import { buildExternalBasicHeaders } from "@/services/EnvUtils"
 import { ClineStorageMessage } from "@/shared/messages/content"
-import { createOpenAIClient, fetch } from "@/shared/net"
+import { createOpenAIClient } from "@/shared/net"
 import { ApiHandler, CommonApiHandlerOptions } from "../index"
 import { withRetry } from "../retry"
 import { convertToOpenAiMessages } from "../transform/openai-format"
@@ -16,9 +14,6 @@ import { getOpenAIToolParams, ToolCallProcessor } from "../transform/tool-call-p
 interface OpenAiHandlerOptions extends CommonApiHandlerOptions {
 	openAiApiKey?: string
 	openAiBaseUrl?: string
-	azureApiVersion?: string
-	azureIdentity?: boolean
-	openAiHeaders?: Record<string, string>
 	openAiModelId?: string
 	openAiModelInfo?: OpenAiCompatibleModelInfo
 	reasoningEffort?: string
@@ -32,60 +27,16 @@ export class OpenAiHandler implements ApiHandler {
 		this.options = options
 	}
 
-	private getAzureAudienceScope(baseUrl?: string): string {
-		const url = baseUrl?.toLowerCase() ?? ""
-		if (url.includes("azure.us")) return "https://cognitiveservices.azure.us/.default"
-		if (url.includes("azure.com")) return "https://cognitiveservices.azure.com/.default"
-		return "https://cognitiveservices.azure.com/.default"
-	}
-
 	private ensureClient(): OpenAI {
 		if (!this.client) {
-			if (!this.options.openAiApiKey && !this.options.azureIdentity) {
-				throw new Error("OpenAI API key or Azure Identity Authentication is required")
+			if (!this.options.openAiApiKey) {
+				throw new Error("OpenAI API key is required")
 			}
 			try {
-				const baseUrl = this.options.openAiBaseUrl?.toLowerCase() ?? ""
-				const isAzureDomain = baseUrl.includes("azure.com") || baseUrl.includes("azure.us")
-				const externalHeaders = buildExternalBasicHeaders()
-				// Azure API shape slightly differs from the core API shape...
-				if (
-					this.options.azureApiVersion ||
-					(isAzureDomain && !this.options.openAiModelId?.toLowerCase().includes("deepseek"))
-				) {
-					if (this.options.azureIdentity) {
-						this.client = new AzureOpenAI({
-							baseURL: this.options.openAiBaseUrl,
-							azureADTokenProvider: getBearerTokenProvider(
-								new DefaultAzureCredential(),
-								this.getAzureAudienceScope(this.options.openAiBaseUrl),
-							),
-							apiVersion: this.options.azureApiVersion || azureOpenAiDefaultApiVersion,
-							defaultHeaders: {
-								...externalHeaders,
-								...this.options.openAiHeaders,
-							},
-							fetch,
-						})
-					} else {
-						this.client = new AzureOpenAI({
-							baseURL: this.options.openAiBaseUrl,
-							apiKey: this.options.openAiApiKey,
-							apiVersion: this.options.azureApiVersion || azureOpenAiDefaultApiVersion,
-							defaultHeaders: {
-								...externalHeaders,
-								...this.options.openAiHeaders,
-							},
-							fetch,
-						})
-					}
-				} else {
-					this.client = createOpenAIClient({
-						baseURL: this.options.openAiBaseUrl,
-						apiKey: this.options.openAiApiKey,
-						defaultHeaders: this.options.openAiHeaders,
-					})
-				}
+				this.client = createOpenAIClient({
+					baseURL: this.options.openAiBaseUrl,
+					apiKey: this.options.openAiApiKey,
+				})
 			} catch (error: any) {
 				throw new Error(`Error creating OpenAI client: ${error.message}`)
 			}
