@@ -1,6 +1,10 @@
 {
 	"list": [
 		{
+			"value": "free",
+			"label": "免费模型"
+		},
+		{
 			"value": "openai",
 			"label": "OpenAI Compatible"
 		},

@@ -77,7 +77,10 @@ const GLOBAL_STATE_FIELDS = {
 	lastDismissedInfoBannerVersion: { default: 0 as number },
 	lastDismissedModelBannerVersion: { default: 0 as number },
 	lastDismissedCliBannerVersion: { default: 0 as number },
-	nativeToolCallEnabled: { default: true as boolean },
+	// era harness：默认关原生工具调用。本 fork 仅保留 DeepSeek + 自定义 OpenAI 兼容两类 provider，
+	// 许多第三方端点不返回结构化 tool_calls（会把工具调用吐成正文文本），强开 native 会导致参数解析为空→重试→中断。
+	// 默认走 XML 提示（parseAssistantMessageV2 能稳定解析）；确认端点支持原生函数调用的用户可在「功能设置」手动开启。
+	nativeToolCallEnabled: { default: false as boolean },
 	remoteRulesToggles: { default: {} as ClineRulesToggles },
 	remoteWorkflowToggles: { default: {} as ClineRulesToggles },
 	remoteSkillsToggles: { default: {} as ClineRulesToggles },
@@ -123,7 +126,7 @@ const USER_SETTINGS_FIELDS = {
 	globalSkillsToggles: { default: {} as Record<string, boolean> },
 	telemetrySetting: { default: "unset" as TelemetrySetting },
 	planActSeparateModelsSetting: { default: false as boolean, isComputed: true },
-	enableCheckpointsSetting: { default: true as boolean },
+	enableCheckpointsSetting: { default: false as boolean },
 	shellIntegrationTimeout: { default: 4000 as number },
 	defaultTerminalProfile: { default: "default" as string },
 	terminalOutputLineLimit: { default: 500 as number },
@@ -171,11 +174,12 @@ const GLOBAL_STATE_AND_SETTINGS_FIELDS = { ...GLOBAL_STATE_FIELDS, ...SETTINGS_F
 // ============================================================================
 
 // Secret keys used in Api Configuration
-// era harness: 仅保留 DeepSeek / OpenAI 兼容所需的密钥 + MCP OAuth 密钥。
+// era harness: 仅保留 DeepSeek / OpenAI 兼容 / OVH AI Endpoints 所需的密钥 + MCP OAuth 密钥。
 const SECRETS_KEYS = [
 	"apiKey",
 	"openAiApiKey",
 	"deepSeekApiKey",
+	"ovhAiEndpointsApiKey", // OVHcloud AI Endpoints 可选 Key（免费模型第三渠道；留空走匿名 2rpm）
 	"openai-codex-oauth-credentials", // integrations/openai-codex 仍在（批次 3 才删），需其 OAuth 密钥位
 	"mcpOAuthSecrets",
 ] as const

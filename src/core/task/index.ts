@@ -103,7 +103,6 @@ import {
 	ClineToolResponseContent,
 	ClineUserContent,
 } from "@/shared/messages"
-import { ApiFormat } from "@/shared/proto/cline/models"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
 import { Session } from "@/shared/services/Session"
@@ -1992,9 +1991,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			workspaceRoots,
 			isSubagentRun: false,
 			isCliEnvironment,
-			enableNativeToolCalls:
-				providerInfo.model.info.apiFormat === ApiFormat.OPENAI_RESPONSES ||
-				this.stateManager.getGlobalStateKey("nativeToolCallEnabled"),
+			// era harness（0 门槛）：统一走 XML 文本工具调用，不再区分原生/非原生、也不暴露开关。
+			// 原生模式要求端点返回结构化 tool_calls；第三方端点常不返回而把调用吐成正文，
+			// 导致参数解析为空→重试→中断。关闭后模型走 XML 提示，由 parseAssistantMessageV2 稳定解析；
+			// 即便端点仍返回结构化 tool_calls，流式循环的 tool_calls 通道也会照常消费，因此天然兼容两条路径。
+			enableNativeToolCalls: false,
 			enableParallelToolCalling: this.isParallelToolCallingEnabled(),
 			terminalExecutionMode: this.terminalExecutionMode,
 			locale: preferredLanguage,
@@ -2408,9 +2409,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			}
 			const { response, text, images, files } = await this.ask(
 				"mistake_limit_reached",
-				this.api.getModel().id.includes("claude")
-					? `This may indicate a failure in Cline's thought process or inability to use a tool properly, which can be mitigated with some user guidance (e.g. "Try breaking down the task into smaller steps").`
-					: "Cline uses complex prompts and iterative task execution that may be challenging for less capable models. For best results, it's recommended to use Claude 4.5 Sonnet for its advanced agentic coding capabilities.",
+				"模型连续多次未能正确调用工具或推进任务，可能不擅长当前请求。你可以补充更明确的指引（例如把任务拆成更小的步骤）后继续，或开始新任务。",
 			)
 			if (response === "messageResponse") {
 				// Display the user's message in the chat UI
@@ -2629,6 +2628,8 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			"api_req_started",
 			JSON.stringify({
 				request: userContent.map((block) => formatContentBlockToMarkdown(block)).join("\n\n") + "\n\nLoading...",
+				// 请求一开始就写下模型名，流式期间用户就能看到本轮是谁在跑（免费 provider 每轮可能换候选）
+				modelId: model.id,
 			}),
 		)
 
@@ -2656,6 +2657,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		await this.messageStateHandler.updateClineMessage(lastApiReqIndex, {
 			text: JSON.stringify({
 				request: userContent.map((block) => formatContentBlockToMarkdown(block)).join("\n\n"),
+				modelId: model.id,
 			} satisfies ClineApiReqInfo),
 		})
 		await this.postStateToWebview()
@@ -3196,6 +3198,18 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			await this.processNativeToolCalls(assistantTextOnly, partialToolBlocks)
 			await this.flushAssistantPresentationOrThrow() // finalization is immediate so no coalesced content remains pending
 
+			// era harness（0 门槛）：部分模型（实测 GLM-5.3-Flash）把 <task_progress> 当成独立正文吐出来，
+			// 而不是作为工具调用内部的参数。此时解析器不会生成 tool_use，焦点链待办组件收不到更新（显示 0/0）。
+			// 兜底：扫描本轮正文里的独立 <task_progress> 块，把最后一个清单喂给焦点链，让待办正常启用。
+			// 正常情形（task_progress 作为工具参数）由 ToolExecutor 覆盖，二者互不影响。
+			if (this.FocusChainManager && assistantTextOnly.includes("<task_progress>")) {
+				const leakedProgress = [...assistantTextOnly.matchAll(/<task_progress>([\s\S]*?)<\/task_progress>/g)]
+				const lastBlock = leakedProgress[leakedProgress.length - 1]?.[1]
+				if (lastBlock && lastBlock.trim()) {
+					await this.FocusChainManager.updateFCListFromToolResponse(lastBlock.trim())
+				}
+			}
+
 			// now add to apiconversationhistory
 			// need to save assistant responses to file before proceeding to tool use since user can exit at any moment and we wouldn't be able to save the assistant's response
 			let didEndLoop = false
@@ -3222,7 +3236,20 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						type: "text",
 						text: formatResponse.noToolsUsed(this.useNativeToolCalls),
 					})
-					this.taskState.consecutiveMistakeCount++
+					// era harness（0 门槛）：本轮虽未调用工具，但只要模型产出了实质性文本（分析/汇报/计划）
+					// 或思考内容（尤其 PLAN 模式下用文本/推理沟通是正当行为），就视为正常推进，不计为错误。
+					// 仅当本轮既无工具、也无任何有效文本与思考（真正空转/卡住）时才累加计数。
+					// 真正的重复失控由 loop-detection（连续相同工具调用）兜底，无需靠此计数误杀正常任务。
+					const producedSubstantiveText = this.taskState.assistantMessageContent.some(
+						(block) => block.type === "text" && typeof block.content === "string" && block.content.trim().length > 0,
+					)
+					const reasoning = this.streamHandler.getHandlers().reasonsHandler.getCurrentReasoning() as
+						| { thinking?: string; summary?: unknown }
+						| undefined
+					const hasReasoning = Boolean(reasoning?.thinking && reasoning.thinking.trim().length > 0)
+					if (!producedSubstantiveText && !hasReasoning) {
+						this.taskState.consecutiveMistakeCount++
+					}
 				}
 
 				// Reset auto-retry counter for each new API request

@@ -42,6 +42,8 @@ README.marketplace.md
 .*.log
 *.log
 .verify/**
+# era harness：自测工具（test/toolcall 解析回归+回放）仅本地用，不随 vsix 分发
+test/**
 .gitattributes
 .prettierignore
 .husky/
@@ -91,3 +93,20 @@ storybook-static
 tmp-protoc/
 protoc.zip
 SUBTRACTION-PLAN.md
+
+# era harness 分发清洁：开发/上游遗留文件不进 vsix
+# 这些只在本地构建期使用（vsce prepublish 先从文件系统跑，再按本清单过滤进包）
+CLAUDE.md
+changelog.md
+CHANGELOG.md
+.env.example
+.gitmodules
+go.work.sum
+esbuild.mjs
+knip.json
+biome.jsonc
+.worktreeinclude
+.nycrc.unit.json
+scripts/**
+proto/**
+webview-ui/.storybook/**

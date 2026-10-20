@@ -71,29 +71,61 @@ export function getApiMetrics(messages: ClineMessage[]): ApiMetrics {
 	return result
 }
 
+export interface LastApiReqUsage {
+	/** 非缓存输入（Anthropic 口径；DeepSeek 恒为 0）*/
+	tokensIn: number
+	/** 缓存命中 */
+	cacheReads: number
+	/** 缓存未命中 / 写入 */
+	cacheWrites: number
+	/** 本次输入总量 = tokensIn + cacheReads + cacheWrites（= prompt_tokens）*/
+	total: number
+}
+
 /**
- * Gets the total token count from the last API request.
- *
- * This is used for context window progress display - it shows how much of the
- * context window is used in the current/most recent request, not cumulative totals.
- *
- * @param messages - An array of ClineMessage objects to process.
- * @returns The total tokens (tokensIn + tokensOut + cacheWrites + cacheReads) from the last api_req_started message, or 0 if none found.
+ * 读取最近一条 api_req_started 的分段用量（与 getLastApiReqTotalTokens 同口径）。
+ * 供上下文进度条旁的「命中」徽标使用，保证命中量与「已用」同属一次请求（否则
+ * 命中取累计值会大于取单次值的已用）。无数据时 total=0。
  */
-export function getLastApiReqTotalTokens(messages: ClineMessage[]): number {
+export function getLastApiReqUsage(messages: ClineMessage[]): LastApiReqUsage {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]
 		if (msg.type === "say" && msg.say === "api_req_started" && msg.text) {
 			try {
-				const { tokensIn, tokensOut, cacheWrites, cacheReads } = JSON.parse(msg.text)
-				const total = (tokensIn || 0) + (tokensOut || 0) + (cacheWrites || 0) + (cacheReads || 0)
+				const { tokensIn, cacheReads, cacheWrites } = JSON.parse(msg.text)
+				const ti = tokensIn || 0
+				const cr = cacheReads || 0
+				const cw = cacheWrites || 0
+				const total = ti + cr + cw
 				if (total > 0) {
-					return total
+					return { tokensIn: ti, cacheReads: cr, cacheWrites: cw, total }
 				}
 			} catch {
 				// Ignore JSON parse errors, continue searching
 			}
 		}
 	}
-	return 0
+	return { tokensIn: 0, cacheReads: 0, cacheWrites: 0, total: 0 }
+}
+
+/**
+ * Gets the total token count from the last API request.
+ *
+ * This is used for context window progress display - it shows how much of the
+ * context window is used in the current/most recent request, not cumulative totals.
+ *
+ * era harness 统一采用「加和」token 口径（与 ContextManager 的 totalTokens 一致）：
+ * 提供方上报的 usage 被拆成互不重叠的三段——
+ *   tokensIn = 非缓存输入，cacheReads = 缓存命中，cacheWrites = 缓存未命中/写入。
+ * 三者相加 = 本次输入总量（= DeepSeek/OpenAI 的 prompt_tokens），故上下文占用
+ * 取三者之和。tokensOut 是输出、不占本次输入窗口，排除。
+ * 旧数据里 DeepSeek 的 tokensIn 恒为 0（全进 cache 段），只取 tokensIn 会显示 0，
+ * 必须走加和口径。
+ *
+ * @param messages - An array of ClineMessage objects to process.
+ * @returns The context-window used tokens (tokensIn + cacheReads + cacheWrites) from
+ *          the last api_req_started message, or 0 if none found.
+ */
+export function getLastApiReqTotalTokens(messages: ClineMessage[]): number {
+	return getLastApiReqUsage(messages).total
 }

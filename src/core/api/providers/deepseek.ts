@@ -1,5 +1,5 @@
 import { DeepSeekModelId, deepSeekDefaultModelId, deepSeekModels, getDeepSeekModelInfo, ModelInfo } from "@shared/api"
-import { calculateApiCostOpenAI } from "@utils/cost"
+import { calculateDeepSeekCost } from "@shared/deepseekPricing"
 import OpenAI from "openai"
 import type { ChatCompletionTool as OpenAITool } from "openai/resources/chat/completions"
 import { buildExternalBasicHeaders } from "@/services/EnvUtils"
@@ -63,9 +63,10 @@ export class DeepSeekHandler implements ApiHandler {
 
 		const inputTokens = deepUsage?.prompt_tokens || 0 // sum of cache hits and misses
 		const outputTokens = deepUsage?.completion_tokens || 0
-		const cacheReadTokens = deepUsage?.prompt_cache_hit_tokens || 0
-		const cacheWriteTokens = deepUsage?.prompt_cache_miss_tokens || 0
-		const totalCost = calculateApiCostOpenAI(info, inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens)
+		const cacheReadTokens = deepUsage?.prompt_cache_hit_tokens || 0 // 缓存命中
+		const cacheWriteTokens = deepUsage?.prompt_cache_miss_tokens || 0 // 缓存未命中
+		// 精确计费：命中/未命中/输出三档，按当前峰谷时段×2（人民币）
+		const totalCost = calculateDeepSeekCost(info, cacheReadTokens, cacheWriteTokens, outputTokens)
 		const nonCachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens) // this will always be 0
 		yield {
 			type: "usage",

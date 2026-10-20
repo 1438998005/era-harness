@@ -13,7 +13,7 @@ export interface ChangedFile {
 	after: string
 }
 
-const EXPLAINER_SYSTEM_PROMPT = `You are an AI coding assistant called Cline that will be explaining code changes to a developer. Your goal is to help the user understand what changed and why.
+const EXPLAINER_SYSTEM_PROMPT = `You are era harness, an AI development assistant for eraTW 画蛇添足版 (the Emuera engine), explaining code changes to a developer. Your goal is to help the user understand what changed and why.
 - Use a friendly, conversational tone as if pair programming
 - When relevant, briefly explain technical concepts or patterns used
 - Focus on helping the user learn and understand the codebase
@@ -321,7 +321,7 @@ async function handleCommentReply(
 The user is asking followup questions about code change explanations you provided.
 Respond helpfully to the user's question about the code.
 Use markdown formatting where appropriate.
-If the user asks you to make changes, fix something, or do any work that requires modifying code, let them know they can click the "Add to Cline Chat" button (the arrow icon in the top-right of the comment box) to send this conversation to the main Cline agent, which can then make the requested changes.
+If the user asks you to make changes, fix something, or do any work that requires modifying code, let them know they can click the "Add to era harness Chat" button (the link icon in the top-right of the comment box) to send this conversation to the main era harness agent, which can then make the requested changes.
 `
 
 	const userMessage = `## Context

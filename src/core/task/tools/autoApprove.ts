@@ -133,6 +133,10 @@ export class AutoApprove {
 			if (!isWriteAllowedByScope(absPath, cwd)) {
 				return false
 			}
+			// era harness「按身份自动同意」：开启后，落在当前身份可写范围内的修改直接放行
+			if (this.stateManager.getGlobalSettingsKey("autoApprovalSettings").actions.autoApproveByIdentity) {
+				return true
+			}
 		}
 
 		if (this.stateManager.getGlobalSettingsKey("yoloModeToggled")) {

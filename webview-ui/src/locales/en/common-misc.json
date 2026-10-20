@@ -439,6 +439,7 @@
 		"older": "Older",
 		"selectAll": "Select All",
 		"selectNone": "Select None",
+		"deleteSelectedCount": "Delete {{count}} Selected",
 		"deleteAllHistory": "Delete All History"
 	},
 	"historyView": {

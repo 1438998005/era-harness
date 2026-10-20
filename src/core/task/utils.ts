@@ -33,6 +33,9 @@ export const updateApiReqMsg = async (params: UpdateApiReqMsgParams) => {
 	await params.messageStateHandler.updateClineMessage(params.lastApiReqIndex, {
 		text: JSON.stringify({
 			...currentApiReqInfo, // Spread the modified info (with retryStatus removed)
+			// 收尾时重新采样：免费 provider 动态路由，请求途中 failover 会换候选，
+			// 最终生效的模型以此刻 getModel() 为准（2026-10-19 用户需求：每轮展示）。
+			modelId: params.api.getModel().id,
 			tokensIn: params.inputTokens,
 			tokensOut: params.outputTokens,
 			cacheWrites: params.cacheWriteTokens,

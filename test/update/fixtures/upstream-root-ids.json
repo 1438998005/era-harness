@@ -1,0 +1,19 @@
+{
+	"#Emuera SkiaX0.77.0 APK经测试可用": "dfb3ba14065c246f79df58c5796f4d256e0d1c1d",
+	"#双击Emuera_skia开启游戏": "dfb3ba14065c246f79df58c5796f4d256e0d1c1d",
+	".gitignore": "e9c07944982fb7dae88256af90cada2ee0f62c01",
+	".nomedia": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+	"DEBUG_MODE.bat": "d2b86dcff0198908d363d6c49b2e8340ecb12a96",
+	"Debug Mode (拖曳启动).bat": "b9b8e222d51de49d659a21c314746dae191dc9d2",
+	"Emuera_skiaV16_x64.exe": "a126ada08f60ab03c5126914898161f2ae600e10",
+	"README.zh.md": "5b29a7a82c2780d0992a8508ba43e01acb31f816",
+	"SoundTouch_x64.dll": "70d3a9964a153355012a3440f1ee89a204b88e78",
+	"emuera.config": "838e68048368bf3e971ea603ba0e242f3ccacd82",
+	"icon.ico": "0de4adee9eb8e6867ba877aa0211668798a62070",
+	"lazyloading.cfg": "7f40f9770ff5669782a61ce770333d6ba230a2e9",
+	"lazyloading_player_readme.txt": "63f69d511dd6a210f29a8132f8a1d7e14beeb335",
+	"macro.txt": "f094a941e0342dd000bd7dcb3bb51ac0f89b1145",
+	"reraconfig.toml": "2c2ad77130c292d2e220ed5ae970f666dce01c02",
+	"setting.json": "9870a7ee19a8b5e4dc3f73491ab4467302588bc6",
+	"一键打包.bat": "c101b30d1cc469cff62519b7a3a75ce157cd6bdc"
+}

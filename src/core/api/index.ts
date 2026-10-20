@@ -4,6 +4,7 @@ import { ClineStorageMessage } from "@/shared/messages/content"
 import { Logger } from "@/shared/services/Logger"
 import { ClineTool } from "@/shared/tools"
 import { DeepSeekHandler } from "./providers/deepseek"
+import { FreeModelHandler } from "./providers/free"
 import { OpenAiHandler } from "./providers/openai"
 import { ApiStream, ApiStreamUsageChunk } from "./transform/stream"
 
@@ -44,6 +45,12 @@ function createHandlerForProvider(
 	mode: Mode,
 ): ApiHandler {
 	switch (apiProvider) {
+		case "free":
+			// 免费模型：OpenCode Zen + Kilo + OVH 三渠道路由，零配置可用（OVH 可选填 Key 提额）
+			return new FreeModelHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				ovhApiKey: options.ovhAiEndpointsApiKey,
+			})
 		case "openai":
 			return new OpenAiHandler({
 				onRetryAttempt: options.onRetryAttempt,

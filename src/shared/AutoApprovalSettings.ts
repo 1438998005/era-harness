@@ -20,6 +20,7 @@ export interface AutoApprovalSettings {
 		executeAllCommands?: boolean // Execute all commands
 		useBrowser: boolean // Use browser
 		useMcp: boolean // Use MCP servers
+		autoApproveByIdentity?: boolean // era harness：自动同意落在当前身份可写范围内的文件修改
 	}
 	// Global settings
 	enableNotifications: boolean // Show notifications for approval and task completion
@@ -39,6 +40,7 @@ export const DEFAULT_AUTO_APPROVAL_SETTINGS: AutoApprovalSettings = {
 		executeAllCommands: false,
 		useBrowser: false,
 		useMcp: true,
+		autoApproveByIdentity: false,
 	},
 	enableNotifications: false,
 }

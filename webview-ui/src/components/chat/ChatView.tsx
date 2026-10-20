@@ -2,7 +2,7 @@ import { combineApiRequests } from "@shared/combineApiRequests"
 import { combineCommandSequences } from "@shared/combineCommandSequences"
 import { combineErrorRetryMessages } from "@shared/combineErrorRetryMessages"
 import { combineHookSequences } from "@shared/combineHookSequences"
-import { getApiMetrics, getLastApiReqTotalTokens } from "@shared/getApiMetrics"
+import { getApiMetrics, getLastApiReqUsage } from "@shared/getApiMetrics"
 import { BooleanRequest, StringRequest } from "@shared/proto/cline/common"
 import { useCallback, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
@@ -76,7 +76,9 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 	// has to be after api_req_finished are all reduced into api_req_started messages
 	const apiMetrics = useMemo(() => getApiMetrics(modifiedMessages), [modifiedMessages])
 
-	const lastApiReqTotalTokens = useMemo(() => getLastApiReqTotalTokens(modifiedMessages) || undefined, [modifiedMessages])
+	// 上一次请求的分段用量（非缓存/命中/未命中），供进度条与「命中」徽标同口径使用。
+	const lastApiReqUsage = useMemo(() => getLastApiReqUsage(modifiedMessages), [modifiedMessages])
+	const lastApiReqTotalTokens = useMemo(() => lastApiReqUsage.total || undefined, [lastApiReqUsage])
 
 	// Use custom hooks for state management
 	const chatState = useChatState(messages)
@@ -341,7 +343,9 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 				{task ? (
 					<TaskSection
 						apiMetrics={apiMetrics}
+						identityMode={identity.mode}
 						lastApiReqTotalTokens={lastApiReqTotalTokens}
+						lastApiReqUsage={lastApiReqUsage}
 						lastProgressMessageText={lastProgressMessageText}
 						messageHandlers={messageHandlers}
 						selectedModelInfo={{

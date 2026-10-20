@@ -53,6 +53,13 @@ export function normalizeApiConfiguration(
 	}
 
 	switch (provider) {
+		case "free":
+			// 免费模型：路由自动选模型，无用户可选模型 id；元数据取保守默认（无 UI 消费）
+			return {
+				selectedProvider: "free",
+				selectedModelId: "",
+				selectedModelInfo: openAiModelInfoSaneDefaults,
+			}
 		case "deepseek":
 			const deepSeekResult = getProviderData(deepSeekModels, deepSeekDefaultModelId)
 			const deepSeekModelInfo =

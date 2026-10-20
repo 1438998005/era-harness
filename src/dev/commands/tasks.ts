@@ -239,36 +239,6 @@ function createRealisticMessageSequence(baseTimestamp: number, taskPrompt: strin
 		)
 	}
 
-	if (messageType === 2 || messageType === 4) {
-		// Browser actions
-		messages.push(
-			{
-				ts: getNextTimestamp(),
-				type: "ask",
-				ask: "browser_action_launch",
-				text: `https://example.com`,
-			},
-			{
-				ts: getNextTimestamp(),
-				type: "say",
-				say: "browser_action_result",
-				text: JSON.stringify({
-					logs: "Page loaded successfully",
-					screenshot:
-						"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-				}),
-			},
-			{
-				ts: getNextTimestamp(),
-				type: "say",
-				say: "browser_action",
-				text: JSON.stringify({
-					action: "close",
-				}),
-			},
-		)
-	}
-
 	// Add checkpoint
 	messages.push({
 		ts: getNextTimestamp(),

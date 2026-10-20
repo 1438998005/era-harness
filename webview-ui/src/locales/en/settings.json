@@ -31,6 +31,18 @@
 		"providerManagedByOrg": "Provider options are managed by your organization's remote configuration",
 		"searchSelectProvider": "Search and select provider...",
 		"clearSearch": "Clear search",
+		"freeModelDesc": "Free models route automatically across two channels — Kilo Code and OVHcloud AI Endpoints — with no configuration required. Candidates are tried in the priority order below until one succeeds; requests with images only route to vision-capable models.",
+		"freePoolTitle": "Model pool (tried in priority order)",
+		"freePoolHint": "Earlier candidates take priority; rate-limited, region-blocked or unavailable models fail over to the next one automatically.",
+		"freePoolModel": "Model",
+		"freePoolLane": "Channel",
+		"freePoolContext": "Context",
+		"freePoolVision": "Vision",
+		"freePoolProxy": "Needs proxy",
+		"freePoolProxyTip": "Region-restricted; requires a proxy to reach this model.",
+		"freePoolCollect": "Plaintext",
+		"freePoolCollectTip": "Prompts on this channel are transmitted and collected in plaintext by the upstream provider and may be used to train their models. Do not send sensitive content.",
+		"freeFailoverHint": "If all candidates fail, configure a DeepSeek API key or switch to another provider in API settings.",
 		"model": "Model",
 		"selectModel": "Select a model...",
 		"searchSelectModel": "Search and select a model...",
@@ -229,6 +241,7 @@
 		"baseUrl": "Base URL",
 		"baseUrlOptional": "Base URL (optional)",
 		"enterBaseUrl": "Enter base URL...",
+		"baseUrlHint": "Only the base address (e.g. https://api.xxx.cn/v1). Do NOT append /chat/completions or similar trailing paths, or you'll get a 404.",
 		"context": "Context:",
 		"input": "Input:",
 		"output": "Output:",
@@ -466,9 +479,6 @@
 			"noteModelSelection": "Note: The model selection is handled within your Dify application configuration.",
 			"platformDescription": "Dify is a platform that provides access to various AI models through a unified API. Configure your Dify instance URL and API key to get started.",
 			"baseUrlPlaceholder": "Enter base URL..."
-		},
-		"hicap": {
-			"apiKey": "Hicap API Key"
 		},
 		"huggingface": {
 			"apiKey": "Hugging Face API Key",

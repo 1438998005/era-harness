@@ -1,6 +1,8 @@
 import { StringRequest } from "@shared/proto/cline/common"
 import { memo } from "react"
 import { useTranslation } from "react-i18next"
+import { splitIdentityDirective } from "@/components/chat/identity/identity"
+import { currencySymbol, getPriceCurrency } from "@/components/settings/utils/pricingUtils"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { TaskServiceClient } from "@/services/grpc-client"
 
@@ -162,12 +164,17 @@ const HistoryPreview = ({ showHistoryView }: HistoryPreviewProps) => {
 												}}
 											/>
 										)}
-										<div className="history-task-description ph-no-capture">{item.task}</div>
+										<div className="history-task-description ph-no-capture">
+											{splitIdentityDirective(item.task ?? "").body.trim() || item.task}
+										</div>
 									</div>
 									<div className="history-meta-stack">
 										<span className="history-date">{formatDate(item.ts)}</span>
 										{item.totalCost != null && (
-											<span className="history-cost-chip">${item.totalCost.toFixed(2)}</span>
+											<span className="history-cost-chip">
+												{currencySymbol(getPriceCurrency(item.modelId))}
+												{item.totalCost.toFixed(2)}
+											</span>
 										)}
 									</div>
 								</div>

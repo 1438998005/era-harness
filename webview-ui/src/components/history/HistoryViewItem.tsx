@@ -14,6 +14,8 @@ import {
 } from "lucide-react"
 import { memo, useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { splitIdentityDirective } from "@/components/chat/identity/identity"
+import { currencySymbol, getPriceCurrency } from "@/components/settings/utils/pricingUtils"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { TaskServiceClient } from "@/services/grpc-client"
@@ -44,6 +46,12 @@ const HistoryViewItem = ({
 		() => pendingFavoriteToggles[item.id] ?? item.isFavorited,
 		[item.id, item.isFavorited, pendingFavoriteToggles],
 	)
+
+	// era harness：任务正文前缀了 <era-identity> 指令块（供模型读取），列表标题需剥掉它。
+	const displayTask = useMemo(() => {
+		const body = splitIdentityDirective(item.task ?? "").body.trim()
+		return body || item.task
+	}, [item.task])
 
 	const handleShowTaskWithId = useCallback((id: string) => {
 		TaskServiceClient.showTaskWithId(StringRequest.create({ value: id })).catch((error) =>
@@ -98,7 +106,7 @@ const HistoryViewItem = ({
 				}}>
 				<div className="flex items-center gap-2">
 					<div className="line-clamp-1 overflow-hidden break-words whitespace-pre-wrap flex-1 min-w-0">
-						<span className="ph-no-capture">{item.task}</span>
+						<span className="ph-no-capture">{displayTask}</span>
 					</div>
 					<div className="flex gap-2 flex-shrink-0">
 						<Button
@@ -142,7 +150,10 @@ const HistoryViewItem = ({
 					<div className="flex items-center justify-between w-full">
 						<div className="text-description text-xs uppercase">{formatDate(item.ts)}</div>
 						<div className="self-end flex items-center text-xs">
-							<span className="text-description">${item.totalCost?.toFixed(4) ?? 0}</span>
+							<span className="text-description">
+								{currencySymbol(getPriceCurrency(item.modelId))}
+								{item.totalCost?.toFixed(4) ?? 0}
+							</span>
 							{expanded ? (
 								<ChevronsDownUpIcon className="text-description" />
 							) : (

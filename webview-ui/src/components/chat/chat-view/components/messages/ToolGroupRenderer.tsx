@@ -7,7 +7,7 @@ import { cleanPathPrefix } from "@/components/common/CodeAccordian"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { FileServiceClient } from "@/services/grpc-client"
-import { getIconByToolName, getToolsNotInCurrentActivities, isLowStakesTool } from "../../utils/messageUtils"
+import { findRoundModelId, getIconByToolName, getToolsNotInCurrentActivities, isLowStakesTool } from "../../utils/messageUtils"
 
 interface ToolGroupRendererProps {
 	messages: ClineMessage[]
@@ -157,6 +157,13 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 
 	const summary = getToolGroupSummaryFromParsedTools(completedTools.map((item) => item.parsedTool))
 
+	// 本轮模型名（每轮模型名显示锚点之二）：无思考行的回合（纯工具分组可见）才在分组头显示；
+	// 有思考行的回合一律由思考行展示（giveUpAtReasoning=true 去重，见 messageUtils 注释）。
+	const roundModelId = useMemo(() => {
+		const firstTool = messages.find(isLowStakesTool)
+		return firstTool ? findRoundModelId(firstTool.ts, allMessages, true) : undefined
+	}, [messages, allMessages])
+
 	const handleOpenFile = useCallback((filePath: string) => {
 		FileServiceClient.openFileRelativePath(StringRequest.create({ value: filePath })).catch((err) =>
 			console.error("Failed to open file:", err),
@@ -175,7 +182,14 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 	return (
 		<div className={cn("px-4 py-2 ml-1 text-description")}>
 			{/* Header */}
-			<div className="text-[13px] text-description font-semibold mb-1">{summary}:</div>
+			<div className="text-[13px] text-description font-semibold mb-1">
+				{summary}:
+				{roundModelId && (
+					<span className="ml-1.5 font-normal text-[11px] opacity-80" title={roundModelId}>
+						{i18next.t("requestStart.model")}: {roundModelId}
+					</span>
+				)}
+			</div>
 
 			{/* Content - unified list of completed + active tools */}
 			<div className="min-w-0">

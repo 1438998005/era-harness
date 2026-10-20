@@ -151,7 +151,6 @@ message ModelsApiSecrets {
   optional string oca_refresh_token = 37;
   optional string minimax_api_key = 38;
   optional string aihubmix_api_key = 39;
-  optional string sheng_suan_yun_api_key = 40;
 }
 
 // API configuration options (non-secret settings)
@@ -241,8 +240,6 @@ message ModelsApiOptions {
   optional OpenAiCompatibleModelInfo plan_mode_aihubmix_model_info = 134;
   optional string plan_mode_cline_model_id = 135;
   optional OpenRouterModelInfo plan_mode_cline_model_info = 136;
-  optional string plan_mode_sheng_suan_yun_model_id = 137;
-  optional ShengSuanYunModelInfo plan_mode_sheng_suan_yun_model_info = 138;
 
   // Act mode configurations
   optional ApiProvider act_mode_api_provider = 200;
@@ -283,8 +280,6 @@ message ModelsApiOptions {
   optional OpenAiCompatibleModelInfo act_mode_aihubmix_model_info = 234;
   optional string act_mode_cline_model_id = 235;
   optional OpenRouterModelInfo act_mode_cline_model_info = 236;
-  optional string act_mode_sheng_suan_yun_model_id = 237;
-  optional ShengSuanYunModelInfo act_mode_sheng_suan_yun_model_info = 238;
 }
 
 // Request for updating API configuration (legacy - uses combined configuration)
@@ -415,12 +410,11 @@ enum ApiProvider {
   DIFY = 34;
   OCA = 35;
   MINIMAX = 36;
-  HICAP = 37;
   AIHUBMIX = 38;
   NOUSRESEARCH = 39;
   OPENAI_CODEX = 40;
   WANDB = 41;
-  SHENG_SUAN_YUN = 42;
+  FREE = 43;
 }
 
 enum ApiFormat {
@@ -449,27 +443,6 @@ message OpenAiCompatibleModelInfo {
   optional double temperature = 13;
   optional bool is_r1_format_required = 14;
   optional ApiFormat api_format = 15;
-}
-
-// Model info for ShengSuanYun models
-message ShengSuanYunModelInfo {
-  optional int64 max_tokens = 1;
-  optional int64 context_window = 2;
-  optional bool supports_images = 3;
-  bool supports_prompt_cache = 4;
-  optional double input_price = 5;
-  optional double output_price = 6;
-  optional double cache_writes_price = 7;
-  optional double cache_reads_price = 8;
-  optional string description = 9;
-  optional ThinkingConfig thinking_config = 10;
-  optional bool supports_global_endpoint = 11;
-  repeated string end_points = 12;
-}
-
-// Wrapper for multiple ShengSuanYun models
-message ShengSuanYunCompatibleModelInfo {
-  map<string, ShengSuanYunModelInfo> models = 1;
 }
 
 // Model info for LiteLLM models
@@ -573,15 +546,14 @@ message ModelsApiConfiguration {
   optional bool aws_use_global_inference = 77;
   optional string minimax_api_key = 78;
   optional string minimax_api_line = 79;
-  optional string hicap_model_id = 80;
-  optional string hicap_api_key = 81;
   optional string aihubmix_api_key = 82;
   optional string aihubmix_base_url = 83;
   optional string aihubmix_app_code = 84;
   optional string nous_research_api_key = 85;
   optional bool azure_identity = 86;
   optional string wandb_api_key = 87;
-  optional string sheng_suan_yun_api_key = 88;
+  // era harness：OVHcloud AI Endpoints（免费模型第三渠道）可选 API Key；有 key 400rpm，无 key 匿名 2rpm
+  optional string ovh_ai_endpoints_api_key = 89;
 
   // Plan mode configurations
   optional ApiProvider plan_mode_api_provider = 100;
@@ -619,16 +591,12 @@ message ModelsApiConfiguration {
   optional string plan_mode_oca_model_id = 131;
   optional OcaModelInfo plan_mode_oca_model_info = 132;
   optional string plan_mode_oca_reasoning_effort = 133;
-  optional string plan_mode_hicap_model_id = 134;
-  optional OpenRouterModelInfo plan_mode_hicap_model_info = 135;
   optional string plan_mode_aihubmix_model_id = 136;
   optional OpenAiCompatibleModelInfo plan_mode_aihubmix_model_info = 137;
   optional string plan_mode_nous_research_model_id = 138;
   optional string gemini_plan_mode_thinking_level = 139;
   optional string plan_mode_cline_model_id = 140;
   optional OpenRouterModelInfo plan_mode_cline_model_info = 141;
-  optional string plan_mode_sheng_suan_yun_model_id = 142;
-  optional ShengSuanYunModelInfo plan_mode_sheng_suan_yun_model_info = 143;
 
   // Act mode configurations
   optional ApiProvider act_mode_api_provider = 200;
@@ -666,14 +634,10 @@ message ModelsApiConfiguration {
   optional string act_mode_oca_model_id = 231;
   optional OcaModelInfo act_mode_oca_model_info = 232;
   optional string act_mode_oca_reasoning_effort = 233;
-  optional string act_mode_hicap_model_id = 234;
-  optional OpenRouterModelInfo act_mode_hicap_model_info = 235;
   optional string act_mode_aihubmix_model_id = 236;
   optional OpenAiCompatibleModelInfo act_mode_aihubmix_model_info = 237;
   optional string act_mode_nous_research_model_id = 238;
   optional string gemini_act_mode_thinking_level = 239;
   optional string act_mode_cline_model_id = 240;
   optional OpenRouterModelInfo act_mode_cline_model_info = 241;
-  optional string act_mode_sheng_suan_yun_model_id = 242;
-  optional ShengSuanYunModelInfo act_mode_sheng_suan_yun_model_info = 243;
 }

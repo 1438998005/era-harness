@@ -285,18 +285,26 @@ export class SearchFilesToolHandler implements IFullyManagedTool {
 		const searchResults = await Promise.all(searchPromises)
 		const searchDurationMs = performance.now() - searchStartTime
 
-		// Format and combine results
-		const results = this.formatSearchResults(config, searchResults, searchPaths)
-
-		// Only reset after a successful operation so repeated failures
-		// accumulate toward the yolo-mode mistake limit.
-		// If ALL searches failed, increment the mistake counter.
+		// A search "fails" only when ripgrep errored (e.g. the target path doesn't
+		// exist / isn't readable), which is different from a clean 0-match result.
 		const anySucceeded = searchResults.some((result) => result.success)
+
+		// era harness（0 门槛）：搜索执行失败（路径不存在 / ripgrep 报错）不再累加
+		// consecutiveMistakeCount。此前模型用工作区外的相对路径搜索会连续失败，3 次即误触
+		// mistake_limit 中断正常调研任务。失败已作为工具结果反馈给模型（见下方 diagnostic），
+		// 模型据此自纠路径/正则；真正的重复失控由 loop-detection（连续相同调用）兜底。
 		if (anySucceeded) {
 			config.taskState.consecutiveMistakeCount = 0
-		} else {
-			config.taskState.consecutiveMistakeCount++
 		}
+
+		// Format and combine results. When every search errored, replace the misleading
+		// "Found 0 results." with a diagnostic so the model can recover (e.g. use an
+		// absolute path for files outside the workspace).
+		const results = anySucceeded
+			? this.formatSearchResults(config, searchResults, searchPaths)
+			: formatResponse.toolError(
+					`Search could not run: the path may not exist or is unreadable (tried: ${relDirPath}). If the target is outside the current workspace, pass its absolute path instead of a relative name.`,
+				)
 
 		// Capture workspace search pattern telemetry
 		if (config.isMultiRootEnabled && config.workspaceManager) {

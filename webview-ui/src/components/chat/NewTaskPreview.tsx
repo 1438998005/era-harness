@@ -9,7 +9,7 @@ interface NewTaskPreviewProps {
 const NewTaskPreview: React.FC<NewTaskPreviewProps> = ({ context }) => {
 	const { t } = useTranslation("common")
 	return (
-		<div className="bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded-[3px] p-[14px] pb-[6px]">
+		<div className="bg-(--vscode-textBlockQuote-background) text-(--vscode-foreground) rounded-[3px] border border-(--vscode-panel-border) p-[14px] pb-[6px]">
 			<span style={{ fontWeight: "bold" }}>{t("newTaskPreview.task")}</span>
 			<MarkdownBlock markdown={context} />
 		</div>

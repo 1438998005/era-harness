@@ -13,6 +13,7 @@ import DynamicTextArea from "react-textarea-autosize"
 import styled from "styled-components"
 import ContextMenu from "@/components/chat/ContextMenu"
 import { CHAT_CONSTANTS } from "@/components/chat/chat-view/constants"
+import { ModelQuickSwitchMenu } from "@/components/chat/ModelQuickSwitchMenu"
 import SlashCommandMenu from "@/components/chat/SlashCommandMenu"
 import Thumbnails from "@/components/common/Thumbnails"
 import { normalizeApiConfiguration } from "@/components/settings/utils/providerUtils"
@@ -1089,10 +1090,6 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			updateHighlights()
 		}, [inputValue, handleInputChange, updateHighlights])
 
-		const handleModelButtonClick = () => {
-			navigateToSettingsModelPicker({ targetSection: "api-config" })
-		}
-
 		// Get model display name
 		const modelDisplayName = useMemo(() => {
 			const { selectedProvider, selectedModelId } = normalizeApiConfiguration(apiConfiguration, mode)
@@ -1101,11 +1098,15 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			if (!apiConfiguration) {
 				return unknownModel
 			}
+			// 免费模型没有可选模型 id（路由自动选模型），显示固定名称
+			if (selectedProvider === "free") {
+				return t("chat.freeModelName")
+			}
 			// 只显示模型名：`provider:model` 在 DeepSeek 下会变成
 			// 「deepseek:deepseek-flash」这种重复又占宽度的写法，容易把底部工具栏挤爆。
 			// era harness: 仅 DeepSeek / OpenAI 兼容，直接显示模型名。
 			return selectedModelId || selectedProvider
-		}, [apiConfiguration, mode])
+		}, [apiConfiguration, mode, t])
 
 		// Function to show error message for unsupported files for drag and drop
 		const showUnsupportedFileErrorMessage = () => {
@@ -1575,14 +1576,18 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 
 							<ModelContainer>
 								<ModelButtonWrapper>
-									<ModelDisplayButton
-										disabled={false}
-										onClick={handleModelButtonClick}
-										role="button"
-										tabIndex={0}
-										title={t("chat.openApiSettings")}>
-										<ModelButtonContent className="text-xs">{modelDisplayName}</ModelButtonContent>
-									</ModelDisplayButton>
+									<ModelQuickSwitchMenu
+										mode={mode}
+										trigger={
+											<ModelDisplayButton
+												disabled={false}
+												role="button"
+												tabIndex={0}
+												title={t("chat.quickSwitchTitle")}>
+												<ModelButtonContent className="text-xs">{modelDisplayName}</ModelButtonContent>
+											</ModelDisplayButton>
+										}
+									/>
 								</ModelButtonWrapper>
 							</ModelContainer>
 						</ButtonGroup>

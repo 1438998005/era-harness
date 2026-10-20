@@ -1,7 +1,10 @@
+import { isDeepSeekPeakHour } from "@shared/deepseekPricing"
+import { formatLargeNumber as formatTokenNumber } from "@utils/format"
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react"
 import React, { memo, useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { formatLargeNumber as formatTokenNumber } from "@/utils/format"
+import { getModeSpecificFields } from "@/components/settings/utils/providerUtils"
+import { useExtensionState } from "@/context/ExtensionStateContext"
 
 interface TokenUsageInfoProps {
 	tokensIn?: number
@@ -77,7 +80,12 @@ const TokenUsageDetails = memo<TokenUsageInfoProps>(({ tokensIn, tokensOut, cach
 		return TOKEN_DETAILS_CONFIG.map((config, index) => ({ ...config, value: values[index] })).filter((item) => item.value)
 	}, [tokensIn, tokensOut, cacheWrites, cacheReads, TOKEN_DETAILS_CONFIG])
 
-	if (!tokensIn) {
+	// 总输入 = 非缓存 + 命中 + 未命中（= prompt_tokens）；命中率 = 命中 / 总输入。
+	const totalInput = (tokensIn || 0) + (cacheReads || 0) + (cacheWrites || 0)
+	const hitRate = totalInput > 0 ? ((cacheReads || 0) / totalInput) * 100 : 0
+
+	// 只要四段任一有值就展示（DeepSeek 的 tokensIn 恒为 0，不能以它判断有无数据）。
+	if (totalInput === 0 && !(tokensOut || 0)) {
 		return <div>{t("contextWindow.noTokenData")}</div>
 	}
 
@@ -89,6 +97,12 @@ const TokenUsageDetails = memo<TokenUsageInfoProps>(({ tokensIn, tokensOut, cach
 					<span className="font-mono">{formatTokenNumber(item.value || 0)}</span>
 				</div>
 			))}
+			{(cacheReads || 0) > 0 && (
+				<div className="flex justify-between">
+					<span>{t("contextWindow.cacheHitRate")}</span>
+					<span className="font-mono">{`${hitRate.toFixed(0)}%`}</span>
+				</div>
+			)}
 		</div>
 	)
 })
@@ -105,6 +119,9 @@ export const ContextWindowSummary: React.FC<TaskContextWindowButtonsProps> = ({
 	autoCompactThreshold = 0,
 }) => {
 	const { t } = useTranslation("common")
+	// era harness：峰谷“计费时段”是 DeepSeek 专属（空闲/高峰双价），非 DeepSeek 模型不显示。
+	const { apiConfiguration, mode } = useExtensionState()
+	const isDeepSeek = getModeSpecificFields(apiConfiguration, mode).apiProvider === "deepseek"
 	// Accordion state
 	const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set())
 
@@ -179,6 +196,16 @@ export const ContextWindowSummary: React.FC<TaskContextWindowButtonsProps> = ({
 						tokensOut={tokensOut}
 					/>
 				</AccordionItem>
+			)}
+
+			{/* DeepSeek 峰谷计费时段提示（费用已在后端按时段×2 精确计入，此处仅作可见提示）；仅 DeepSeek 显示 */}
+			{isDeepSeek && (
+				<div className="flex justify-between items-center px-0.5 pt-1 mt-0.5 border-t border-(--vscode-panel-border) text-xs text-muted-foreground">
+					<span>{t("contextWindow.billingPeriod")}</span>
+					<span className="font-mono">
+						{isDeepSeekPeakHour() ? t("contextWindow.peak") : t("contextWindow.offPeak")}
+					</span>
+				</div>
 			)}
 		</div>
 	)

@@ -47,6 +47,7 @@ message AutoApprovalActions {
   optional bool execute_all_commands = 6;
   optional bool use_browser = 7;
   optional bool use_mcp = 8;
+  optional bool auto_approve_by_identity = 9;
 }
 
 // Auto approval settings for task execution
@@ -64,6 +65,7 @@ message Secrets {
   optional string deep_seek_api_key = 12;
   optional string mcp_o_auth_secrets = 43;
   optional string openai_codex_oauth_credentials = 44;
+  optional string ovh_ai_endpoints_api_key = 45;
 }
 
 // NOTE: Add new fields under API_HANDLER_SETTINGS_FIELDS or USER_SETTINGS_FIELDS

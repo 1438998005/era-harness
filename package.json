@@ -34,6 +34,30 @@
 	],
 	"main": "./dist/extension.js",
 	"contributes": {
+		"languages": [
+			{
+				"id": "era-erb",
+				"aliases": [
+					"Era ERB",
+					"era-erb",
+					"EraBasic"
+				],
+				"configuration": "./assets/erabasic/language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "era-erb",
+				"scopeName": "source.era-erb",
+				"path": "./assets/erabasic/era-erb.tmLanguage.json"
+			}
+		],
+		"snippets": [
+			{
+				"language": "era-erb",
+				"path": "./assets/erabasic/snippets.json"
+			}
+		],
 		"viewsContainers": {
 			"activitybar": [
 				{
@@ -147,6 +171,12 @@
 				"category": "era harness"
 			},
 			{
+				"command": "era-harness.updateGame",
+				"title": "%cline.command.updateGame%",
+				"category": "era harness",
+				"icon": "$(cloud-download)"
+			},
+			{
 				"command": "era-harness.reviewComment.reply",
 				"title": "%cline.command.reply%",
 				"category": "era harness",
@@ -201,6 +231,11 @@
 				{
 					"command": "era-harness.historyButtonClicked",
 					"group": "navigation@3",
+					"when": "view == era-harness.SidebarProvider"
+				},
+				{
+					"command": "era-harness.updateGame",
+					"group": "navigation@4",
 					"when": "view == era-harness.SidebarProvider"
 				},
 				{
@@ -284,7 +319,13 @@
 		},
 		"configuration": {
 			"title": "era harness",
-			"properties": {}
+			"properties": {
+				"eraHarness.erabasic.autoTakeover": {
+					"type": "boolean",
+					"default": true,
+					"description": "未安装 erabasic 时，是否由 era harness 接管 .erb/.erh（写入 files.associations 并启用高亮/补全/跳转）。关闭后仅保留内置方法数据，不修改文件关联。"
+				}
+			}
 		}
 	},
 	"scripts": {
@@ -314,7 +355,15 @@
 		"dev:webview": "cd webview-ui && npm run dev",
 		"build:webview": "cd webview-ui && npm run build",
 		"test:webview": "cd webview-ui && npm run test",
-		"prepare": "npx husky"
+		"test:ui": "node webview-ui/node_modules/vitest/vitest.mjs run --root webview-ui",
+		"test:toolcall": "node test/toolcall/run.mjs",
+		"test:free": "node test/free/run.mjs",
+		"replay:task": "node test/toolcall/run.mjs replay",
+		"prepare": "npx husky",
+		"test:update": "node test/update/run.mjs",
+		"dryrun:update": "node test/update/run.mjs dryrun",
+		"probe:update": "node test/update/run.mjs probe",
+		"mergeprobe:update": "node test/update/run.mjs mergeprobe"
 	},
 	"lint-staged": {
 		"src/shared/storage/state-keys.ts": [
