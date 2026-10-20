@@ -40,10 +40,12 @@ const FEATURE_SECTION = path.join(
 );
 const LOCALE_ZH = path.join(REPO, 'webview-ui', 'src', 'locales', 'zh-CN', 'settings.json');
 const STATE_KEYS = path.join(REPO, 'src', 'shared', 'storage', 'state-keys.ts');
+const AUTO_APPROVAL = path.join(REPO, 'src', 'shared', 'AutoApprovalSettings.ts');
 const PACKAGE_JSON = path.join(REPO, 'package.json');
 
 const OUT_FEATURES = path.join(CORE, 'src', 'settings', 'data', 'features.generated.ts');
 const OUT_VSCODE = path.join(CORE, 'src', 'settings', 'data', 'vscode-config.generated.ts');
+const OUT_AUTO_APPROVAL = path.join(CORE, 'src', 'settings', 'data', 'auto-approval.generated.ts');
 
 /** 4 个数组名 → 目录分组（顺序即输出顺序，保证生成物稳定） */
 const ARRAY_CATEGORIES: Array<[string, string]> = [
@@ -55,6 +57,8 @@ const ARRAY_CATEGORIES: Array<[string, string]> = [
 
 /** 抽取到的最少条数：低于它就认为解析器失效，⛔ 静默产出空目录 */
 const MIN_FEATURE_COUNT = 10;
+/** 自动批准的动作子开关下限（eraTW 改造版现有 9 个；少一个就是解析器坏了） */
+const MIN_AUTO_APPROVAL_ACTIONS = 8;
 
 // ─────────────────────────────────────────────────────────────
 // 扫描工具：必须跳过字符串字面量，否则 description 里的括号会打乱配平
@@ -234,6 +238,72 @@ function extractVscodeConfig(pkg: {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 抽取器 5：自动批准的 action 子开关（`AutoApprovalSettings.ts`）
+//
+// 为什么不按 Spec 字面的「顶层 enabled / maxRequests / enableNotifications / actions」：
+// 代码里 `enabled` / `maxRequests` / `favorites` 都标了 **Legacy field**
+// （恒为 true / 功能已移除），把它们当用户开关讲就是给错知识。
+// 真正活着的开关是 `actions` 下的 9 个子项与 `enableNotifications`，那就抽这些。
+// ─────────────────────────────────────────────────────────────
+
+interface AutoApprovalAction {
+  name: string;
+  optional: boolean;
+  comment?: string;
+  defaultValue?: string;
+}
+
+interface AutoApprovalFacts {
+  actions: AutoApprovalAction[];
+  enableNotifications?: { comment?: string; defaultValue?: string };
+}
+
+function extractAutoApproval(src: string): AutoApprovalFacts {
+  const iface = /export interface AutoApprovalSettings \{([\s\S]*?)\n\}/.exec(src)?.[1];
+  if (!iface) throw new Error('[build-settings-catalog] 找不到 interface AutoApprovalSettings');
+
+  // `actions` 块：字段一格 tab，子项两格 tab，块以单 tab 的 `}` 收尾
+  const actionsBlock = /^\tactions:\s*\{([\s\S]*?)^\t\}/m.exec(iface)?.[1];
+  if (!actionsBlock) throw new Error('[build-settings-catalog] 找不到 AutoApprovalSettings.actions 块');
+
+  const defaultsBlock =
+    /export const DEFAULT_AUTO_APPROVAL_SETTINGS[^=]*=\s*\{[\s\S]*?^\tactions:\s*\{([\s\S]*?)^\t\},/m.exec(src)?.[1] ?? '';
+
+  const defaultOf = (name: string): string | undefined => {
+    const m = new RegExp(`^\\t\\t${name}\\??:\\s*(true|false)\\s*,?`, 'm').exec(defaultsBlock);
+    return m?.[1];
+  };
+
+  const actions: AutoApprovalAction[] = [];
+  for (const line of actionsBlock.split(/\r?\n/)) {
+    const m = /^\t\t(\w+)(\?)?:\s*boolean?\s*(?:\/\/\s*(.*))?$/.exec(line.trimEnd());
+    if (!m) continue;
+    const name = m[1] as string;
+    actions.push({
+      name,
+      optional: m[2] === '?',
+      ...(m[3] ? { comment: m[3].trim() } : {}),
+      ...(defaultOf(name) !== undefined ? { defaultValue: defaultOf(name) } : {}),
+    });
+  }
+
+  const notificationsLine = /^\tenableNotifications:\s*boolean\s*(?:\/\/\s*(.*))?$/m.exec(iface);
+  const notificationsDefault = /^\tenableNotifications:\s*(true|false)\s*,?/m.exec(src)?.[1];
+
+  return {
+    actions,
+    ...(notificationsLine
+      ? {
+          enableNotifications: {
+            ...(notificationsLine[1] ? { comment: notificationsLine[1].trim() } : {}),
+            ...(notificationsDefault !== undefined ? { defaultValue: notificationsDefault } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
 // 渲染
 // ─────────────────────────────────────────────────────────────
 
@@ -274,11 +344,12 @@ function renderRecords(varName: string, records: SettingRecord[], headerLines: s
 async function main(): Promise<void> {
   const checkOnly = process.argv.includes('--check');
 
-  const [sectionSrc, localeSrc, stateSrc, pkgSrc] = await Promise.all([
+  const [sectionSrc, localeSrc, stateSrc, pkgSrc, autoApprovalSrc] = await Promise.all([
     fs.readFile(FEATURE_SECTION, 'utf8'),
     fs.readFile(LOCALE_ZH, 'utf8'),
     fs.readFile(STATE_KEYS, 'utf8'),
     fs.readFile(PACKAGE_JSON, 'utf8'),
+    fs.readFile(AUTO_APPROVAL, 'utf8'),
   ]);
 
   const translations = parseFeatureTranslations(sectionSrc);
@@ -327,6 +398,50 @@ async function main(): Promise<void> {
     source: 'vscode-config',
   }));
 
+  const autoFacts = extractAutoApproval(autoApprovalSrc);
+  if (autoFacts.actions.length < MIN_AUTO_APPROVAL_ACTIONS) {
+    throw new Error(
+      `[build-settings-catalog] 自动批准只抽到 ${autoFacts.actions.length} 个动作（下限 ${MIN_AUTO_APPROVAL_ACTIONS}）。` +
+        '解析器可能已失效——请修 scripts/build-settings-catalog.ts。',
+    );
+  }
+  const autoRecords: SettingRecord[] = [
+    {
+      // 容器本身也是使用者会问的（“自动批准怎么配”），它的 storage 就是那个 state key
+      key: 'autoApprovalSettings',
+      title: 'autoApprovalSettings',
+      summary: '',
+      valueType: 'object',
+      category: 'auto-approve',
+      storage: 'state-key:autoApprovalSettings',
+      source: 'state-key',
+    },
+    ...autoFacts.actions.map<SettingRecord>((action) => ({
+      key: `autoApprovalSettings.actions.${action.name}`,
+      title: action.name,
+      summary: action.comment ?? '',
+      ...(action.defaultValue !== undefined ? { defaultValue: action.defaultValue } : {}),
+      valueType: action.optional ? 'boolean（可选，未设时继承默认）' : 'boolean',
+      category: 'auto-approve',
+      storage: `nested:autoApprovalSettings.actions.${action.name}`,
+      source: 'state-key',
+    })),
+  ];
+  if (autoFacts.enableNotifications) {
+    autoRecords.push({
+      key: 'autoApprovalSettings.enableNotifications',
+      title: 'enableNotifications',
+      summary: autoFacts.enableNotifications.comment ?? '',
+      ...(autoFacts.enableNotifications.defaultValue !== undefined
+        ? { defaultValue: autoFacts.enableNotifications.defaultValue }
+        : {}),
+      valueType: 'boolean',
+      category: 'auto-approve',
+      storage: 'nested:autoApprovalSettings.enableNotifications',
+      source: 'state-key',
+    });
+  }
+
   const featuresText = renderRecords('FEATURE_SETTINGS', featureRecords, [
     '来源：webview-ui/src/components/settings/sections/FeatureSettingsSection.tsx 的 FeatureToggle 数组',
     '      + webview-ui/src/locales/zh-CN/settings.json 的 featureSettings.*',
@@ -335,12 +450,17 @@ async function main(): Promise<void> {
   const vscodeText = renderRecords('VSCODE_CONFIG_SETTINGS', vscodeRecords, [
     '来源：package.json 的 contributes.configuration.properties',
   ]);
+  const autoText = renderRecords('AUTO_APPROVAL_SETTINGS', autoRecords, [
+    '来源：src/shared/AutoApprovalSettings.ts 的 interface + DEFAULT_AUTO_APPROVAL_SETTINGS',
+    '      ⛔ 不收录 enabled / maxRequests / favorites：代码里标了 Legacy field（恒为 true / 功能已移除）',
+  ]);
 
   if (checkOnly) {
     const stale: string[] = [];
     for (const [file, text] of [
       [OUT_FEATURES, featuresText],
       [OUT_VSCODE, vscodeText],
+      [OUT_AUTO_APPROVAL, autoText],
     ] as const) {
       const current = await fs.readFile(file, 'utf8').catch(() => null);
       if (current === null || current.replace(/\r\n/g, '\n') !== text) stale.push(path.relative(REPO, file));
@@ -348,20 +468,26 @@ async function main(): Promise<void> {
     if (stale.length > 0) {
       console.error('[build-settings-catalog] 生成物与源码不一致：');
       for (const file of stale) console.error(`  - ${file}`);
-      console.error('  改了 FeatureSettingsSection / locales / state-keys / package.json 之后必须重跑：');
+      console.error('  改了 FeatureSettingsSection / locales / state-keys / AutoApprovalSettings / package.json 之后必须重跑：');
       console.error('  cd packages/era-harness-core && npm run build:settings');
       process.exit(1);
     }
-    console.log(`[build-settings-catalog] OK：${featureRecords.length} 个开关 + ${vscodeRecords.length} 个 VS Code 配置项，生成物是最新的`);
+    console.log(
+      `[build-settings-catalog] OK：${featureRecords.length} 个开关 + ${vscodeRecords.length} 个 VS Code 配置项 + ${autoRecords.length} 个自动批准项，生成物是最新的`,
+    );
     return;
   }
 
   await fs.mkdir(path.dirname(OUT_FEATURES), { recursive: true });
   await fs.writeFile(OUT_FEATURES, featuresText, 'utf8');
   await fs.writeFile(OUT_VSCODE, vscodeText, 'utf8');
-  console.log(`[build-settings-catalog] 已写入 ${featureRecords.length} 个开关 + ${vscodeRecords.length} 个 VS Code 配置项：`);
+  await fs.writeFile(OUT_AUTO_APPROVAL, autoText, 'utf8');
+  console.log(
+    `[build-settings-catalog] 已写入 ${featureRecords.length} 个开关 + ${vscodeRecords.length} 个 VS Code 配置项 + ${autoRecords.length} 个自动批准项：`,
+  );
   console.log(`  - ${path.relative(REPO, OUT_FEATURES)}`);
   console.log(`  - ${path.relative(REPO, OUT_VSCODE)}`);
+  console.log(`  - ${path.relative(REPO, OUT_AUTO_APPROVAL)}`);
 }
 
 main().catch((error: unknown) => {

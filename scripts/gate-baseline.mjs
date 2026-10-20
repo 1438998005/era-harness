@@ -118,12 +118,13 @@ function push(name, detail, status, problems) {
 	const settingsDataDir = path.join(CORE, "src", "settings", "data")
 	const featureSrc = fs.readFileSync(path.join(settingsDataDir, "features.generated.ts"), "utf8")
 	const vscodeSrc = fs.readFileSync(path.join(settingsDataDir, "vscode-config.generated.ts"), "utf8")
+	const autoSrc = fs.readFileSync(path.join(settingsDataDir, "auto-approval.generated.ts"), "utf8")
 	const overridesSrc = fs.readFileSync(path.join(settingsDataDir, "overrides.ts"), "utf8")
 
 	// 目录能覆盖的键：`key:` 本身、`state-key:<stateKey>`、`nested:<父键>.<子键>`
 	const catalogKeys = new Set()
 	const storageTargets = new Set()
-	for (const source of [featureSrc, vscodeSrc]) {
+	for (const source of [featureSrc, vscodeSrc, autoSrc]) {
 		for (const match of source.matchAll(/^\s*key: '([A-Za-z0-9_.-]+)'/gm)) {
 			catalogKeys.add(match[1])
 		}

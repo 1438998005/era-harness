@@ -103,7 +103,12 @@ export function formatSetting(record: SettingRecord): string {
   const lines: string[] = [`# ${record.title}`, '', `> ${record.summary}`, '', `- **键**：\`${record.key}\``];
 
   lines.push(`- **分组**：${record.category}`);
-  lines.push(`- **默认值**：${record.defaultValue ?? '（源码里未声明）'}`);
+  lines.push(
+    `- **默认值**：${
+      record.defaultValue ??
+      (record.valueType?.startsWith('object') ? '（对象，默认值见各子项）' : '（源码里未声明）')
+    }`,
+  );
   if (record.valueType) lines.push(`- **取值**：${record.valueType}`);
   lines.push(`- **存放位置**：${record.storage}`);
   if (record.whenOff) lines.push(`- **关闭后会怎样**：${record.whenOff}`);
