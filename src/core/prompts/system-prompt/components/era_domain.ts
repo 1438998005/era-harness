@@ -12,9 +12,9 @@ import type { SystemPromptContext } from "../types"
  *    所以只写「模型不看代码就会做错」的通用硬事实，不写任何工程的具体统计。
  * 3. 探测不到 Emuera 工程时返回空串，普通项目完全不受影响。
  *
- * 编码铁律一节取自内嵌知识条目（`interpreter-encoding-discipline`，正本在
- * shared-trae `knowledge/lazyloading/encoding-discipline.md`）——提示层与知识库
- * 不复制正文，只消费 rules 级短句；完整判据经 MCP `lookup_knowledge` 可取。
+ * 编码、结构槽位、指令主流程三节铁律取自内嵌知识条目（`interpreter-encoding-discipline` /
+ * `project-structure-discipline` / `main-flow-pipeline`，正本在 shared-trae `knowledge/`）——
+ * 提示层与知识库不复制正文，只消费 rules 级短句；完整判据经 MCP `lookup_knowledge` 可取。
  */
 
 function formatList(values: string[], empty: string): string {
@@ -23,6 +23,10 @@ function formatList(values: string[], empty: string): string {
 
 /** 编码铁律取自内嵌知识库（正本：shared-trae knowledge/lazyloading/encoding-discipline.md） */
 const encodingRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "interpreter-encoding-discipline")
+/** 结构与槽位铁律（正本：shared-trae knowledge/eratw/project-structure.md 等，见 data 文件头） */
+const structureRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "project-structure-discipline")
+/** 主流程与指令生命周期铁律（正本：shared-trae knowledge/eratw/game-flow-command-pipeline.md） */
+const flowRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "main-flow-pipeline")
 
 function buildEraDomainSection(profile: EraProjectProfile): string {
 	const rootLines = profile.relativeRoots
@@ -74,6 +78,15 @@ ${rootLines}
 ## 编码铁律
 ${encodingRules.map((rule) => `- ${rule.text}`).join("\n")}
 - BOM 与换行风格和同目录现有文件一致；没有可参照的兄弟文件时，脚本默认带 BOM、CSV 跟随同目录 CSV 的现状。
+
+## 结构与槽位铁律
+${structureRules.map((rule) => `- ${rule.text}`).join("\n")}
+
+## 指令主流程铁律
+${flowRules.map((rule) => `- ${rule.text}`).join("\n")}
+
+以上三节只给铁律短句；要完整判据（反模式、取证链、目录地图）用 lookup_knowledge 取对应条目：
+interpreter-encoding-discipline / project-structure-discipline / main-flow-pipeline。
 
 ## 编辑铁律
 - 超过 200KB 的脚本优先用 replace_in_file 做定点替换；这种大小的文件整篇重写极容易丢内容。

@@ -49,6 +49,12 @@ import { ALLOWED_ROOTS_ENV, assertPathAllowed, parseAllowedRoots } from './guard
 
 const server = new McpServer({ name: 'era-harness', version: '0.1.0' });
 
+/**
+ * 知识库目录的一行摘要：从条目表**现算**（⛔ 手写清单，新增条目时这里不会漏更新）。
+ * 取标题里括号前的短名，保证工具描述随 `data/index.ts` 自动同步。
+ */
+const knowledgeCatalogLine = KNOWLEDGE_ENTRIES.map((entry) => entry.title.split('（')[0]).join('、');
+
 /** 可选的范围限定：设了 ERA_HARNESS_MCP_ROOTS 就只放行其内的路径，否则不限制 */
 const allowedRoots = parseAllowedRoots(process.env[ALLOWED_ROOTS_ENV]);
 
@@ -206,13 +212,9 @@ server.registerTool(
   'lookup_knowledge',
   {
     title: '查内嵌知识条目',
-    description: `按 id 取一条纪律/机制知识的完整内容：铁律、反模式（症状→根因→修法）与完整说明。内置 ${KNOWLEDGE_ENTRY_COUNT} 条（快照 ${KNOWLEDGE_SNAPSHOT_AT}）：解释器编码纪律、导入合并闸门 G1–G8、口上结构契约。涉及文件编码、更新合并、口上命名/分发的问题先查这里。`,
+    description: `按 id 取一条纪律/机制知识的完整内容：铁律、反模式（症状→根因→修法）与完整说明。内置 ${KNOWLEDGE_ENTRY_COUNT} 条（快照 ${KNOWLEDGE_SNAPSHOT_AT}）：${knowledgeCatalogLine}。涉及文件编码、更新合并、口上命名/分发、变量槽位与缓存版本、指令时序与回合快照的问题先查这里。`,
     inputSchema: {
-      id: z
-        .string()
-        .describe(
-          '条目 id：interpreter-encoding-discipline / update-merge-gates / kojo-structure-contracts',
-        ),
+      id: z.string().describe(`条目 id：${KNOWLEDGE_ENTRIES.map((entry) => entry.id).join(' / ')}`),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
@@ -241,7 +243,7 @@ server.registerTool(
     description:
       '在内嵌纪律/机制知识（铁律、反模式、正文）里关键词检索，返回命中条目与摘要，可离线。省略 query 时返回全部条目的目录。检索只给概要，取完整内容用 lookup_knowledge。',
     inputSchema: {
-      query: z.string().optional().describe('关键词，如 BOM、乱码、RAND、口上、合并'),
+      query: z.string().optional().describe('关键词，如 BOM、乱码、RAND、口上、合并、槽位、NOW_VERSION、DOTRAIN'),
       limit: z.number().int().min(1).max(20).optional().describe('返回条数，默认 5'),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
