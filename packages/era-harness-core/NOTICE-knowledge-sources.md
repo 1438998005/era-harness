@@ -11,6 +11,7 @@
 | `kojo-structure-contracts` | `knowledge/eratw/kojo-naming-rules.md`（＋ `kojo-script-index-system.md` / `kojo-multi-scenario-system.md`） | 2026-10-20 |
 | `project-structure-discipline` | `knowledge/eratw/project-structure.md`（＋ `variable-slot-allocation.md` / `clothes-system.md`「死规矩 2 现语义」段 / `qol-system.md` NOW_VERSION 铁律） | 2026-10-21 |
 | `main-flow-pipeline` | `knowledge/eratw/game-flow-command-pipeline.md`（引擎侧 TRAIN 循环：`knowledge/erabasic/event-functions.md` §4） | 2026-10-21 |
+| `obj-qol-conventions` | `knowledge/eratw/obj-system.md`（＋ `clothes-system.md`「死规矩 2 现语义」段 / `identifier-tag-system/` 域） | 2026-10-21 |
 
 shared-trae 是 Emuera 集群的私有枢纽仓（`$EMUERA_WS/emuera/shared-trae`）。
 **内嵌副本是快照，正本在 shared-trae**；正本变更（commit/日期变化）时按下方流程同步。
