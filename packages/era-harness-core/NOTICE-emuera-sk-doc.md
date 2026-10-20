@@ -40,7 +40,7 @@
 ## 如何更新
 
 ```bash
-cd "era harness"
+cd "era-harness-plugin/packages/era-harness-core"
 npm run build:reference                 # 默认分支，联网
 npm run build:reference -- --offline    # 只用本地缓存重新生成
 npm run build:reference -- --branch main
@@ -50,7 +50,7 @@ npm run build:reference -- --branch main
 
 1. 跑 `npm test`（`test/reference.test.ts` 会校验条目数、名字数、id 唯一性与 sha 格式）；
 2. 把 `meta.json` 里的新 sha 同步到本文件的「抓取版本」；
-3. 检查知识库 `14-指令手册与跑引擎.md` 里记录的统计数字是否仍然成立。
+3. 检查知识库 `17-指令手册与跑引擎.md` 里记录的统计数字是否仍然成立。
 
 ## 在线优先版本
 

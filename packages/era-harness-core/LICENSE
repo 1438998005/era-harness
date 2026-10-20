@@ -200,3 +200,18 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+=======================================================================
+
+Copyright 2026 era harness contributors
+
+-----------------------------------------------------------------------
+
+NOTICE: the built-in instruction data under
+
+    src/reference/data/
+
+is NOT covered by this license. It is derived from the emuera.sk.doc
+project (https://github.com/qirchen421/emuera.sk.doc) and is licensed
+under CC BY-NC 4.0 (Attribution-NonCommercial 4.0 International).
+See NOTICE-emuera-sk-doc.md in this directory.
