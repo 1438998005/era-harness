@@ -5,13 +5,16 @@
  * 1. `gitBlobSha1`：与 GitLab blob id 同构的指纹，让"以后改成增量下载"零成本。
  * 2. `scanLocal`：扫本地树并算指纹（增量优化靠 state 里的 size+mtime）。
  * 3. `detectBatches`：靠 mtime 的"整分钟批量"特征，在没有基线的首次同步里
- *    把"上游解压来的"和"人手改过的"分开（实测 5036 vs 45，见 知识库/13 §13.3.3）。
+ *    把"上游解压来的"和"人手改过的"分开（实测 5036 vs 45，设计记录见
+ *    shared-trae `workspaces/era-harness/documents/开发计划-2026-10-20.md`）。
  */
 
 import { createHash } from "node:crypto"
 import type { Dirent } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { decodeLikeEngine } from "./decode"
+import { buildLabelIndex, type LabelIndex } from "./labels"
 import {
 	type BatchDetection,
 	type BatchInfo,
@@ -263,6 +266,59 @@ export async function scanLocal(root: string, opts: ScanOptions = {}): Promise<L
 		excludedDirs,
 		scannedAt: new Date().toISOString(),
 	}
+}
+
+/**
+ * G4 用的全树标签索引：遍历本地 ERB/ERH，提取 @NAME 定义与静态调用点。
+ *
+ * 与 `scanLocal` 同一套遍历（排除目录、跳过符号链接、并发读），但**要读全文**
+ * （hash 是流式的，不留内容）。代价≈多扫一遍脚本文本；调用方应传 onProgress
+ * 让 UI 有话可说。单文件 > 32MB 不当脚本读（防呆；真实 ERB 没有这么大）。
+ */
+const MAX_LABEL_FILE_BYTES = 32 * 1024 * 1024
+
+export interface ScanLabelsOptions {
+	excludeDirs?: string[]
+	/** 并行读的文件数，默认 8（机械盘别调太高） */
+	concurrency?: number
+	onProgress?: (done: number, total: number) => void
+}
+
+export async function scanLabels(root: string, opts: ScanLabelsOptions = {}): Promise<LabelIndex> {
+	const excludedDirs = opts.excludeDirs ?? DEFAULT_EXCLUDED_DIRS
+	const excluded = new Set(excludedDirs.map((name) => name.toLowerCase()))
+	const concurrency = Math.max(1, opts.concurrency ?? 8)
+
+	const rels = (await collectFiles(root, excluded, undefined)).filter((rel) => /\.(ERB|ERH)$/i.test(rel))
+	const texts: Array<{ path: RelPath; text: string }> = []
+
+	let done = 0
+	let cursor = 0
+	const worker = async (): Promise<void> => {
+		for (;;) {
+			const i = cursor++
+			if (i >= rels.length) {
+				return
+			}
+			const rel = rels[i]
+			if (rel === undefined) {
+				return
+			}
+			try {
+				const buf = await fs.readFile(toFsPath(root, rel))
+				if (buf.length <= MAX_LABEL_FILE_BYTES) {
+					texts.push({ path: rel, text: decodeLikeEngine(buf) })
+				}
+			} catch {
+				// 单文件读失败（占用/权限）不应中断整次扫描
+			}
+			done++
+			opts.onProgress?.(done, rels.length)
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(concurrency, rels.length || 1) }, worker))
+
+	return buildLabelIndex(texts)
 }
 
 export function statePath(root: string): string {

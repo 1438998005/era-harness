@@ -13,13 +13,15 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createGunzip } from "node:zlib"
 import { type ApplyReport, applyPlan, applyPlanFromTar } from "./apply"
+import { decodeLikeEngine } from "./decode"
 import { readNowVersion } from "./discover"
-import { decodeLikeEngine } from "./gates"
+import type { LabelIndex } from "./labels"
 import {
 	cachePath,
 	gitBlobSha1,
 	hashLocalFile,
 	readState,
+	scanLabels,
 	scanLocal,
 	stateToBase,
 	toFsPath,
@@ -47,7 +49,7 @@ export type UpdateSourceInput =
 	| { kind: "archive"; path: string }
 	| { kind: "dir"; path: string }
 
-export type UpdateStage = "check" | "download" | "snapshot" | "scan" | "plan" | "merge" | "apply" | "verify"
+export type UpdateStage = "check" | "download" | "snapshot" | "scan" | "labels" | "plan" | "merge" | "apply" | "verify"
 
 export interface UpdateEvent {
 	stage: UpdateStage
@@ -96,6 +98,11 @@ export interface RunUpdateOptions {
 	 */
 	resolveConflicts?: (plan: UpdatePlan, readers: MergeReaders) => Promise<ResolveConflictsResult>
 	onEvent?: (event: UpdateEvent) => void
+	/**
+	 * G4 全树标签索引开关。默认开（有改动脚本时建索引，多扫一遍脚本文本）；
+	 * 传 false 可省掉这次扫描（plan.gateFindings 里就不会有 G4）。
+	 */
+	labelScan?: boolean
 }
 
 export interface RunUpdateResult {
@@ -316,12 +323,21 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		theirs: prepared.snapshot,
 	})
 	const gateInput = await collectGateContents(opts, prepared, draft)
+	// G4 全树标签索引：有改动脚本才需要（没有就没法删函数）；labelScan: false 可关
+	let labelIndex: LabelIndex | undefined
+	if (gateInput.contents && opts.labelScan !== false) {
+		emit(opts, { stage: "labels", message: "建函数索引（查有没有人调被删掉的函数）" })
+		labelIndex = await scanLabels(opts.root, {
+			onProgress: (done, total) => emit(opts, { stage: "labels", progress: { done, total } }),
+		})
+	}
 	let plan = buildPlan({
 		base: stateToBase(state),
 		local: scan,
 		theirs: prepared.snapshot,
 		gateContents: gateInput.contents,
 		gateSkipped: gateInput.skipped,
+		labelIndex,
 	})
 
 	const gateNote = plan.gateFindings && plan.gateFindings.length > 0 ? `，闸门警告 ${plan.gateFindings.length} 条` : ""

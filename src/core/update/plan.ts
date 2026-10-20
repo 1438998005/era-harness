@@ -11,7 +11,8 @@
  * 闸门判据（G2/G3/G6/G7）正本在 `knowledge/eratw/import-merge-gates.md`。
  */
 
-import { collectChangedLabels, runContentGates } from "./gates"
+import { collectChangedLabels, extractDefinedLabels, runContentGates } from "./gates"
+import { findOrphanedCallers, type LabelIndex } from "./labels"
 import { isProtectedPath } from "./manifest"
 import type {
 	ConflictGroup,
@@ -65,6 +66,11 @@ export interface BuildPlanInput {
 	gateContents?: Map<RelPath, { local: string | null; theirs: string | null }>
 	/** 因超出扫描上限而未进 gateContents 的脚本文件数 */
 	gateSkipped?: number
+	/**
+	 * G4 全树标签索引（`manifest.ts#scanLabels` 的产物）。与 gateContents 同时传
+	 * 才会跑 G4（被删标签的改动集外调用方检索）。
+	 */
+	labelIndex?: LabelIndex
 }
 
 function topSegment(rel: RelPath): string {
@@ -248,6 +254,25 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		gateFindings = []
 		for (const [rel, texts] of input.gateContents) {
 			gateFindings.push(...runContentGates(rel, texts, changedLabels))
+		}
+
+		// G4：被本次更新删掉的全局标签，改动集之外还有没有调用方（需全树索引）
+		if (input.labelIndex) {
+			const removedLabels = new Set<string>()
+			for (const [, texts] of input.gateContents) {
+				if (!texts.local || !texts.theirs) {
+					continue
+				}
+				const theirsDefs = extractDefinedLabels(texts.theirs)
+				for (const name of extractDefinedLabels(texts.local).keys()) {
+					if (!theirsDefs.has(name)) {
+						removedLabels.add(name)
+					}
+				}
+			}
+			if (removedLabels.size > 0) {
+				gateFindings.push(...findOrphanedCallers(input.labelIndex, removedLabels, new Set(input.gateContents.keys())))
+			}
 		}
 	}
 

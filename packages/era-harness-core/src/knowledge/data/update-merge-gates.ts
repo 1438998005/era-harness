@@ -99,10 +99,14 @@ era-harness 的「更新 eraTW」在计划（plan）与合并（merge）阶段�
 
 ## 与更新工具的对应
 
-- plan 阶段：G3/G4/G8 检查 + 冲突分组（口上按角色整包问、本体逐文件问）。
+- plan 阶段：**已实现 G2/G3/G4/G6/G7**（src/core/update/gates.ts + labels.ts）——
+  对改动脚本（上限 300 个）跑内容闸门；G4 另建全树标签索引查「被删函数的改动集外调用方」
+  （labelScan: false 可关）。冲突分组：口上按角色整包问、本体逐文件问。
 - merge 阶段：G5/G6 判据 + 配平容差（合并结果失衡量落在三方输入集合内）。
 - apply 阶段：G7（编码/BOM/CRLF）+ 落盘后自检（sha 对账）。
 - ⛔ 首次同步（无基线）：按 mtime 批量特征区分「上游旧版」与「人手改过」，不可靠时必须让用户二选一。
+- **未实现**：G1（git log -S 回归扫描，需本地 git 仓）、G5（FSYN 键回英文原文）、
+  G8（标识符键预检，需键账本）——留待后续批次。
 
 > 完整正本（含场景分流表与集群工具链）：shared-trae \`knowledge/eratw/import-merge-gates.md\`。
 `,

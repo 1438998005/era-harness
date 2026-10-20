@@ -9,8 +9,9 @@
  * - **保守不误报**：拿不准的一律不报。闸门是更新计划里的**警告**，不是硬拦截——
  *   误报会让用户对真问题脱敏（集群实证：单次作者更新曾净引入 32 处 RAND 问题，
  *   但存量 125 处不能算本次回归，所以判据必须精确）。
- * - 本模块覆盖可用机器判据实现的四门；G1（git log -S 回归扫描）/ G4（调用方 grep）/
- *   G5（FSYN 键回英文原文）/ G8（标识符键预检）需要仓库史或全仓索引，留待后续批次。
+ * - 本模块覆盖可用机器判据实现的五门（G2/G3/G4/G6/G7；G4 的全树索引在 `labels.ts` +
+ *   `manifest.ts#scanLabels`）；G1（git log -S 回归扫描）/ G5（FSYN 键回英文原文）/
+ *   G8（标识符键预检）需要仓库史或键账本，留待后续批次。
  *
  * ERB 语法口径（来自集群取证与文档仓）：
  * - `RAND:N` 只有**单独占一行**（语句位）时才是分发骰子；写成参数（`RAND:360`）的是表达式，不参与。
@@ -372,20 +373,4 @@ export function collectChangedLabels(files: Array<{ path: RelPath; text: string 
 		}
 	}
 	return out
-}
-
-/**
- * 按引擎口径解码（与 `EncodingHandler.DetectEncoding` 同策略的简化版）：
- * UTF-8 BOM → 严格 UTF-8；否则先试严格 UTF-8，失败退 CP932（shift_jis）。
- * 闸门只需要「能对齐行号与标签」的文本，lossy 解码对判据足够。
- */
-export function decodeLikeEngine(buf: Buffer): string {
-	if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
-		return new TextDecoder("utf-8").decode(buf.subarray(3))
-	}
-	try {
-		return new TextDecoder("utf-8", { fatal: true }).decode(buf)
-	} catch {
-		return new TextDecoder("shift-jis").decode(buf)
-	}
 }
