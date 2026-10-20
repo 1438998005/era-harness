@@ -103,11 +103,24 @@ npm install
 npm test
 ```
 
+## 许可
+
+本仓库**包含两套许可**，按内容分开管理：
+
+| 内容 | 许可 | 说明 |
+| --- | --- | --- |
+| 代码（`src/`、`webview-ui/`、`packages/era-harness-core/src/` —— 指令数据目录除外） | **Apache-2.0** | 全文见根目录 [`LICENSE`](LICENSE) |
+| 内置指令数据 `packages/era-harness-core/src/reference/data/` | **CC BY-NC 4.0** | 派生自 [emuera.sk.doc](https://github.com/qirchen421/emuera.sk.doc)，**禁止商业使用** |
+
+内置指令数据**不是** Apache-2.0。它的来源、抓取版本、生成方式与署名要求，
+见 [`packages/era-harness-core/NOTICE-emuera-sk-doc.md`](packages/era-harness-core/NOTICE-emuera-sk-doc.md)。
+再分发时请原样保留该文件与每个数据文件顶部的声明。
+
 ## 免责声明
 
-- 本插件为个人本地开发工具，按现状提供，不附带任何担保。
+- 本插件为个人开发工具，按现状提供，不附带任何担保。
 - 使用者需自行确认所处理内容的合法性与授权范围，并对自己的操作负责。
-- 本项目基于 Apache-2.0 许可的上游项目改造，上游版权归其原作者所有。
+- 本项目基于 Apache-2.0 许可的上游项目改造，上游版权归其原作者所有（详见下文与 `LICENSE` 附录）。
 
 ---
 
