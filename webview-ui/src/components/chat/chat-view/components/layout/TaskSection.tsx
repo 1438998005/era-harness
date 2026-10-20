@@ -1,5 +1,7 @@
 import { ClineMessage } from "@shared/ExtensionMessage"
+import type { LastApiReqUsage } from "@shared/getApiMetrics"
 import React from "react"
+import type { IdentityMode } from "@/components/chat/identity/identity"
 import TaskHeader from "@/components/chat/task-header/TaskHeader"
 import { MessageHandlers } from "../../types/chatTypes"
 
@@ -13,6 +15,7 @@ interface TaskSectionProps {
 		totalCost: number
 	}
 	lastApiReqTotalTokens?: number
+	lastApiReqUsage?: LastApiReqUsage
 	selectedModelInfo: {
 		supportsPromptCache: boolean
 		supportsImages: boolean
@@ -21,6 +24,7 @@ interface TaskSectionProps {
 	messageHandlers: MessageHandlers
 	lastProgressMessageText?: string
 	showFocusChainPlaceholder?: boolean
+	identityMode?: IdentityMode
 }
 
 /**
@@ -31,17 +35,21 @@ export const TaskSection: React.FC<TaskSectionProps> = ({
 	task,
 	apiMetrics,
 	lastApiReqTotalTokens,
+	lastApiReqUsage,
 	selectedModelInfo,
 	messageHandlers,
 	lastProgressMessageText,
 	showFocusChainPlaceholder,
+	identityMode,
 }) => {
 	return (
 		<TaskHeader
 			cacheReads={apiMetrics.totalCacheReads}
 			cacheWrites={apiMetrics.totalCacheWrites}
 			doesModelSupportPromptCache={selectedModelInfo.supportsPromptCache}
+			identityMode={identityMode}
 			lastApiReqTotalTokens={lastApiReqTotalTokens}
+			lastApiReqUsage={lastApiReqUsage}
 			lastProgressMessageText={lastProgressMessageText}
 			onClose={messageHandlers.handleTaskCloseButtonClick}
 			onSendMessage={messageHandlers.handleSendMessage}

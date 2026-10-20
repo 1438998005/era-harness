@@ -97,6 +97,11 @@ export class OpenAiHandler implements ApiHandler {
 
 		const toolCallProcessor = new ToolCallProcessor()
 
+		// OpenAI 兼容提供方（DeepSeek/GLM 等）会在流式响应的每个 chunk 里重复回传「累计」usage，
+		// 而消费端 task/index.ts 用 `+=` 累加，会把同一个 prompt_tokens 叠加 N 次 → 上下文数字爆炸。
+		// 这里只在流结束后产出一次最终 usage（最后一个非空 chunk.usage 即该请求的完整累计用量）。
+		let finalUsage: OpenAI.Chat.ChatCompletionChunk["usage"] | undefined
+
 		for await (const chunk of stream) {
 			const delta = chunk.choices?.[0]?.delta
 			if (delta?.content) {
@@ -118,14 +123,25 @@ export class OpenAiHandler implements ApiHandler {
 			}
 
 			if (chunk.usage) {
-				yield {
-					type: "usage",
-					inputTokens: chunk.usage.prompt_tokens || 0,
-					outputTokens: chunk.usage.completion_tokens || 0,
-					cacheReadTokens: chunk.usage.prompt_tokens_details?.cached_tokens || 0,
-					// @ts-expect-error-next-line
-					cacheWriteTokens: chunk.usage.prompt_cache_miss_tokens || 0,
-				}
+				finalUsage = chunk.usage
+			}
+		}
+
+		if (finalUsage) {
+			// 统一 token 口径（与 Anthropic 加和约定一致，供上下文计算与显示复用）：
+			// inputTokens = 非缓存输入，cacheReads = 缓存命中，cacheWrites = 0
+			//（OpenAI 兼容端不单独计「缓存写入」费）。三者相加 = prompt_tokens，不再重复计缓存部分。
+			// 部分兼容端点用 DeepSeek 字段名返回命中数，cached_tokens 缺失时回退到 prompt_cache_hit_tokens。
+			const promptTokens = finalUsage.prompt_tokens || 0
+			const usageWithDeepSeekFields = finalUsage as typeof finalUsage & { prompt_cache_hit_tokens?: number }
+			const cacheHitTokens =
+				finalUsage.prompt_tokens_details?.cached_tokens || usageWithDeepSeekFields.prompt_cache_hit_tokens || 0
+			yield {
+				type: "usage",
+				inputTokens: Math.max(0, promptTokens - cacheHitTokens),
+				outputTokens: finalUsage.completion_tokens || 0,
+				cacheReadTokens: cacheHitTokens,
+				cacheWriteTokens: 0,
 			}
 		}
 	}

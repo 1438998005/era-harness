@@ -133,6 +133,8 @@ function convertProtoToOpenAiCompatibleModelInfo(
 // Convert application ApiProvider to proto ApiProvider
 function convertApiProviderToProto(provider: string | undefined): ProtoApiProvider {
 	switch (provider) {
+		case "free":
+			return ProtoApiProvider.FREE
 		case "openai":
 			return ProtoApiProvider.OPENAI
 		case "deepseek":
@@ -145,6 +147,8 @@ function convertApiProviderToProto(provider: string | undefined): ProtoApiProvid
 // Convert proto ApiProvider to application ApiProvider
 export function convertProtoToApiProvider(provider: ProtoApiProvider): ApiProvider {
 	switch (provider) {
+		case ProtoApiProvider.FREE:
+			return "free"
 		case ProtoApiProvider.OPENAI:
 			return "openai"
 		case ProtoApiProvider.DEEPSEEK:
@@ -165,6 +169,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		openAiBaseUrl: config.openAiBaseUrl,
 		openAiApiKey: config.openAiApiKey,
 		deepSeekApiKey: config.deepSeekApiKey,
+		ovhAiEndpointsApiKey: config.ovhAiEndpointsApiKey,
 		requestTimeoutMs: config.requestTimeoutMs,
 
 		// Plan mode configurations
@@ -194,6 +199,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		openAiBaseUrl: protoConfig.openAiBaseUrl,
 		openAiApiKey: protoConfig.openAiApiKey,
 		deepSeekApiKey: protoConfig.deepSeekApiKey,
+		ovhAiEndpointsApiKey: protoConfig.ovhAiEndpointsApiKey,
 		requestTimeoutMs: protoConfig.requestTimeoutMs,
 
 		// Plan mode configurations

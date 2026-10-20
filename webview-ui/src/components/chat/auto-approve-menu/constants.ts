@@ -54,6 +54,12 @@ export function getActionMetadata(): ActionMetadata[] {
 			shortName: i18next.t("autoApprove.mcp"),
 			icon: "codicon-server",
 		},
+		{
+			id: "autoApproveByIdentity",
+			label: i18next.t("autoApprove.autoApproveByIdentity"),
+			shortName: i18next.t("autoApprove.identity"),
+			icon: "codicon-person",
+		},
 	]
 }
 

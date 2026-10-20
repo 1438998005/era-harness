@@ -253,7 +253,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
 									</TooltipTrigger>
 									<TooltipContent side="top">
 										Create a new git worktree and open it in a separate window. Great for running parallel
-										Cline tasks.
+										era harness tasks.
 									</TooltipContent>
 								</Tooltip>
 								*/}

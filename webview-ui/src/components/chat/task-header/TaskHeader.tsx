@@ -1,4 +1,5 @@
 import { ClineMessage } from "@shared/ExtensionMessage"
+import type { LastApiReqUsage } from "@shared/getApiMetrics"
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react"
 import React, { useCallback, useLayoutEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -7,6 +8,7 @@ import { getModeSpecificFields, normalizeApiConfiguration } from "@/components/s
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import { getEnvironmentColor } from "@/utils/environmentColors"
+import type { IdentityMode } from "../identity/identity"
 import { getIdentityMode, splitIdentityDirective } from "../identity/identity"
 import CopyTaskButton from "./buttons/CopyTaskButton"
 import DeleteTaskButton from "./buttons/DeleteTaskButton"
@@ -34,8 +36,11 @@ interface TaskHeaderProps {
 	totalCost: number
 	priceCurrency?: "USD" | "CNY"
 	lastApiReqTotalTokens?: number
+	lastApiReqUsage?: LastApiReqUsage
 	lastProgressMessageText?: string
 	showFocusChainPlaceholder?: boolean
+	/** 底部选择器的实时身份；传入时头部以此显示，与底部保持同步 */
+	identityMode?: IdentityMode
 	onClose: () => void
 	onSendMessage?: (command: string, files: string[], images: string[]) => void
 }
@@ -51,8 +56,10 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	totalCost,
 	priceCurrency,
 	lastApiReqTotalTokens,
+	lastApiReqUsage,
 	lastProgressMessageText,
 	showFocusChainPlaceholder,
+	identityMode,
 	onClose,
 	onSendMessage,
 }) => {
@@ -73,8 +80,10 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	const [isTextOverflowing, setIsTextOverflowing] = useState(false)
 	const highlightedTextRef = React.useRef<HTMLDivElement>(null)
 
-	// 首条消息可能带身份块，头部只显示正文
-	const { mode: identityMode, body: taskBody } = useMemo(() => splitIdentityDirective(task.text || ""), [task.text])
+	// 首条消息可能带身份块，头部只显示正文；
+	// 头部身份显示优先用底部实时切换的 identityMode，回退到首条消息内嵌的身份
+	const { mode: taskIdentityMode, body: taskBody } = useMemo(() => splitIdentityDirective(task.text || ""), [task.text])
+	const activeIdentityMode = identityMode ?? taskIdentityMode
 	const highlightedText = useMemo(() => highlightText(taskBody, false), [taskBody])
 
 	// Check if text overflows the container (i.e., needs clamping)
@@ -198,17 +207,17 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 				{/* Expand/Collapse Task Details */}
 				{isTaskExpanded && (
 					<div className="flex flex-col break-words" key={`task-details-${currentTaskItem?.id}`}>
-						{identityMode && (
+						{activeIdentityMode && (
 							<div className="flex items-center gap-1.5 text-xs mt-1" style={{ opacity: 0.7 }}>
 								<span
 									style={{
 										width: 5,
 										height: 5,
 										borderRadius: "50%",
-										background: IDENTITY_DOT_COLOR[identityMode] ?? "#4aa3ff",
+										background: IDENTITY_DOT_COLOR[activeIdentityMode] ?? "#4aa3ff",
 									}}
 								/>
-								身份 · {getIdentityMode(identityMode).label}
+								身份 · {getIdentityMode(activeIdentityMode).label}
 							</div>
 						)}
 						<div
@@ -242,6 +251,7 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 							cacheWrites={cacheWrites}
 							contextWindow={selectedModelInfo?.contextWindow}
 							lastApiReqTotalTokens={lastApiReqTotalTokens}
+							lastApiReqUsage={lastApiReqUsage}
 							onSendMessage={onSendMessage}
 							tokensIn={tokensIn}
 							tokensOut={tokensOut}

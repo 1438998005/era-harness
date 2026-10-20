@@ -5,9 +5,12 @@ import { Logger } from "@/shared/services/Logger"
 import { DIFF_VIEW_URI_SCHEME } from "../VscodeDiffViewProvider"
 
 /**
- * Cline's GitHub avatar URL
+ * 评论作者头像：使用随扩展打包的 era harness 图标（避免远程加载上游 Cline 头像）。
  */
-const CLINE_AVATAR_URL = "https://avatars.githubusercontent.com/u/184127137"
+const getAuthorIconPath = (): vscode.Uri | undefined => {
+	const ext = vscode.extensions.getExtension("eraharness.era-harness")
+	return ext ? vscode.Uri.joinPath(ext.extensionUri, "assets", "icons", "icon.png") : undefined
+}
 
 /**
  * VS Code implementation of CommentReviewController.
@@ -30,12 +33,12 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 	constructor() {
 		super()
 		// Create the comment controller
-		this.commentController = vscode.comments.createCommentController("cline-ai-review", "Cline AI Review")
+		this.commentController = vscode.comments.createCommentController("cline-ai-review", "era harness Review")
 
 		// Configure options for the reply input
 		this.commentController.options = {
 			placeHolder: "Ask a question about this code...",
-			prompt: "Reply to Cline",
+			prompt: "Reply to era harness",
 		}
 
 		// Configure the commenting range provider (optional - allows commenting on any line)
@@ -105,8 +108,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 			body: new vscode.MarkdownString(comment.comment),
 			mode: vscode.CommentMode.Preview,
 			author: {
-				name: "Cline",
-				iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+				name: "era harness",
+				iconPath: getAuthorIconPath(),
 			},
 		}
 
@@ -152,8 +155,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 			body: new vscode.MarkdownString("_Thinking..._"),
 			mode: vscode.CommentMode.Preview,
 			author: {
-				name: "Cline",
-				iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+				name: "era harness",
+				iconPath: getAuthorIconPath(),
 			},
 		}
 
@@ -218,8 +221,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 			body: new vscode.MarkdownString(this.streamingContent || "_Thinking..._"),
 			mode: vscode.CommentMode.Preview,
 			author: {
-				name: "Cline",
-				iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+				name: "era harness",
+				iconPath: getAuthorIconPath(),
 			},
 		}
 		// Create a new array to ensure VS Code detects the change
@@ -240,8 +243,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 			body: new vscode.MarkdownString(finalContent),
 			mode: vscode.CommentMode.Preview,
 			author: {
-				name: "Cline",
-				iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+				name: "era harness",
+				iconPath: getAuthorIconPath(),
 			},
 		}
 		this.streamingThread.comments = [commentObj]
@@ -331,8 +334,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 					body: new vscode.MarkdownString(content || "_Thinking..._"),
 					mode: vscode.CommentMode.Preview,
 					author: {
-						name: "Cline",
-						iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+						name: "era harness",
+						iconPath: getAuthorIconPath(),
 					},
 				}
 				thread.comments = [...thread.comments.slice(0, -1), streamingComment]
@@ -343,8 +346,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 				body: new vscode.MarkdownString("_Thinking..._"),
 				mode: vscode.CommentMode.Preview,
 				author: {
-					name: "Cline",
-					iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+					name: "era harness",
+					iconPath: getAuthorIconPath(),
 				},
 			}
 			thread.comments = [...thread.comments, thinkingComment]
@@ -369,8 +372,8 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 						),
 						mode: vscode.CommentMode.Preview,
 						author: {
-							name: "Cline",
-							iconPath: vscode.Uri.parse(CLINE_AVATAR_URL),
+							name: "era harness",
+							iconPath: getAuthorIconPath(),
 						},
 					}
 					thread.comments = [...thread.comments.slice(0, -1), errorComment]

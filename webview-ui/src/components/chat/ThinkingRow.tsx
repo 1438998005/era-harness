@@ -13,6 +13,8 @@ interface ThinkingRowProps {
 	title?: string
 	isStreaming?: boolean
 	showChevron?: boolean
+	/** 本轮模型名（每轮模型名显示）：新视图过滤了普通 api_req_started 行，改挂在思考行这个可见锚点上 */
+	modelId?: string
 }
 
 export const ThinkingRow = memo(
@@ -25,6 +27,7 @@ export const ThinkingRow = memo(
 		title,
 		isStreaming = false,
 		showChevron = true,
+		modelId,
 	}: ThinkingRowProps) => {
 		const { t } = useTranslation("common")
 		const displayTitle = title ?? t("chatRow.thinking")
@@ -73,18 +76,25 @@ export const ThinkingRow = memo(
 						size="icon"
 						variant="icon">
 						<span
-							className={cn("text-[13px] leading-[1.2]", {
+							className={cn("shrink-0 text-[13px] leading-[1.2]", {
 								"animate-shimmer bg-linear-90 from-foreground to-description bg-[length:200%_100%] bg-clip-text text-transparent":
 									isStreaming,
 								"select-none": isStreaming,
 							})}>
 							{displayTitle}
 						</span>
+						{modelId && (
+							<span
+								className="ml-1.5 min-w-0 shrink truncate text-[11px] text-description opacity-80"
+								title={modelId}>
+								{t("requestStart.model")}: {modelId}
+							</span>
+						)}
 						{showChevron &&
 							(isExpanded ? (
-								<ChevronDownIcon className="!size-1 text-description" />
+								<ChevronDownIcon className="!size-1 shrink-0 text-description" />
 							) : (
-								<ChevronRightIcon className="!size-1 text-description" />
+								<ChevronRightIcon className="!size-1 shrink-0 text-description" />
 							))}
 					</Button>
 				) : null}

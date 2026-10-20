@@ -65,9 +65,11 @@ const formatCount = (value: number | undefined): string => {
 const formatCost = (value: number | undefined): string => {
 	const normalized = Number.isFinite(value) ? Math.max(0, value || 0) : 0
 	const maximumFractionDigits = normalized >= 0.01 ? 2 : 4
-	return Intl.NumberFormat("en-US", {
+	// era harness：面向国内用户，成本以人民币计价（与主任务头部 ¥ 一致）；
+	// 此前写死 USD 会显示成 "$0.00"，与全局货币不符。
+	return Intl.NumberFormat("zh-CN", {
 		style: "currency",
-		currency: "USD",
+		currency: "CNY",
 		minimumFractionDigits: 2,
 		maximumFractionDigits,
 	}).format(normalized)
@@ -265,7 +267,9 @@ export default function SubagentStatusRow({ message, isLast, lastModifiedMessage
 									) : (
 										<ChevronRightIcon className="size-2 shrink-0" />
 									)}
-									<span className="shrink-0">{isExpanded ? t("subagent.hideSubagentOutput") : t("subagent.showSubagentOutput")}</span>
+									<span className="shrink-0">
+										{isExpanded ? t("subagent.hideSubagentOutput") : t("subagent.showSubagentOutput")}
+									</span>
 								</button>
 							)}
 							{shouldShowStats && !hasDetails && latestToolCallText && (

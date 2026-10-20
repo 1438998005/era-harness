@@ -18,6 +18,7 @@ import "./utils/path" // necessary to have access to String.prototype.toPosix
 import path from "node:path"
 import type { ExtensionContext } from "vscode"
 import { HostProvider } from "@/hosts/host-provider"
+import { registerEraBasicLanguageSupport } from "@/hosts/vscode/erabasic"
 import { vscodeHostBridgeClient } from "@/hosts/vscode/hostbridge/client/host-grpc-client"
 import { createStorageContext } from "@/shared/storage/storage-context"
 import { readTextFromClipboard, writeTextToClipboard } from "@/utils/env"
@@ -512,6 +513,17 @@ ${ctx.cellJson || "{}"}
 			abortCommitGeneration()
 		}),
 	)
+
+	// Register the eraTW update command handler（用户明确发起，走原生弹窗确认）
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.UpdateGame, async () => {
+			const { updateGameCommand } = await import("./hosts/vscode/updateGame")
+			await updateGameCommand(webview.controller)
+		}),
+	)
+
+	// EraBasic 语言支持：独立语言 id + 运行时自动检测路由（装了 erabasic 则让位，否则接管 .erb/.erh）
+	registerEraBasicLanguageSupport(context)
 
 	Logger.log(`[Cline] extension activated in ${performance.now() - activationStartTime} ms`)
 

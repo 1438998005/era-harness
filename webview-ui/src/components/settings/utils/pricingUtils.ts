@@ -22,11 +22,10 @@ export const formatTokenPrice = (price: number, currency: "USD" | "CNY" = "USD")
 }
 
 /**
- * 计价货币。DeepSeek 官方定价以人民币计，其余提供方按美元。
- * 直接由模型名推导，避免为了一个展示字段去改 proto 传输层。
+ * 计价货币。era harness 面向国内用户，DeepSeek / 自定义 OpenAI 兼容端点均以人民币计价，
+ * 故默认 CNY；不再按模型名是否为 deepseek 判断（GLM 等国产模型名不含 deepseek 会误判成 $）。
  */
-export const getPriceCurrency = (modelId?: string): "USD" | "CNY" =>
-	modelId && modelId.toLowerCase().includes("deepseek") ? "CNY" : "USD"
+export const getPriceCurrency = (_modelId?: string): "USD" | "CNY" => "CNY"
 
 /** 货币符号，用于紧凑显示 */
 export const currencySymbol = (currency: "USD" | "CNY" = "USD") => (currency === "CNY" ? "¥" : "$")

@@ -1,6 +1,6 @@
-import type { ClineMessage, ClineSayTool } from "@shared/ExtensionMessage"
+import type { ClineApiReqInfo, ClineMessage, ClineSayTool } from "@shared/ExtensionMessage"
 import type { Mode } from "@shared/storage/types"
-import type { LucideIcon } from "lucide-react"
+import { BotIcon, type LucideIcon } from "lucide-react"
 import type React from "react"
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
@@ -210,6 +210,20 @@ export const RequestStartRow: React.FC<RequestStartRowProps> = ({
 	// (otherwise they'll be shown in the unified ToolGroupRenderer list)
 	const shouldShowActivities = currentActivities.length > 0 && !hasCompletedTools
 
+	// 本轮模型名（2026-10-19 用户需求：每轮输出后展示当前是什么模型；免费 provider 显示具体命中的候选）。
+	// 容错：历史任务没有该字段、text 为空串/非法 JSON 时静默不显示——不得抛错击穿渲染树。
+	const modelId = useMemo(() => {
+		if (message.say !== "api_req_started" || !message.text) {
+			return undefined
+		}
+		try {
+			const info = JSON.parse(message.text) as ClineApiReqInfo
+			return info.modelId || undefined
+		} catch {
+			return undefined
+		}
+	}, [message.say, message.text])
+
 	// Initial loading ("Thinking..." before any content) is injected as a synthetic in-list
 	// reasoning row in MessagesArea to avoid footer handoff flicker.
 
@@ -257,6 +271,16 @@ export const RequestStartRow: React.FC<RequestStartRowProps> = ({
 					errorType="error"
 					message={message}
 				/>
+			)}
+
+			{/* 本轮模型：无论免费/付费都显示；免费 provider 显示动态路由最终命中的具体候选 */}
+			{modelId && (
+				<div className="ml-1 flex items-center gap-1.5 text-description text-[11px] leading-none mb-0.5">
+					<BotIcon className="size-2.5 shrink-0" />
+					<span className="truncate" title={modelId}>
+						{t("requestStart.model")}: {modelId}
+					</span>
+				</div>
 			)}
 		</div>
 	)

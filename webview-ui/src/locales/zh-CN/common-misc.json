@@ -439,6 +439,7 @@
 		"older": "更早",
 		"selectAll": "全选",
 		"selectNone": "取消全选",
+		"deleteSelectedCount": "删除 {{count}} 已选中",
 		"deleteAllHistory": "删除所有历史记录"
 	},
 	"historyView": {

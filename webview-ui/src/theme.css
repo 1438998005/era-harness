@@ -303,11 +303,17 @@
 		}
 
 		pre > code .hljs-deletion {
-			@apply inline-block w-full bg-diff-removed;
+			@apply inline-block w-full;
+			/* 半透明删除底色 + 强制可读前景：避免某些主题下 removedTextBackground 与继承的文字色同色导致「文字隐入背景」 */
+			background-color: color-mix(in srgb, var(--color-diff-removed) 40%, transparent);
+			color: var(--color-code-foreground);
 		}
 
 		pre > code .hljs-addition {
-			@apply inline-block w-full bg-diff-added;
+			@apply inline-block w-full;
+			/* 同上：added 行底色改半透明叠加，文字固定用编辑器前景色，任何主题下都可读 */
+			background-color: color-mix(in srgb, var(--color-diff-added) 40%, transparent);
+			color: var(--color-code-foreground);
 		}
 
 		code span.line:empty {

@@ -50,8 +50,10 @@ import { cn } from "@/lib/utils"
 import { FileServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { findMatchingResourceOrTemplate, getMcpServerDisplayName } from "@/utils/mcp"
 import CodeAccordian, { cleanPathPrefix } from "../common/CodeAccordian"
+import ChatErrorBoundary from "./ChatErrorBoundary"
 import { CommandOutputContent, CommandOutputRow } from "./CommandOutputRow"
 import { CompletionOutputRow } from "./CompletionOutputRow"
+import { findRoundModelId } from "./chat-view/utils/messageUtils"
 import { DiffEditRow } from "./DiffEditRow"
 import ErrorRow from "./ErrorRow"
 import { FeatureTip } from "./FeatureTip"
@@ -107,7 +109,13 @@ const ChatRow = memo(
 
 		const [chatrow, { height }] = useSize(
 			<div className="relative pt-2.5 px-4">
-				<ChatRowContent {...props} />
+				{/* era harness：恢复错误边界——单条消息渲染抛错时仅降级该行并输出控制台，避免整屏白 */}
+				<ChatErrorBoundary
+					errorBody="该消息渲染时出错。完整堆栈见开发者工具控制台。"
+					errorTitle="渲染此消息时出错"
+					height="100px">
+					<ChatRowContent {...props} />
+				</ChatErrorBoundary>
 			</div>,
 		)
 
@@ -204,8 +212,14 @@ export const ChatRowContent = memo(
 
 		const [cost, _apiReqCancelReason, apiReqStreamingFailedMessage] = useMemo(() => {
 			if (message.text != null && message.say === "api_req_started") {
-				const info: ClineApiReqInfo = JSON.parse(message.text)
-				return [info.cost, info.cancelReason, info.streamingFailedMessage, info.retryStatus]
+				// era harness：防御性解析——api_req_started 的 text 为空串/非法 JSON 时（自定义 API 交互后偶发），
+				// 原裸 JSON.parse 会在 useMemo 里抛错击穿整棵渲染树 → 白屏。解析失败降级为无成本信息。
+				try {
+					const info: ClineApiReqInfo = JSON.parse(message.text)
+					return [info.cost, info.cancelReason, info.streamingFailedMessage, info.retryStatus]
+				} catch {
+					return [undefined, undefined, undefined, undefined, undefined]
+				}
 			}
 			return [undefined, undefined, undefined, undefined, undefined]
 		}, [message.text, message.say])
@@ -369,7 +383,12 @@ export const ChatRowContent = memo(
 
 		const tool = useMemo(() => {
 			if (message.ask === "tool" || message.say === "tool") {
-				return JSON.parse(message.text || "{}") as ClineSayTool
+				// era harness：非法 JSON 不能击穿渲染树（同 api_req_started 的白屏防护）；解析失败降级为 null。
+				try {
+					return JSON.parse(message.text || "{}") as ClineSayTool
+				} catch {
+					return null
+				}
 			}
 			return null
 		}, [message.ask, message.say, message.text])
@@ -881,6 +900,9 @@ export const ChatRowContent = memo(
 					case "reasoning": {
 						const isReasoningStreaming = message.partial === true
 						const hasReasoningText = !!message.text?.trim()
+						// era harness：每轮模型名锚点——新视图过滤了普通 api_req_started 行（§12.20），
+						// 模型名改挂在每回合可见的思考行上；历史任务无 modelId 字段时静默不显示。
+						const roundModelId = findRoundModelId(message.ts, clineMessages)
 						// Show feature tips throughout the entire thinking/reasoning phase
 						const _showFeatureTip = isReasoningStreaming
 						return (
@@ -889,6 +911,7 @@ export const ChatRowContent = memo(
 									isExpanded={(isReasoningStreaming && hasReasoningText) || isExpanded}
 									isStreaming={isReasoningStreaming}
 									isVisible={true}
+									modelId={roundModelId}
 									onToggle={isReasoningStreaming ? undefined : handleToggle}
 									reasoningContent={message.text}
 									showChevron={!isReasoningStreaming || hasReasoningText}

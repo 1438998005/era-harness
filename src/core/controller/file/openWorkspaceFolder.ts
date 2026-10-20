@@ -13,6 +13,8 @@ export async function openWorkspaceFolder(_controller: Controller, _request: Emp
 	try {
 		const selected = await HostProvider.window.showOpenDialogue({
 			canSelectMany: false,
+			canSelectFolders: true,
+			canSelectFiles: false,
 			openLabel: "打开为工作区",
 		})
 		const folder = selected.paths?.[0]

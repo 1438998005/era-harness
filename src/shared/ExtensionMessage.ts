@@ -341,6 +341,8 @@ export interface ClineAskNewTask {
 
 export interface ClineApiReqInfo {
 	request?: string
+	/** 本轮实际使用的模型 id（2026-10-19 用户需求：每轮输出后展示当前模型；免费 provider 为动态路由最终命中的候选） */
+	modelId?: string
 	tokensIn?: number
 	tokensOut?: number
 	cacheWrites?: number

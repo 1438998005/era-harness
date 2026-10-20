@@ -521,66 +521,6 @@ export class Controller {
 		}
 	}
 
-	async handleShengSuanYunCallback(code: string) {
-		try {
-			const callbackUrl = await HostProvider.get().getCallbackUrl("/ssy")
-			const response = await axios.post("https://api.shengsuanyun.com/auth/keys", {
-				code,
-				callback_url: callbackUrl,
-			})
-
-			const shengSuanYunApiKey = response.data?.data?.api_key
-
-			if (!shengSuanYunApiKey) {
-				HostProvider.window.showMessage({
-					type: ShowMessageType.ERROR,
-					message: "登录胜算云成功，但未获取到 API Key，请前往控制台创建。",
-				})
-				return
-			}
-
-			const currentMode = this.stateManager.getGlobalSettingsKey("mode")
-			const currentApiConfiguration = this.stateManager.getApiConfiguration()
-			const updatedConfig = {
-				...currentApiConfiguration,
-				shengSuanYunApiKey,
-			}
-
-			this.stateManager.setApiConfiguration(updatedConfig)
-
-			await this.postStateToWebview()
-			if (this.task) {
-				this.task.api = buildApiHandler({ ...updatedConfig, ulid: this.task.ulid }, currentMode)
-			}
-		} catch (error) {
-			Logger.error("Error exchanging code for ShengSuanYun API key:", error)
-			throw error
-		}
-	}
-
-	// Hicap
-	async handleHicapCallback(code: string) {
-		const apiKey: string = code
-
-		const hicap: ApiProvider = "hicap"
-		const currentMode = this.stateManager.getGlobalSettingsKey("mode")
-
-		// Update API configuration through cache service
-		const currentApiConfiguration = this.stateManager.getApiConfiguration()
-		const updatedConfig = {
-			...currentApiConfiguration,
-			planModeApiProvider: hicap,
-			actModeApiProvider: hicap,
-			hicapApiKey: apiKey,
-		}
-		this.stateManager.setApiConfiguration(updatedConfig)
-
-		await this.postStateToWebview()
-		if (this.task) {
-			this.task.api = buildApiHandler({ ...updatedConfig, ulid: this.task.ulid }, currentMode)
-		}
-	}
-
 	// Task history
 
 	async getTaskWithId(id: string): Promise<{
@@ -719,6 +659,10 @@ export class Controller {
 		const { openAiCodexOAuthManager } = await import("@/integrations/openai-codex/oauth")
 		const openAiCodexIsAuthenticated = await openAiCodexOAuthManager.isAuthenticated()
 
+		// era harness：webview 打开但尚未启动任务时 this.workspaceManager 仍为 undefined，
+		// 会让 WorkspaceGateBanner 误报「尚未打开工作区」。惰性确保初始化后再读真实工作区根。
+		const wsManager = this.workspaceManager ?? (await this.ensureWorkspaceManager())
+
 		return {
 			version,
 			apiConfiguration,
@@ -739,7 +683,7 @@ export class Controller {
 			mcpDisplayMode,
 			telemetrySetting,
 			planActSeparateModelsSetting,
-			enableCheckpointsSetting: enableCheckpointsSetting ?? true,
+			enableCheckpointsSetting: enableCheckpointsSetting ?? false,
 			platform,
 			environment,
 			distinctId,
@@ -772,9 +716,9 @@ export class Controller {
 			backgroundCommandRunning: this.backgroundCommandRunning,
 			backgroundCommandTaskId: this.backgroundCommandTaskId,
 			// NEW: Add workspace information
-			workspaceRoots: this.workspaceManager?.getRoots() ?? [],
-			primaryRootIndex: this.workspaceManager?.getPrimaryIndex() ?? 0,
-			isMultiRootWorkspace: (this.workspaceManager?.getRoots().length ?? 0) > 1,
+			workspaceRoots: wsManager?.getRoots() ?? [],
+			primaryRootIndex: wsManager?.getPrimaryIndex() ?? 0,
+			isMultiRootWorkspace: (wsManager?.getRoots().length ?? 0) > 1,
 			multiRootSetting: {
 				user: this.stateManager.getGlobalStateKey("multiRootEnabled"),
 				featureFlag: true, // Multi-root workspace is now always enabled

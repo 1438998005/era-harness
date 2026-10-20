@@ -283,15 +283,17 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 
 	const isYoloRemoteLocked = remoteConfigSettings?.yoloModeToggled !== undefined
 
-	// era harness 只暴露和 eraTW 开发直接相关的开关；子代理、worktree、Web 工具、
+	// era harness 只暴露和 eraTW 开发直接相关的开关；worktree、Web 工具、
 	// 功能提示这些属于上游遗留，先不显示，避免用户被无关选项淹没。
+	// （子代理曾一并隐藏，但用户明确需要，已恢复。）
+	// era harness（0 门槛）：隐藏「原生工具调用」开关——工具调用统一走 XML，用户无需也无需区分原生/非原生。
 	const ERA_FEATURE_ALLOWLIST = new Set([
-		"native-tool-call",
 		"parallel-tool-calling",
 		"strict-plan-mode",
 		"auto-compact",
 		"checkpoints",
 		"hooks",
+		"subagents",
 	])
 	const keepFeature = (feature: FeatureToggle) => ERA_FEATURE_ALLOWLIST.has(feature.id)
 	const visibleAgentFeatures = useMemo(() => agentFeatures.filter(keepFeature), [])

@@ -8,10 +8,10 @@ interface FeatureTipItem {
 	text: string
 }
 
+// era harness：已删除过时提示——doubleCheckCompletion（主路径 DeepSeek，逐字计费的重验证提示是噪声）、
+// dragDropImages（DeepSeek supportsImages:false，无视觉）、browseWebsites（浏览器工具已随 fork 移除）、
+// reportBug（/reportbug 提上游 GitHub issue，与本地 sideload 无关）。
 const FEATURE_TIPS: FeatureTipItem[] = [
-	{
-		text: i18next.t("featureTips.doubleCheckCompletion"),
-	},
 	{
 		text: i18next.t("featureTips.clinerulesFile"),
 	},
@@ -35,15 +35,6 @@ const FEATURE_TIPS: FeatureTipItem[] = [
 	},
 	{
 		text: i18next.t("featureTips.quoteButton"),
-	},
-	{
-		text: i18next.t("featureTips.dragDropImages"),
-	},
-	{
-		text: i18next.t("featureTips.browseWebsites"),
-	},
-	{
-		text: i18next.t("featureTips.reportBug"),
 	},
 	{
 		text: i18next.t("featureTips.disableTips"),

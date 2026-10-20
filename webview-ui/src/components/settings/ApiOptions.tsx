@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PLATFORM_CONFIG, PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { DeepSeekProvider } from "./providers/DeepSeekProvider"
+import { FreeModelProvider } from "./providers/FreeModelProvider"
 import { OpenAICompatibleProvider } from "./providers/OpenAICompatible"
 import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers"
 
@@ -276,6 +277,10 @@ const ApiOptions = ({
 					)}
 				</ProviderDropdownWrapper>
 			</DropdownContainer>
+
+			{apiConfiguration && selectedProvider === "free" && (
+				<FreeModelProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
 
 			{apiConfiguration && selectedProvider === "deepseek" && (
 				<DeepSeekProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />

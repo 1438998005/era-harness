@@ -2,6 +2,7 @@ import { ApiFormat } from "./proto/cline/models"
 import type { ApiHandlerSettings } from "./storage/state-keys"
 
 export type ApiProvider =
+	| "free"
 	| "anthropic"
 	| "claude-code"
 	| "openrouter"
@@ -41,12 +42,10 @@ export type ApiProvider =
 	| "oca"
 	| "aihubmix"
 	| "minimax"
-	| "hicap"
 	| "nousResearch"
-	| "shengsuanyun"
 	| "wandb"
 
-export const DEFAULT_API_PROVIDER = "deepseek" as ApiProvider
+export const DEFAULT_API_PROVIDER = "free" as ApiProvider
 
 export interface ApiHandlerOptions extends Partial<ApiHandlerSettings> {
 	ulid?: string // Used to identify the task in API requests
@@ -145,20 +144,6 @@ export const CLAUDE_OPUS_1M_TIERS = [
 		cacheReadsPrice: 1.0,
 	},
 ]
-
-export interface HicapCompatibleModelInfo extends ModelInfo {
-	temperature?: number
-}
-
-export const hicapModelInfoSaneDefaults: HicapCompatibleModelInfo = {
-	maxTokens: -1,
-	contextWindow: 128_000,
-	supportsImages: true,
-	supportsPromptCache: true,
-	inputPrice: 0,
-	outputPrice: 0,
-	temperature: 1,
-}
 
 // Anthropic
 // https://docs.anthropic.com/en/docs/about-claude/models // prices updated 2025-01-02

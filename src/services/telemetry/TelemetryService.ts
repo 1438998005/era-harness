@@ -1140,35 +1140,6 @@ export class TelemetryService {
 	}
 
 	/**
-	 * Records when the browser tool is completed
-	 * @param ulid Unique identifier for the task
-	 * @param stats Statistics about the browser session
-	 */
-	public captureBrowserToolEnd(
-		ulid: string,
-		stats: {
-			actionCount: number
-			duration: number
-			actions?: string[]
-		},
-	) {
-		if (!this.isCategoryEnabled("browser")) {
-			return
-		}
-
-		this.capture({
-			event: TelemetryService.EVENTS.TASK.BROWSER_TOOL_END,
-			properties: {
-				ulid,
-				actionCount: stats.actionCount,
-				duration: stats.duration,
-				actions: stats.actions,
-				timestamp: new Date().toISOString(),
-			},
-		})
-	}
-
-	/**
 	 * Records when browser errors occur during a task
 	 * @param ulid Unique identifier for the task
 	 * @param errorType Type of error that occurred (e.g., "launch_error", "connection_error", "navigation_error")

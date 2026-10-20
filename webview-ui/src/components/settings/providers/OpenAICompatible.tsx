@@ -102,6 +102,10 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 				</TooltipContent>
 			</Tooltip>
 
+			<p className="text-xs -mt-1 mb-2.5" style={{ color: "var(--vscode-descriptionForeground)" }}>
+				{t("commonFields.baseUrlHint")}
+			</p>
+
 			<ApiKeyField
 				initialValue={apiConfiguration?.openAiApiKey || ""}
 				onChange={(value) => {

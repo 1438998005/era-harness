@@ -1,0 +1,231 @@
+{
+	"$comment": "工具调用解析回归语料。每条 raw 是模型（多为 GLM-5.3-Flash / dots-3-note）在文本通道吐出的真实/复现形态；expectTools 断言解析器应还原出的工具块与参数。新增 bug 时把复现串加进这里即可。",
+	"cases": [
+		{
+			"name": "规范 Cline XML：read_file",
+			"raw": "我先读取该文件。\n<read_file><path>d:\\a\\b.ERB</path></read_file>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "d:\\a\\b.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "泄漏原生 tool_call 包裹标记（GLM 形态）→ 应归一化为 read_file",
+			"raw": "era harness 读取 1 个文件\n<tool_call>read_file<path>d:\\R18\\game\\x.ERB</path></read_file>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "d:\\R18\\game\\x.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "泄漏原生 tool_call 包裹标记（连字符变体）→ 应归一化为 list_files",
+			"raw": "<tool-call>list_files<path>d:\\tmp</path><recursive>false</recursive></list_files>",
+			"expectTools": [
+				{
+					"name": "list_files",
+					"params": {
+						"path": "d:\\tmp",
+						"recursive": "false"
+					}
+				}
+			]
+		},
+		{
+			"name": "命令被 XML 实体转义（&amp; / &gt;）→ command 参数应解码回原始 & >",
+			"raw": "<execute_command><command>if exist \"bk.ERB\" (echo OK) else (echo MISS) &amp; fc /b \"a.ERB\" \"bk.ERB\" &gt;nul 2&gt;&amp;1 &amp;&amp; echo MATCH</command></execute_command>",
+			"expectTools": [
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "if exist \"bk.ERB\" (echo OK) else (echo MISS) & fc /b \"a.ERB\" \"bk.ERB\" >nul 2>&1 && echo MATCH"
+					}
+				}
+			]
+		},
+		{
+			"name": "双编码 &amp;lt; 只应解一层 → &lt;（不得被误解成 <）",
+			"raw": "<execute_command><command>echo &amp;lt;div&amp;gt;</command></execute_command>",
+			"expectTools": [
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "echo &lt;div&gt;"
+					}
+				}
+			]
+		},
+		{
+			"name": "write_to_file 的 content 含 &amp; 必须保持字面（不得解码，否则损坏文件）",
+			"raw": "<write_to_file><path>a.html</path><content><p>A &amp; B</p></content></write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "a.html",
+						"content": "<p>A &amp; B</p>"
+					}
+				}
+			]
+		},
+		{
+			"name": "独立 task_progress 正文：应从可见正文剥离（不显示原始标签），但周围文本保留",
+			"raw": "思考中\n<task_progress>\n- [ ] 读取文件\n- [x] 分析结构\n</task_progress>\n接下来我读取该文件。",
+			"expectNoTools": true,
+			"expectTextContains": "接下来我读取该文件",
+			"expectTextNotContains": "task_progress"
+		},
+		{
+			"name": "流式未闭合的 task_progress（尾块）：也应从正文剥离，避免开标签闪现",
+			"raw": "我先定位目标文件。\n<task_progress>\n- [ ] 定位目标文件\n- [ ] 通读文件内容",
+			"expectNoTools": true,
+			"expectTextContains": "我先定位目标文件",
+			"expectTextNotContains": "task_progress"
+		},
+		{
+			"name": "混合：文本 + search_files + attempt_completion",
+			"raw": "让我搜索。\n<search_files><path>d:\\proj</path><regex>@ASK_M</regex><file_pattern>*.ERB</file_pattern></search_files>\n完成：<attempt_completion><result>已修复</result></attempt_completion>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "d:\\proj",
+						"regex": "@ASK_M",
+						"file_pattern": "*.ERB"
+					}
+				},
+				{
+					"name": "attempt_completion",
+					"params": {
+						"result": "已修复"
+					}
+				}
+			]
+		},
+		{
+			"name": "原生 DSML invoke 标记（连 invoke 带分隔符一起泄漏）→ 应归一化成 search_files",
+			"raw": "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"search_files\">\n<｜｜DSML｜｜ parameter name=\"path\" string=\"true\">ERB/口上/KOJO.ERB</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"regex\" string=\"true\">CUSTOM_BUTTON|KOJO</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB/口上/KOJO.ERB",
+						"regex": "CUSTOM_BUTTON|KOJO"
+					}
+				}
+			]
+		},
+		{
+			"name": "混用格式：Cline 开 <path>、DSML 关 </｜｜DSML｜｜ parameter>（曾把闭合删掉致 path 吞掉 regex）",
+			"raw": "<search_files>\n<file_pattern>KOJO_MESSAGE.ERB</file_pattern>\n<path>ERB/口上・メッセージ関連</｜｜DSML｜｜ parameter>\n<regex>CUSTOM_BUTTON|800 \\+|ShopButtonTarget</regex>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB/口上・メッセージ関連",
+						"regex": "CUSTOM_BUTTON|800 \\+|ShopButtonTarget",
+						"file_pattern": "KOJO_MESSAGE.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "开标签多一个引号（<search_files\">）→ 应仍识别为工具，且正文不残留畸形标签",
+			"raw": "开始搜索。\n<search_files\">\n<path>ERB/口上・メッセージ関連</path>\n<regex>CUSTOM_BUTTON|custom_button_name</regex>\n<file_pattern>KOJO_MESSAGE.ERB</file_pattern>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB/口上・メッセージ関連",
+						"regex": "CUSTOM_BUTTON|custom_button_name",
+						"file_pattern": "KOJO_MESSAGE.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "残留 DSML 分隔符不得作为正文显示给用户",
+			"raw": "<read_file>\n<path>ERB/of_new_kojo_api_TEST.ERB</path>\n</read_file>\n</｜｜DSML｜｜ parameter>\n</read_file>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "ERB/of_new_kojo_api_TEST.ERB"
+					}
+				}
+			],
+			"expectTextNotContains": "DSML"
+		},
+		{
+			"name": "dots_function_call 包裹 + <parameter name=\"path\">（Kilo 免费候选 dots-3-note 主形态，2026-10-19 真实任务取证）→ 应还原 read_file 且正文无包裹残留",
+			"raw": "我先读取 README。\n<dots_function_call>\n<read_file>\n<parameter name=\"path\">d:\\R18\\game\\eratw-sub-modding-main\\README.zh.md\n</parameter>\n</invoke>\n</dots_function_call>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "d:\\R18\\game\\eratw-sub-modding-main\\README.zh.md"
+					}
+				}
+			],
+			"expectTextNotContains": "dots_function_call"
+		},
+		{
+			"name": "dots_function_call 变体：参数开标签缺右引号（name=\"path>，真实任务第 2 回合原样）→ 仍应还原 read_file",
+			"raw": "<dots_function_call>\n<read_file>\n<parameter name=\"path>d:\\R18\\game\\eratw-sub-modding-main\\一键打包.bat\n</parameter>\n</invoke>\n</dots_function_call>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "d:\\R18\\game\\eratw-sub-modding-main\\一键打包.bat"
+					}
+				}
+			],
+			"expectTextNotContains": "dots_function_call"
+		},
+		{
+			"name": "dots_function_call 混用：<parameter> 与规范 <recursive> 同现 + </invoke>（真实任务第 4 回合原样）→ 应还原 list_files 双参数",
+			"raw": "<dots_function_call>\n<list_files>\n<parameter name=\"path\">d:\\R18\\game\\ERB\n</parameter>\n<recursive>false</recursive>\n</invoke>\n</dots_function_call>",
+			"expectTools": [
+				{
+					"name": "list_files",
+					"params": {
+						"path": "d:\\R18\\game\\ERB",
+						"recursive": "false"
+					}
+				}
+			],
+			"expectTextNotContains": "dots_function_call"
+		},
+		{
+			"name": "一条消息两个 dots_function_call 块（真实任务第 2-4 回合原样）→ 应还原两个独立 read_file",
+			"raw": "<dots_function_call>\n<read_file>\n<parameter name=\"path\">d:\\R18\\game\\a.ERB\n</parameter>\n</invoke>\n</dots_function_call>\n<dots_function_call>\n<read_file>\n<parameter name=\"path\">d:\\R18\\game\\b.bat\n</parameter>\n</invoke>\n</dots_function_call>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "d:\\R18\\game\\a.ERB"
+					}
+				},
+				{
+					"name": "read_file",
+					"params": {
+						"path": "d:\\R18\\game\\b.bat"
+					}
+				}
+			],
+			"expectTextNotContains": "dots_function_call"
+		},
+		{
+			"name": "muse-spark 形态：dots 包裹但内层是规范 Cline XML（曾可解析，工具 partial 放行）→ 归一化后不得更坏，正文无包裹残留",
+			"raw": "<dots_function_call>\n<list_files>\n<path>d:\\R18\\game\\eratw-sub-modding-main</path>\n<recursive>false</recursive>\n</list</dots_function_call>",
+			"expectTextNotContains": "dots_function_call"
+		}
+	]
+}

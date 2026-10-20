@@ -866,3 +866,51 @@ export function getIconByToolName(toolName: string) {
 			return WrenchIcon
 	}
 }
+
+/**
+ * 容错解析 api_req_started 的 modelId（ClineApiReqInfo.modelId）。
+ * 历史任务没有该字段、text 为空串/非法 JSON → undefined；绝不抛错（白屏防护，同 ChatRow 的
+ * 防御性解析口径——JSON.parse 在渲染链路裸奔会击穿整棵渲染树）。
+ */
+export function parseModelIdFromApiReq(text?: string): string | undefined {
+	if (!text) {
+		return undefined
+	}
+	try {
+		const info = JSON.parse(text) as { modelId?: unknown }
+		return typeof info.modelId === "string" && info.modelId ? info.modelId : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * 取某一可见行所属回合的模型名：从 msgTs 向前找最近的 api_req_started 的 modelId。
+ *
+ * 用途（每轮模型名显示）：新版 chat-view 的 filterVisibleMessages 会把普通 api_req_started
+ * 整条过滤掉（仅错误/取消时可见），RequestStartRow 行尾的模型名因此不可见；改挂在每回合
+ * 的可见锚点上——独立思考行（ChatRow case "reasoning" → ThinkingRow）与工具分组头
+ * （ToolGroupRenderer）。
+ *
+ * @param giveUpAtReasoning true 时中途遇到 reasoning 行即返回 undefined：该回合的模型名
+ *   已由思考行展示，避免同一回合显示两遍（工具分组头专用）。
+ */
+export function findRoundModelId(msgTs: number, allMessages: ClineMessage[], giveUpAtReasoning = false): string | undefined {
+	const index = allMessages.findIndex((m) => m.ts === msgTs)
+	if (index === -1) {
+		return undefined
+	}
+	for (let i = index - 1; i >= 0; i--) {
+		const msg = allMessages[i]
+		if (!msg) {
+			continue // noUncheckedIndexedAccess 防护
+		}
+		if (giveUpAtReasoning && msg.say === "reasoning") {
+			return undefined // 本回合有思考行锚点，分组头不重复显示
+		}
+		if (msg.say === "api_req_started") {
+			return parseModelIdFromApiReq(msg.text)
+		}
+	}
+	return undefined
+}
