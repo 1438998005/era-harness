@@ -38,7 +38,7 @@
 **一条命令现算，⛔ 在文档里手抄用例数**（2026-10-21 实证：209 与 229 差了 20 例没人发现）：
 
 ```
-npm run gate          # 三条快闸门 ＋ 用例登记核对
+npm run gate          # 八道快闸门（用例登记／知识候选池／设置目录完整性／生成物新鲜度／工具登记／核心库测试／typecheck／更新回归）
 npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 ```
 
@@ -72,6 +72,8 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 | 新增扩展原生工具（`era_knowledge` 是样板） | 七处成套：`src/shared/tools.ts` 枚举＋`READ_ONLY_TOOLS`；`system-prompt/tools/<名>.ts` spec；`tools/index.ts` export；`tools/init.ts` spread；**12 个** `variants/*/config.ts` 放行；`task/tools/handlers/<驼峰>ToolHandler.ts`；`ToolExecutorCoordinator.ts` 注册。参数名若不在 `src/core/assistant-message/index.ts` 的 `toolParamNames` 里 ⇒ 加它（⛔ 复用泛化的 `id`） |
 | 核心库任何导出 | `packages/era-harness-core/src/index.ts` barrel＋`npm test`＋根 `npm run compile` |
 | 新增核心库**测试文件** | ⚠️ `package.json` 的 `test` 脚本是**显式文件清单不是 glob** ⇒ 不登记则用例根本不会被跑 |
+| 设置页的开关文案（`webview-ui/.../FeatureSettingsSection.tsx` 的 `FeatureToggle[]`、`locales/zh-CN/settings.json`）或 `package.json` 的 `contributes.configuration` | 跑 `cd packages/era-harness-core && npm run build:settings` 重生成 `src/settings/data/*.generated.ts`（**⛔ 手改生成物**），并到 `data/overrides.ts` / `UNCOVERED_SETTINGS` 补「关掉会怎样」。`npm run gate` 的「生成物新鲜度」「设置目录完整性」两道会红 |
+| `proto/cline/state.proto` 的 `UpdateSettingsRequest` 新增字段 | 该字段必须∈设置目录 或 ∈ `overrides.ts` 的 `UNCOVERED_SETTINGS`（写一句为什么不收录），否则 gate 红。两侧命名不同名时在 `SETTING_KEY_ALIASES` 里对照 |
 | 写文件落盘形态（编码/BOM/行尾） | 判据在核心库 `src/encoding/write.ts`（纯函数，⛔ 不引 iconv-lite）；执行在 `src/integrations/editor/DiffViewProvider.ts#enforceWriteEncoding`；结论经 `saveChanges().encodingNote` → `WriteToFileToolHandler`，拼接在 `src/core/era/encoding-write.ts` |
 | 改 `state-keys.ts` | 先 `node scripts/generate-state-proto.mjs`，再 `npm run protos`；提交前看 `proto/cline/state.proto` 是否被带进暂存区 |
 

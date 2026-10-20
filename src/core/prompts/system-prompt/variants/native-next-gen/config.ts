@@ -67,6 +67,7 @@ export const config = createVariant(ModelFamily.NATIVE_NEXT_GEN)
 		ClineDefaultTool.ERA_SYMBOLS,
 		ClineDefaultTool.ERA_REFERENCE,
 		ClineDefaultTool.ERA_KNOWLEDGE,
+		ClineDefaultTool.SETTING_HELP,
 		ClineDefaultTool.RUN_GAME,
 	)
 	.placeholders({

@@ -1,0 +1,60 @@
+name: Settings Catalog
+
+# 只跑「内置设置目录」这一条线，刻意不碰上游 Cline 的 test.yml：
+# 那份工作流依赖 cli/、testing-platform/、webview-ui/package-lock.json 等减法后已不存在的目录，
+# 在本仓跑不起来；往里加步骤等于把新检查挂在一个永远不会绿的工作流上。
+#
+# 这道 CI 守的是 Spec 里点名的漂移风险：改了设置页文案（FeatureToggle / locales）或 package.json
+# 的 contributes.configuration 却忘了重跑生成器 ⇒ 模型回答的是旧文案，比报错更坏。
+# 本地等价命令：cd packages/era-harness-core && npm run build:settings -- --check
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - 'packages/era-harness-core/**'
+            - 'webview-ui/src/components/settings/**'
+            - 'webview-ui/src/locales/**'
+            - 'src/shared/storage/state-keys.ts'
+            - 'package.json'
+            - '.github/workflows/settings-catalog.yml'
+    pull_request:
+        branches:
+            - main
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    catalog:
+        runs-on: ubuntu-latest
+        name: 设置目录一致性与核心库用例
+        defaults:
+            run:
+                working-directory: packages/era-harness-core
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # Node 24：与开发机实测版本一致（node:test 的汇总行在 22/24 不同，
+            # scripts/gate-baseline.mjs 已同时兼容，这里不依赖它）
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
+                  cache-dependency-path: packages/era-harness-core/package-lock.json
+
+            - name: Install core dependencies
+              run: npm ci
+
+            - name: Generated catalog is up to date
+              run: npm run build:settings -- --check
+
+            - name: Typecheck
+              run: npm run typecheck
+
+            - name: Unit tests (incl. settings catalog)
+              run: npm test

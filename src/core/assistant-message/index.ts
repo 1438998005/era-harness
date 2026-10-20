@@ -65,6 +65,7 @@ export const toolParamNames = [
 	"wait_seconds",
 	"keep_alive",
 	"entry_id",
+	"key",
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]

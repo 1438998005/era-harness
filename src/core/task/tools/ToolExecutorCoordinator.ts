@@ -23,6 +23,7 @@ import { ReadFileToolHandler } from "./handlers/ReadFileToolHandler"
 import { ReportBugHandler } from "./handlers/ReportBugHandler"
 import { RunGameToolHandler } from "./handlers/RunGameToolHandler"
 import { SearchFilesToolHandler } from "./handlers/SearchFilesToolHandler"
+import { SettingHelpToolHandler } from "./handlers/SettingHelpToolHandler"
 import { UseSubagentsToolHandler } from "./handlers/SubagentToolHandler"
 import { SummarizeTaskHandler } from "./handlers/SummarizeTaskHandler"
 import { UseMcpToolHandler } from "./handlers/UseMcpToolHandler"
@@ -113,6 +114,7 @@ export class ToolExecutorCoordinator {
 		[ClineDefaultTool.ERA_SYMBOLS]: (v: ToolValidator) => new EraSymbolsToolHandler(v),
 		[ClineDefaultTool.ERA_REFERENCE]: (v: ToolValidator) => new EraReferenceToolHandler(v),
 		[ClineDefaultTool.ERA_KNOWLEDGE]: (v: ToolValidator) => new EraKnowledgeToolHandler(v),
+		[ClineDefaultTool.SETTING_HELP]: (v: ToolValidator) => new SettingHelpToolHandler(v),
 		[ClineDefaultTool.RUN_GAME]: (v: ToolValidator) => new RunGameToolHandler(v),
 	}
 

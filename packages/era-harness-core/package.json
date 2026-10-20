@@ -9,10 +9,11 @@
     "era-harness-mcp": "dist/src/mcp/server.js"
   },
   "scripts": {
-    "test": "node --import tsx --test test/parser.test.ts test/profile.test.ts test/encoding.test.ts test/encoding-write.test.ts test/mcp-guard.test.ts test/reference.test.ts test/knowledge.test.ts",
+    "test": "node --import tsx --test test/parser.test.ts test/profile.test.ts test/encoding.test.ts test/encoding-write.test.ts test/mcp-guard.test.ts test/reference.test.ts test/knowledge.test.ts test/settings.test.ts",
     "analyze": "tsx scripts/analyze-log.ts",
     "profile": "tsx scripts/profile-project.ts",
     "build:reference": "tsx scripts/build-reference.ts",
+    "build:settings": "tsx scripts/build-settings-catalog.ts",
     "mcp": "tsx src/mcp/server.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json"

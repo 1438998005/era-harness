@@ -110,6 +110,117 @@ function push(name, detail, status, problems) {
 	)
 }
 
+// 1b) 设置目录完整性：proto 里每个「使用者可设置」字段，必须 ∈ 生成目录 ∪ 未收录白名单。
+//     为什么要这道门：新增一个设置项却没人写说明时，模型会对着一半的设置说「不知道」；
+//     要么补 overrides / 生成源，要么在黑名单里写一句「为什么不收录」——两者都不做就红灯。
+{
+	const problems = []
+	const settingsDataDir = path.join(CORE, "src", "settings", "data")
+	const featureSrc = fs.readFileSync(path.join(settingsDataDir, "features.generated.ts"), "utf8")
+	const vscodeSrc = fs.readFileSync(path.join(settingsDataDir, "vscode-config.generated.ts"), "utf8")
+	const overridesSrc = fs.readFileSync(path.join(settingsDataDir, "overrides.ts"), "utf8")
+
+	// 目录能覆盖的键：`key:` 本身、`state-key:<stateKey>`、`nested:<父键>.<子键>`
+	const catalogKeys = new Set()
+	const storageTargets = new Set()
+	for (const source of [featureSrc, vscodeSrc]) {
+		for (const match of source.matchAll(/^\s*key: '([A-Za-z0-9_.-]+)'/gm)) {
+			catalogKeys.add(match[1])
+		}
+		for (const match of source.matchAll(/storage: '(?:state-key|nested):([A-Za-z0-9_.]+)'/g)) {
+			storageTargets.add(match[1].split(".")[0])
+		}
+	}
+	const catalogCount = catalogKeys.size
+
+	/** 从 `export const NAME: Record<...> = {...}` 里抽一层键（同文件里都是 2 空格缩进的平铺表） */
+	const flatKeys = (name) => {
+		const block = new RegExp(`export const ${name}[\\s\\S]*?\\n\\};`).exec(overridesSrc)?.[0] ?? ""
+		return new Set([...block.matchAll(/^\s{1,4}([A-Za-z_]\w*):/gm)].map((match) => match[1]))
+	}
+	const uncovered = flatKeys("UNCOVERED_SETTINGS")
+	const aliases = new Map()
+	for (const match of (/export const SETTING_KEY_ALIASES[\s\S]*?\n\};/.exec(overridesSrc)?.[0] ?? "").matchAll(
+		/^\s{1,4}([A-Za-z_]\w*):\s*'([^']+)'/gm,
+	)) {
+		aliases.set(match[1], match[2])
+	}
+
+	const proto = fs.readFileSync(path.join(ROOT, "proto", "cline", "state.proto"), "utf8")
+	const messageBlock = /message UpdateSettingsRequest \{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? ""
+	const fields = [...messageBlock.matchAll(/^\s*(?:repeated\s+)?[A-Za-z0-9_<>., ]+\s+([a-z][A-Za-z0-9_]*)\s*=\s*\d+;/gm)].map(
+		(match) => match[1],
+	)
+	/** proto 用 snake_case，state-keys 用 camelCase */
+	const camel = (name) => name.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase())
+
+	let missing = 0
+	if (fields.length === 0) {
+		problems.push("没能从 proto/cline/state.proto 解析出 UpdateSettingsRequest 字段（布局变了？）")
+	} else {
+		for (const field of fields) {
+			// 先查别名表（proto 名与设置键不同名的历史残留），再查目录两种命名
+			const viaAlias = aliases.get(field)
+			const inCatalog = catalogKeys.has(viaAlias ?? "") || storageTargets.has(camel(field))
+			if (!inCatalog && !uncovered.has(field)) {
+				missing++
+				problems.push(`设置项 ${field} 既不在目录也不在 UNCOVERED_SETTINGS（补说明或写一句为什么不收录）`)
+			}
+		}
+	}
+
+	const attributed = fields.length - missing
+	const percent = fields.length === 0 ? 0 : Math.round((attributed / fields.length) * 100)
+	push(
+		"设置目录完整性",
+		`${attributed}/${fields.length} 字段有归属（${percent}%）＝目录 ${catalogCount} 项 ＋ 白名单 ${uncovered.size} 项`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
+// 1c) 生成物新鲜度：改了 FeatureSettingsSection / locales / state-keys / package.json 却没重跑生成器，
+//     模型就会按旧文案回答（比报错更坏：答得像真的）。
+{
+	const result = run(NPM, ["run", "build:settings", "--", "--check"], CORE)
+	const ok = result.code === 0
+	push(
+		"设置目录生成物新鲜度",
+		ok ? "与源码一致" : "过期（重跑 npm run build:settings）",
+		ok ? "green" : "red",
+		ok
+			? null
+			: result.out
+					.split(/\r?\n/)
+					.filter((line) => line.trim().length > 0)
+					.slice(-6),
+	)
+}
+
+// 1d) 工具登记完整性：12 个 prompt 变体少登记一个，该变体下模型永远看不到这个工具，
+//     而测试照样全绿（AGENTS.md §1 规则 4 的坑）。
+{
+	const problems = []
+	const variantsDir = path.join(ROOT, "src", "core", "prompts", "system-prompt", "variants")
+	const variants = fs.readdirSync(variantsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+	for (const variant of variants) {
+		const configPath = path.join(variantsDir, variant.name, "config.ts")
+		if (!fs.readFileSync(configPath, "utf8").includes("ClineDefaultTool.SETTING_HELP")) {
+			problems.push(`variants/${variant.name}/config.ts 没登记 setting_help`)
+		}
+	}
+	const toolsSrc = fs.readFileSync(path.join(ROOT, "src", "shared", "tools.ts"), "utf8")
+	if (!/READ_ONLY_TOOLS[\s\S]*?ClineDefaultTool\.SETTING_HELP/.test(toolsSrc)) {
+		problems.push("src/shared/tools.ts 的 READ_ONLY_TOOLS 没加 SETTING_HELP")
+	}
+	push(
+		"工具登记完整性",
+		problems.length === 0 ? `${variants.length} 个变体 ＋ READ_ONLY_TOOLS 全部在册` : `${problems.length} 处漏登记`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
 // 2) 核心库测试（用例数会随批次变，这就是它不该手抄的原因）
 {
 	const result = run(NPM, ["test"], CORE)
