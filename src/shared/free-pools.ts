@@ -16,8 +16,8 @@
  * Ling 3.0 Flash Sante(kilo) → Dots3-Note(kilo) → Qwen3.5-397B(ovh) → Nemotron 3 Ultra(kilo) →
  * North Mini Code(kilo) → gpt-oss-120b(ovh) → Mistral Small 3.2(ovh) → gpt-oss-20b(ovh) →
  * Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) → Qwen2.5-VL-72B(ovh) → Mistral Nemo(ovh) → LFM 2.5 2.6B(kilo)。
- * （共 17 项：OVH 10 + Kilo 7；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，见 知识库/07 §7.7。
- * 逐模型出处与用户裁定见 知识库/07 §7.9；纯能力序不加隐私权重。
+ * （共 17 项：OVH 10 + Kilo 7；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，门控判据见 free-lanes.ts。
+ * 逐模型出处与用户裁定以本文件为准（开发期编号知识库已退役，无在册副本）；纯能力序不加隐私权重。
  * 用户裁定（最高优先级）：Dots3-Note 自报 SWE-V 池内最高但实测 < Inkling → 排其后；Qwen3.6-27B 实测 > Laguna → 升 #2；
  * Ling 3.0 Flash Sante 由用户指定上移至 Dots3-Note 之前（#5，覆盖此前按编码可靠性让 Nemotron 先于 Ling 的排序）。）
  *
@@ -43,8 +43,8 @@ export interface FreeLaneMeta {
 }
 
 export const LANE_META: Record<FreeLane, FreeLaneMeta> = {
-	// Zen 渠道已暂时移出池（开箱即用原则）；客户端代码保留休眠待恢复，见 知识库/07 §7.7
-	zen: { collectsData: false, note: "已暂时移出池，代码保留待恢复（需本机 opencode 客户端激活，§7.7）" },
+	// Zen 渠道已暂时移出池（开箱即用原则）；客户端代码保留休眠待恢复，门控三要素见 free-lanes.ts
+	zen: { collectsData: false, note: "已暂时移出池，代码保留待恢复（需本机 opencode 客户端激活，三要素见 free-lanes.ts）" },
 	// Kilo listing 实证全部 mayTrainOnYourPrompts=true → 明文收集（提示词以明文被上游收集/可能用于训练）
 	kilo: { collectsData: true },
 	// OVH：欧盟托管、零数据保留、不用于训练；匿名 2rpm（无需配置，Key 槽已移除）
@@ -66,7 +66,7 @@ export interface FreeCandidate {
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 真实编程能力优先级（2026-10-19 重排，17 项跨两渠道，依据见 知识库/07 §7.9） */
+/** 单一候选池：顺序 = 真实编程能力优先级（2026-10-19 重排，17 项跨两渠道，裁定记录见本文件头部注释） */
 export const FREE_POOL: readonly FreeCandidate[] = [
 	{
 		id: "Qwen3.8-27B",

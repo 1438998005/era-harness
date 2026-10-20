@@ -10,7 +10,7 @@
  *   本机无 opencode 客户端 → 造不出合格会话 → Zen 车道整体 403（非 tools/UA 问题）。
  *   恢复正道：本机安装并登录过一次 opencode 官方客户端后，从其
  *   `~/.local/share/opencode/opencode.db`（session_v2 表）读真实会话 + 请求体补 read 空壳。
- *   详见 知识库/07-外部资源.md §7.7「免费门三要素」。
+ *   「免费门三要素」以本注释为准（开发期编号知识库已退役，无在册副本）。
  * - Kilo `https://api.kilo.ai/api/gateway`：**完全不能带 Authorization**（带任何值都 401
  *   INVALID_TOKEN），OpenAI SDK 传空 apiKey 即不发该头（已实测）。
  * - listing：Kilo `GET /models` 只信 `isFree === true`；Zen 清单在 `/zen/v1/models`。

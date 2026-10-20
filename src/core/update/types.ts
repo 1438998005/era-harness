@@ -3,7 +3,7 @@
  *
  * 约定：
  * - 本目录下 `tarball / manifest / plan` 三个模块必须保持**纯 Node**，不得 import vscode，
- *   以便将来整体抽到 era harness 核心包供 CLI / MCP 复用（见 知识库/13 §13.12）。
+ *   以便将来整体抽到 era harness 核心包供 CLI / MCP 复用（本条即该约束的在册正本）。
  * - 所有路径一律是**相对游戏根**、以 "/" 分隔的 POSIX 形式；对外不暴露 Windows 反斜杠。
  */
 
@@ -67,7 +67,7 @@ export interface LocalScan {
 export type PlanAction = "write" | "delete" | "keep" | "conflict"
 
 /**
- * 判定原因。UI 文案由 知识库/13 §13.11 的映射表负责，这里只给稳定的机器码。
+ * 判定原因。面向用户的文案集中在 `describe.ts`（零词汇原则），这里只给稳定的机器码。
  */
 export type PlanReason =
 	| "clean-update" // 本地没动、上游改了 → 覆盖

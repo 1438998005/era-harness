@@ -6,7 +6,7 @@
  * 它把 `ask` 实现成「一次不带工具的一次性 completion」。
  *
  * 注意：这里只 `import type` ApiHandler，编译后不会把 provider 依赖带进
- * `core/update/` 的纯 Node 模块（见 `知识库/13 §13.12` 的约束）。
+ * `core/update/` 的纯 Node 模块（该约束写在 `types.ts` 顶部约定里）。
  */
 
 import type { ApiHandler } from "@core/api"
