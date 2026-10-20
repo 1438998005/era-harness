@@ -14,6 +14,10 @@ import type { TaskConfig } from "../types/TaskConfig"
 import type { StronglyTypedUIHelpers } from "../types/UIHelpers"
 import { ToolResultUtils } from "../utils/ToolResultUtils"
 
+// eraTW 工程有近 9800 个 ERB 文件，目录层数也深；保留较小上限会让角色目录
+// 和事件脚本在一次调用里看不全，因此提高到 500。
+const LIST_FILES_LIMIT = 500
+
 export class ListFilesToolHandler implements IFullyManagedTool {
 	readonly name = ClineDefaultTool.LIST_FILES
 
@@ -97,7 +101,7 @@ export class ListFilesToolHandler implements IFullyManagedTool {
 			;({ absolutePath, displayPath } =
 				typeof pathResult === "string" ? { absolutePath: pathResult, displayPath: relDirPath! } : pathResult)
 			usedWorkspaceHint = typeof pathResult !== "string"
-			;[files, didHitLimit] = await listFiles(absolutePath, recursive, 200)
+			;[files, didHitLimit] = await listFiles(absolutePath, recursive, LIST_FILES_LIMIT)
 		} catch (error) {
 			config.taskState.consecutiveMistakeCount++
 			const errorMessage = error instanceof Error ? error.message : String(error)

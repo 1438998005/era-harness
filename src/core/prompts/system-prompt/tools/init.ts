@@ -5,16 +5,20 @@ import { act_mode_respond_variants } from "./act_mode_respond"
 import { apply_patch_variants } from "./apply_patch"
 import { ask_followup_question_variants } from "./ask_followup_question"
 import { attempt_completion_variants } from "./attempt_completion"
+import { era_reference_variants } from "./era_reference"
+import { era_symbols_variants } from "./era_symbols"
 import { execute_command_variants } from "./execute_command"
 import { focus_chain_variants } from "./focus_chain"
 import { generate_explanation_variants } from "./generate_explanation"
 import { list_code_definition_names_variants } from "./list_code_definition_names"
 import { list_files_variants } from "./list_files"
 import { load_mcp_documentation_variants } from "./load_mcp_documentation"
+import { log_diagnose_variants } from "./log_diagnose"
 import { new_task_variants } from "./new_task"
 import { plan_mode_respond_variants } from "./plan_mode_respond"
 import { read_file_variants } from "./read_file"
 import { replace_in_file_variants } from "./replace_in_file"
+import { run_game_variants } from "./run_game"
 import { search_files_variants } from "./search_files"
 import { subagent_variants } from "./subagent"
 import { use_mcp_tool_variants } from "./use_mcp_tool"
@@ -36,15 +40,19 @@ export function registerClineToolSets(): void {
 		...ask_followup_question_variants,
 		...attempt_completion_variants,
 		...execute_command_variants,
+		...era_reference_variants,
+		...era_symbols_variants,
 		...focus_chain_variants,
 		...generate_explanation_variants,
 		...list_code_definition_names_variants,
 		...list_files_variants,
 		...load_mcp_documentation_variants,
+		...log_diagnose_variants,
 		...new_task_variants,
 		...plan_mode_respond_variants,
 		...read_file_variants,
 		...replace_in_file_variants,
+		...run_game_variants,
 		...search_files_variants,
 		...subagent_variants,
 		...use_mcp_tool_variants,

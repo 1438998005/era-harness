@@ -445,10 +445,27 @@ async function undo(result: RunUpdateResult, root: string): Promise<void> {
  *
  * 不传 `controller` 也能跑，只是没有 AI 合并能力（冲突文件一律保留本地）。
  */
+
+/** 多个工作区根可能重叠（同一个游戏被两个根覆盖），按路径去重 */
+function dedupeCandidates(candidates: GameRootCandidate[]): GameRootCandidate[] {
+	const seen = new Set<string>()
+	const result: GameRootCandidate[] = []
+	for (const candidate of candidates) {
+		const key = candidate.path.replace(/\\/g, "/").toLowerCase()
+		if (seen.has(key)) {
+			continue
+		}
+		seen.add(key)
+		result.push(candidate)
+	}
+	return result
+}
+
 export async function updateGameCommand(controller?: Controller): Promise<void> {
-	const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-	if (!workspaceRoot) {
-		await vscode.window.showErrorMessage("请先用编辑器打开 eraTW 所在的文件夹，再点更新。")
+	// 多根工作区：每个根都找一遍，不替用户选第一个根
+	const workspaceRoots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath)
+	if (workspaceRoots.length === 0) {
+		await vscode.window.showErrorMessage("请先用编辑器打开游戏所在的文件夹（或其上层目录），再点更新。")
 		return
 	}
 
@@ -456,7 +473,13 @@ export async function updateGameCommand(controller?: Controller): Promise<void> 
 	try {
 		candidates = await vscode.window.withProgress(
 			{ location: vscode.ProgressLocation.Notification, title: "正在找 eraTW 的游戏目录…" },
-			() => discoverGameRoots(workspaceRoot),
+			async () => {
+				const collected: GameRootCandidate[] = []
+				for (const root of workspaceRoots) {
+					collected.push(...(await discoverGameRoots(root)))
+				}
+				return dedupeCandidates(collected)
+			},
 		)
 	} catch (error) {
 		await vscode.window.showErrorMessage(`找游戏目录时出错了：${error instanceof Error ? error.message : error}`)
@@ -465,7 +488,7 @@ export async function updateGameCommand(controller?: Controller): Promise<void> 
 
 	if (candidates.length === 0) {
 		await vscode.window.showErrorMessage(
-			"这个文件夹里没找到 eraTW 的游戏目录。请用编辑器打开游戏所在的文件夹（里面有 ERB 和 CSV 的那一层）再试。",
+			"当前工作区里没找到 eraTW 的游戏目录。可以打开游戏所在的文件夹，或打开它的上层目录（插件会自己往下找）再试。",
 		)
 		return
 	}

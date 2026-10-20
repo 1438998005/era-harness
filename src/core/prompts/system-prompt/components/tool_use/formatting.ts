@@ -22,36 +22,42 @@ Checklist here (optional)
 
 const TOOL_USE_FORMATTING_TEMPLATE_TEXT = `# Tool Use Formatting
 
-Tool use is formatted using XML-style tags. The tool name is enclosed in opening and closing tags, and each parameter is similarly enclosed within its own set of tags. Here's the structure:
+Tool use is formatted using XML-style tags. The tool name is the outer tag; each parameter is an inner tag whose name must exactly match the parameter name declared by that tool.
 
-<tool_name>
-<parameter1_name>value1</parameter1_name>
-<parameter2_name>value2</parameter2_name>
-...
-</tool_name>
+Real example with two required parameters:
 
-For example:
+<execute_command>
+<command>npm run build</command>
+<requires_approval>false</requires_approval>
+</execute_command>
+
+Real example with one required parameter:
 
 <read_file>
 <path>src/main.js</path>
 {{FOCUS_CHATIN_FORMATTING}}</read_file>
+
+Never emit placeholder tags such as <tool_name> or <parameter1_name> — those are documentation wording, not real tags. Every parameter the tool declares as required must appear as its own tag.
 
 Always adhere to this format for the tool use to ensure proper parsing and execution.`
 
 const TOOL_USE_FORMATTING_TEMPLATE_TEXT_ZH_CN = `# 工具使用格式
 
-工具使用使用 XML 风格的标签进行格式化。工具名称包含在开始和结束标签中，每个参数同样包含在其自己的标签集中。结构如下：
+工具使用使用 XML 风格的标签。工具名是最外层标签；每个参数是一个内层标签，标签名必须与该工具声明的参数名完全一致。
 
-<tool_name>
-<parameter1_name>value1</parameter1_name>
-<parameter2_name>value2</parameter2_name>
-...
-</tool_name>
+含两个必填参数的真实示例：
 
-例如：
+<execute_command>
+<command>npm run build</command>
+<requires_approval>false</requires_approval>
+</execute_command>
+
+含一个必填参数的真实示例：
 
 <read_file>
 <path>src/main.js</path>
 {{FOCUS_CHATIN_FORMATTING}}</read_file>
+
+绝不要输出 <tool_name>、<parameter1_name> 这类占位标签——它们只是文档措辞，不是真实标签。工具声明的每个必填参数都要以自己的标签出现。
 
 始终遵循此格式进行工具使用，以确保正确的解析和执行。`

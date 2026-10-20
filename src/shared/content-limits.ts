@@ -37,3 +37,21 @@ export function truncateContent(content: string, maxSize: number = MAX_CONTENT_S
 
 	return `${truncatedContent}\n\n---\n\n[FILE TRUNCATED: This content is ${formatBytes(content.length)} but only the first ${formatBytes(maxSize)} is shown (${formatBytes(truncatedAmount)} truncated). Use search_files to find specific patterns, or execute_command with grep/head/tail for targeted reading.]`
 }
+
+/**
+ * 在行边界上截断（不会把一行切一半）。
+ *
+ * 用于 read_file：先把完整文件按 start_line/end_line 切好、加好行号，
+ * 再对切片结果做长度保护。这样超大 ERB 的后半段仍然可读。
+ */
+export function truncateAtLineBoundary(content: string, maxSize: number = MAX_CONTENT_SIZE_BYTES): string {
+	if (content.length <= maxSize) {
+		return content
+	}
+
+	const lastNewline = content.lastIndexOf("\n", maxSize)
+	const keep = lastNewline > 0 ? lastNewline : maxSize
+	const truncatedAmount = content.length - keep
+
+	return `${content.slice(0, keep)}\n\n---\n\n[FILE TRUNCATED: This content is ${formatBytes(content.length)} but only the first ${formatBytes(keep)} is shown (${formatBytes(truncatedAmount)} truncated). Use start_line/end_line to read a specific range.]`
+}

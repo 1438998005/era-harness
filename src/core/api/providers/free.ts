@@ -83,6 +83,14 @@ export class FreeModelHandler implements ApiHandler {
 	/** 当前（或上次）路由候选：动态上下文的窗口来源，也是失败重试截断的对账依据 */
 	private activeCandidate: FreeCandidate | undefined
 	private abortController: AbortController | undefined
+	/**
+	 * 用户按下停止。
+	 *
+	 * 不能只靠 `abortController.abort()`：候选之间有一段没有 controller 的缝隙，
+	 * 而且 abort 后抛出的不一定是 SDK 的 APIUserAbortError。以前这两种情况都会
+	 * 被当成 switchable 失败，于是「用户点了停止，插件却偷偷又发了一个请求」。
+	 */
+	private userAborted = false
 
 	constructor(options: FreeModelHandlerOptions) {
 		this.options = options
@@ -98,10 +106,21 @@ export class FreeModelHandler implements ApiHandler {
 	}
 
 	abort(): void {
+		this.userAborted = true
 		this.abortController?.abort()
 	}
 
+	/** 外部中止后用于终止候选循环的错误（name 与 SDK 保持一致，下游按 AbortError 处理） */
+	private static readonly ABORT_ERROR_NAME = "AbortError"
+
+	private static abortError(): Error {
+		const error = new Error("用户已中止本次请求")
+		error.name = FreeModelHandler.ABORT_ERROR_NAME
+		return error
+	}
+
 	async *createMessage(systemPrompt: string, messages: ClineStorageMessage[], tools?: OpenAITool[]): ApiStream {
+		this.userAborted = false
 		this.zen = ensureFreshZenClient(this.zen)
 
 		const hasImages = messagesHaveImages(messages)
@@ -121,6 +140,9 @@ export class FreeModelHandler implements ApiHandler {
 		let switches = 0
 
 		for (const candidate of chain) {
+			if (this.userAborted) {
+				throw FreeModelHandler.abortError()
+			}
 			if (isLaneCoolingDown(candidate.lane)) {
 				continue
 			}
@@ -154,7 +176,12 @@ export class FreeModelHandler implements ApiHandler {
 				Logger.log(`[free] 命中 ${candidate.id}（车道 ${candidate.lane} / wire ${candidate.wire}，切换 ${switches} 次）`)
 				return
 			} catch (error) {
-				if (isUserAbort(error)) {
+				if (this.userAborted || isUserAbort(error)) {
+					throw error
+				}
+				// 已经吐给上层的内容收不回来：再切下一个候选会把两条回复拼在一起，
+				// 用户会看到「模型 A 说到一半 + 模型 B 重新开头」。这种情况只能报错。
+				if (sawContent) {
 					throw error
 				}
 				const kind = classifyFreeFailure(error)

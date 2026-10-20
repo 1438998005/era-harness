@@ -175,6 +175,29 @@ test("事后撤销（rollbackFromBackup）：恢复到更新前", async () => {
 	})
 })
 
+test("事后撤销拒绝任意目录：只有 update_backup_* 能被当成备份", async () => {
+	await withTempRoot(async (root) => {
+		// 伪造一个带着「合法」manifest 的目录：撤销会写文件，不能让任意目录决定写到哪里
+		const fake = path.join(root, "_备份", "my-backup")
+		await fs.mkdir(fake, { recursive: true })
+		await fs.writeFile(
+			path.join(fake, "manifest.json"),
+			JSON.stringify({
+				schemaVersion: 1,
+				root,
+				label: "x",
+				createdAt: new Date().toISOString(),
+				status: "done",
+				source: {},
+				actions: [{ path: "victim.txt", action: "delete", existed: false, beforeSha1: null, afterSha1: null }],
+			}),
+			"utf8",
+		)
+
+		await assert.rejects(() => rollbackFromBackup(fake), /不是本插件生成的备份目录/)
+	})
+})
+
 test("受保护路径直接拒绝，一个字节都不写", async () => {
 	await withTempRoot(async (root) => {
 		await writeFiles(root, { "sav/global.sav": "save data" })

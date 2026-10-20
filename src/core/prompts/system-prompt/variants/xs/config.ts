@@ -50,6 +50,10 @@ export const config = createVariant(ModelFamily.XS)
 		ClineDefaultTool.ATTEMPT,
 		ClineDefaultTool.PLAN_MODE,
 		ClineDefaultTool.USE_SUBAGENTS,
+		ClineDefaultTool.LOG_DIAGNOSE,
+		ClineDefaultTool.ERA_SYMBOLS,
+		ClineDefaultTool.ERA_REFERENCE,
+		ClineDefaultTool.RUN_GAME,
 	)
 	.placeholders({
 		MODEL_FAMILY: ModelFamily.XS,

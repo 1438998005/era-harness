@@ -26,6 +26,7 @@ const SPECS = [
 	"tarball.spec.ts",
 	"emptyfile.spec.ts",
 	"discover.spec.ts",
+	"profile.spec.ts",
 	"apply.spec.ts",
 	"service.spec.ts",
 	"merge.spec.ts",
@@ -33,6 +34,8 @@ const SPECS = [
 	"mergeProvider.spec.ts",
 	"mergeWorkbench.spec.ts",
 	"describe.spec.ts",
+	"reference.spec.ts",
+	"game-runner.spec.ts",
 ]
 
 const aliasResolverPlugin = {
@@ -41,6 +44,7 @@ const aliasResolverPlugin = {
 		const aliases = {
 			"@": path.join(repoRoot, "src"),
 			"@core": path.join(repoRoot, "src", "core"),
+			"@eraharness": path.resolve(repoRoot, "..", "era harness", "src"),
 			"@integrations": path.join(repoRoot, "src", "integrations"),
 			"@services": path.join(repoRoot, "src", "services"),
 			"@shared": path.join(repoRoot, "src", "shared"),

@@ -275,7 +275,7 @@ export class TaskCheckpointManager implements ICheckpointManager {
 						try {
 							const workspacePath = await this.getWorkspacePath()
 							if (!workspacePath) {
-								throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中 eraTW 工程目录。")
+								throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中工程目录。")
 							}
 							this.state.checkpointTracker = await CheckpointTracker.create(
 								this.task.taskId,
@@ -431,7 +431,7 @@ export class TaskCheckpointManager implements ICheckpointManager {
 				try {
 					const workspacePath = await this.getWorkspacePath()
 					if (!workspacePath) {
-						throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中 eraTW 工程目录。")
+						throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中工程目录。")
 					}
 					this.state.checkpointTracker = await CheckpointTracker.create(
 						this.task.taskId,
@@ -599,7 +599,7 @@ export class TaskCheckpointManager implements ICheckpointManager {
 				try {
 					const workspacePath = await this.getWorkspacePath()
 					if (!workspacePath) {
-						throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中 eraTW 工程目录。")
+						throw new Error("未打开工作区：请先用「文件 → 打开文件夹」选中工程目录。")
 					}
 					this.state.checkpointTracker = await CheckpointTracker.create(
 						this.task.taskId,
@@ -809,7 +809,7 @@ export class TaskCheckpointManager implements ICheckpointManager {
 			if (!workspacePath) {
 				// 没打开文件夹：不猜目录、不读桌面，直接说明原因
 				await this.setcheckpointManagerErrorMessage(
-					"未打开工作区。era harness 只在你打开的文件夹里读写 —— 请用「文件 → 打开文件夹」选中 eraTW 工程目录后重新发起对话。",
+					"未打开工作区。era harness 只在你打开的文件夹里读写 —— 请用「文件 → 打开文件夹」选中工程目录后重新发起对话。",
 				)
 				return undefined
 			}

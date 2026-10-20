@@ -73,8 +73,9 @@ const NATIVE_NEXT_GEN: ClineToolSpec = {
 			instruction: (context: SystemPromptContext) => (isZhCN(context.locale) ? INSTRUCTION_URL_ZH_CN : INSTRUCTION_URL_EN),
 		},
 		{
+			// handler 只读 url，prompt 从未被使用：标成必填会让模型多写一段无人消费的内容
 			name: "prompt",
-			required: true,
+			required: false,
 			instruction: (context: SystemPromptContext) =>
 				isZhCN(context.locale) ? INSTRUCTION_PROMPT_NATIVE_ZH_CN : INSTRUCTION_PROMPT_NATIVE_EN,
 		},

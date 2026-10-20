@@ -150,4 +150,6 @@ export const createAdvancedVariant = (family: ModelFamily) =>
 			ClineDefaultTool.MCP_DOCS,
 			ClineDefaultTool.TODO,
 			ClineDefaultTool.USE_SUBAGENTS,
+			ClineDefaultTool.LOG_DIAGNOSE,
+			ClineDefaultTool.ERA_SYMBOLS,
 		)

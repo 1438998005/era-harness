@@ -56,6 +56,14 @@ export const toolParamNames = [
 	"prompt_5",
 	"start_line",
 	"end_line",
+	"log_path",
+	"kind",
+	"name",
+	"mode",
+	"exe",
+	"debug",
+	"wait_seconds",
+	"keep_alive",
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]

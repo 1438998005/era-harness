@@ -16,7 +16,7 @@
 		"noImplicitReturns": true,
 		"noUnusedLocals": false,
 		"resolveJsonModule": true,
-		"rootDir": ".",
+		"rootDir": "..",
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
@@ -32,6 +32,9 @@
 			],
 			"@core/*": [
 				"./src/core/*"
+			],
+			"@eraharness/*": [
+				"../era harness/src/*"
 			],
 			"@generated/*": [
 				"./src/generated/*"

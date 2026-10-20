@@ -55,7 +55,9 @@ interface SearchResult {
 	afterContext: string[]
 }
 
-const MAX_RESULTS = 300
+// eraTW 工程近 9800 个 ERB，同一标识符常有大量调用点；300 条会在排查
+// 全局调用关系时被截断，因此提高到 500。
+const MAX_RESULTS = 500
 
 async function execRipgrep(args: string[]): Promise<string> {
 	const binPath: string = await getBinaryLocation("rg")
@@ -97,6 +99,15 @@ async function execRipgrep(args: string[]): Promise<string> {
 			reject(new Error(`ripgrep process error: ${error.message}`))
 		})
 	})
+}
+
+/**
+ * 轻量 ripgrep 调用：返回原始输出行（供 era_symbols 这类需要自己解析的调用方使用）。
+ * 复用 execRipgrep 的输出行数上限，避免结果刷屏。
+ */
+export async function rawRipgrepLines(args: string[]): Promise<string[]> {
+	const output = await execRipgrep(args)
+	return output.split("\n").filter((line) => line.length > 0)
 }
 
 export async function regexSearchFiles(

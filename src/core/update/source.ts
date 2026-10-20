@@ -113,6 +113,8 @@ export function createGitLabSource(project: GitLabProject): GitLabSource {
 			}
 			let nowVersion: string | null = null
 			try {
+				// `ERB/DIM.ERH` 是**上游仓库**里的固定路径（经 GitLab API 读取），
+				// 与用户工作区的目录布局无关——用户把脚本目录改名也不影响这里。
 				nowVersion = parseNowVersion(await source.rawFile("ERB/DIM.ERH", commit))
 			} catch {
 				nowVersion = null

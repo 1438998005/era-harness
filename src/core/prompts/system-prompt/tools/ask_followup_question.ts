@@ -75,8 +75,10 @@ const NATIVE_NEXT_GEN: ClineToolSpec = {
 				isZhCN(context.locale) ? INSTRUCTION_QUESTION_NATIVE_ZH_CN : INSTRUCTION_QUESTION_NATIVE_EN,
 		},
 		{
+			// instruction 自己写着「may not always need to provide options」，handler 也不校验；
+			// 标成必填与实现、与说明三重矛盾
 			name: "options",
-			required: true,
+			required: false,
 			instruction: (context: SystemPromptContext) =>
 				isZhCN(context.locale) ? INSTRUCTION_OPTIONS_NATIVE_ZH_CN : INSTRUCTION_OPTIONS_NATIVE_EN,
 		},

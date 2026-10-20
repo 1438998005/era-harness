@@ -1,7 +1,9 @@
+import fs from "node:fs/promises"
 import path from "node:path"
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import type { ToolUse } from "@core/assistant-message"
 import { constructNewFileContent, getLineNumberFromCharIndex } from "@core/assistant-message/diff"
+import { appendErbStructureWarning, isErbLikePath } from "@core/era/erb-check"
 import { formatResponse } from "@core/prompts/responses"
 import { getWorkspaceBasename, resolveWorkspacePath } from "@core/workspace"
 import { processFilesIntoText } from "@integrations/misc/extract-text"
@@ -11,6 +13,7 @@ import { fileExistsAtPath } from "@utils/fs"
 import { arePathsEqual, getReadablePath, isLocatedInWorkspace } from "@utils/path"
 import { applyPatch } from "diff"
 import { telemetryService } from "@/services/telemetry"
+import { formatBytes } from "@/shared/content-limits"
 import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
 import { showNotificationForApproval } from "../../utils"
@@ -23,10 +26,43 @@ import { applyModelContentFixes } from "../utils/ModelContentProcessor"
 import { ToolDisplayUtils } from "../utils/ToolDisplayUtils"
 import { ToolResultUtils } from "../utils/ToolResultUtils"
 
+/** 超过这个体积的已存在文件，整篇覆盖时要额外把关 */
+const LARGE_FILE_OVERWRITE_THRESHOLD_BYTES = 200 * 1024
+/** 新内容不足原文这个比例时，判定为「模型只写了一小段」 */
+const LARGE_FILE_SHRINK_RATIO = 0.6
+
 export class WriteToFileToolHandler implements IFullyManagedTool {
 	readonly name = ClineDefaultTool.FILE_NEW // This handler supports write_to_file, replace_in_file, and new_rule
 
 	constructor(private validator: ToolValidator) {}
+
+	/**
+	 * write_to_file 是整篇覆盖：已存在的大文件如果新内容明显缩水，先拦下来。
+	 * 实测 eraTW 有 83 个 ERB 超过 400K 字符，模型只写一小段就会删掉用户大半口上。
+	 */
+	private async checkLargeFileOverwrite(absolutePath: string, newContent: string): Promise<string | undefined> {
+		let originalSize: number
+		try {
+			originalSize = (await fs.stat(absolutePath)).size
+		} catch (_error) {
+			return undefined
+		}
+		if (originalSize <= LARGE_FILE_OVERWRITE_THRESHOLD_BYTES) {
+			return undefined
+		}
+
+		const newSize = Buffer.byteLength(newContent, "utf8")
+		if (newSize >= originalSize * LARGE_FILE_SHRINK_RATIO) {
+			return undefined
+		}
+
+		const percent = Math.round((newSize / originalSize) * 100)
+		return (
+			`目标文件有 ${formatBytes(originalSize)}，本次写入只有 ${formatBytes(newSize)}（${percent}%）。` +
+			`write_to_file 会整篇覆盖，继续将丢失 ${100 - percent}% 的原内容。\n\n` +
+			`请改用 replace_in_file 只替换需要修改的段落；如果确实要重写整篇，请先用 ask_followup_question 向用户确认后再重试。`
+		)
+	}
 
 	getDescription(block: ToolUse): string {
 		return `[${block.name} for '${block.params.path || block.params.absolutePath}']`
@@ -165,6 +201,9 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			}
 
 			const { relPath, absolutePath, fileExists, diff, content, newContent, workspaceContext, matchIndices } = result
+
+			// reset() 会清掉 originalContent，先存一份用于 ERB 结构对比
+			const originalContentBeforeEdit = config.services.diffViewProvider.originalContent
 
 			// Handle approval flow
 			const sharedMessageProps: ClineSayTool = {
@@ -409,7 +448,15 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 					newProblemsMessage,
 				)
 			}
-			return formatResponse.fileEditWithoutUserChanges(relPath, autoFormattingEdits, finalContent, newProblemsMessage)
+			const editResult = formatResponse.fileEditWithoutUserChanges(
+				relPath,
+				autoFormattingEdits,
+				finalContent,
+				newProblemsMessage,
+			)
+			return isErbLikePath(relPath)
+				? appendErbStructureWarning(editResult, originalContentBeforeEdit, finalContent ?? newContent)
+				: editResult
 		} catch (error) {
 			// Reset diff view on error
 			await config.services.diffViewProvider.revertChanges()
@@ -574,6 +621,26 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 		} else {
 			// can't happen, since we already checked for content/diff above. but need to do this for type error
 			return
+		}
+
+		// 大文件整篇覆盖保护（流式 partial 阶段不检查，那时内容本来就不完整）
+		if (!block.partial && content != null && fileExists) {
+			const overwriteWarning = await this.checkLargeFileOverwrite(absolutePath, newContent)
+			if (overwriteWarning) {
+				const errorResponse = formatResponse.toolError(overwriteWarning)
+				ToolResultUtils.pushToolResult(
+					errorResponse,
+					block,
+					config.taskState.userMessageContent,
+					ToolDisplayUtils.getToolDescription,
+					config.coordinator,
+					config.taskState.toolUseIdMap,
+				)
+				if (!config.enableParallelToolCalling) {
+					config.taskState.didAlreadyUseTool = true
+				}
+				return
+			}
 		}
 
 		return { relPath, absolutePath, fileExists, diff, content, newContent, workspaceContext, matchIndices }

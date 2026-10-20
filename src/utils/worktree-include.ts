@@ -1,10 +1,6 @@
-import { exec } from "child_process"
 import * as fs from "fs/promises"
 import ignore from "ignore"
 import * as path from "path"
-import { promisify } from "util"
-
-const execAsync = promisify(exec)
 
 /** Batch size for parallel file operations */
 const COPY_BATCH_SIZE = 100
@@ -51,21 +47,16 @@ async function isDirectoryPattern(sourceDir: string, pattern: string): Promise<s
 }
 
 /**
- * Copy a directory using native cp -r (much faster than recursive Node.js copy)
+ * Copy a directory recursively.
+ *
+ * 用 Node 自带的 fs.cp，不拼 shell 命令：以前是 `xcopy "${source}" "${target}"` /
+ * `cp -r "${source}" "${target}"`，工作区路径里只要有 `&`（比如 `D:\R&D\...`）
+ * 或反引号/`$()` 就会被 shell 解释 —— 拷贝失败是小事，执行别的命令是大事。
  */
 async function copyDirectoryNative(source: string, target: string): Promise<void> {
 	// Create parent directory if needed
 	await fs.mkdir(path.dirname(target), { recursive: true })
-
-	// Use native cp for performance (10-20x faster than Node.js)
-	const isWindows = process.platform === "win32"
-	if (isWindows) {
-		// Windows: use robocopy or xcopy
-		await execAsync(`xcopy "${source}" "${target}" /E /I /H /Y /Q`)
-	} else {
-		// Unix: use cp -r
-		await execAsync(`cp -r "${source}" "${target}"`)
-	}
+	await fs.cp(source, target, { recursive: true, force: true, errorOnExist: false })
 }
 
 /**

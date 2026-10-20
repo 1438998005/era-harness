@@ -1,3 +1,4 @@
+import { getEraProjectProfile } from "@core/era/project-profile"
 import { fileExistsAtPath } from "@utils/fs"
 import chokidar, { FSWatcher } from "chokidar"
 import fs from "fs/promises"
@@ -6,6 +7,27 @@ import path from "path"
 import { Logger } from "@/shared/services/Logger"
 
 export const LOCK_TEXT_SYMBOL = "\u{1F512}"
+
+/**
+ * 内置忽略：只在探测到 Emuera 工程时生效，而且只忽略**实际探测到的**备份目录名。
+ *
+ * 两个都不能写死：
+ * - 不能无条件忽略：普通项目里也可能有叫 `_备份` 的目录，它未必是可安全跳过的副本。
+ * - 不能只认一个名字：不同整合包的备份目录可能叫 `_backup`、`备份`、`_old`。
+ *
+ * 探测结果来自 core/era/project-profile（带缓存），这里不做自己的目录猜测。
+ * 注意：不能写到游戏目录的 `.clineignore`（目标目录只读）。
+ */
+export function getBuiltinIgnorePatterns(cwd: string): string[] {
+	if (!cwd) {
+		return []
+	}
+	const profile = getEraProjectProfile(cwd)
+	if (!profile.isEra) {
+		return []
+	}
+	return profile.backupDirNames.map((name) => `${name}/`)
+}
 
 /**
  * Controls LLM access to files by enforcing ignore patterns.
@@ -77,6 +99,10 @@ export class ClineIgnoreController {
 		try {
 			// Reset ignore instance to prevent duplicate patterns
 			this.ignoreInstance = ignore()
+			const builtinPatterns = getBuiltinIgnorePatterns(this.cwd)
+			if (builtinPatterns.length > 0) {
+				this.ignoreInstance.add(builtinPatterns)
+			}
 			const ignorePath = path.join(this.cwd, ".clineignore")
 			if (await fileExistsAtPath(ignorePath)) {
 				const content = await fs.readFile(ignorePath, "utf8")
@@ -153,10 +179,8 @@ export class ClineIgnoreController {
 	 * @returns true if file is accessible, false if ignored
 	 */
 	validateAccess(filePath: string): boolean {
-		// Always allow access if .clineignore does not exist
-		if (!this.clineIgnoreContent) {
-			return true
-		}
+		// 注意：不能因为「没有 .clineignore」就直接放行——`ignoreInstance` 里还可能带着
+		// 探测到 Emuera 工程后才注入的备份目录忽略规则；早期 return 会让它完全失效。
 		try {
 			// Normalize path to be relative to cwd and use forward slashes
 			const absolutePath = path.resolve(this.cwd, filePath)

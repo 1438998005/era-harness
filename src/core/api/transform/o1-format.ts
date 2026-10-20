@@ -38,6 +38,7 @@ Remember:
 1. execute_command:
 <execute_command>
 <command>Your command here</command>
+<requires_approval>true or false</requires_approval>
 </execute_command>
 Description: Execute a CLI command on the system. Use this when you need to perform system operations or run specific commands to accomplish any step in the user's task. You must tailor your command to the user's system and provide a clear explanation of what the command does. Prefer to execute complex CLI commands over creating executable scripts, as they are more flexible and easier to run. Commands will be executed in the current working directory.
 
@@ -58,7 +59,7 @@ Description: Lists definition names (classes, functions, methods, etc.) used in 
 <search_files>
 <path>Directory path here</path>
 <regex>Your regex pattern here</regex>
-<filePattern>Optional file pattern here</filePattern>
+<file_pattern>Optional file pattern here</file_pattern>
 </search_files>
 Description: Perform a regex search across files in a specified directory, providing context-rich results. This tool searches for patterns or specific content across multiple files, displaying each match with encapsulating context.
 
@@ -102,6 +103,7 @@ Let's run the test suite for our project. This will help us ensure that all our 
 
 <execute_command>
 <command>npm test</command>
+<requires_approval>false</requires_approval>
 </execute_command>
 
 Example 2: Using multiple tools

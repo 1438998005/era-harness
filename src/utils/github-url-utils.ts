@@ -65,6 +65,11 @@ export function createGitHubIssueUrl(baseUrl: string, params: Map<string, string
  * that contain special characters in query parameters. See:
  * https://github.com/microsoft/vscode/issues/85930
  *
+ * 安全注意：**只用 execFile 以参数数组传 URL，不拼 shell 命令行**。
+ * 以前用 `exec(`start "" "${url}"`)`：issue 正文里必然包含多个查询参数，
+ * URL 里裸的 `&` 会被 cmd.exe 当成命令分隔符（引号拦不住），既会截断参数，
+ * 也可能把正文内容当命令执行。powershell 分支的单引号同理。
+ *
  * The specific issues with VS Code's URI handling include:
  * 1. Double-encoding of certain characters (e.g., # becomes %23 then %2523)
  * 2. Inconsistent handling where some characters are encoded and others are decoded
@@ -96,30 +101,17 @@ export async function openUrlInBrowser(url: string): Promise<void> {
 		Logger.log(`Detected platform: ${platform}`)
 
 		// Use promisify for better async error handling
-		const execPromise = util.promisify(cp.exec)
+		const execFilePromise = util.promisify(cp.execFile)
 
 		// Use platform-specific commands
 		if (platform === "win32") {
-			// Windows - try multiple approaches
-			try {
-				await execPromise(`start "" "${url}"`)
-				Logger.log("Opened URL with Windows 'start' command")
-				return
-			} catch (winError) {
-				Logger.error(`Error with Windows 'start' command: ${winError}`)
-
-				try {
-					await execPromise(`powershell.exe -Command "Start-Process '${url}'"`)
-					Logger.log("Opened URL with PowerShell command")
-					return
-				} catch (psError) {
-					Logger.error(`Error with PowerShell command: ${psError}`)
-					// Fall through to the fallbacks
-				}
-			}
+			// Windows：rundll32 直接接收 URL 参数，不经过 cmd.exe，`&`/`|`/`"` 都不会被解释
+			await execFilePromise("rundll32.exe", ["url.dll,FileProtocolHandler", url], { windowsHide: true })
+			Logger.log("Opened URL with rundll32 FileProtocolHandler")
+			return
 		} else if (platform === "darwin") {
 			// macOS
-			await execPromise(`open "${url}"`)
+			await execFilePromise("open", [url])
 			Logger.log("Opened URL with macOS 'open' command")
 			return
 		} else {
@@ -128,7 +120,7 @@ export async function openUrlInBrowser(url: string): Promise<void> {
 
 			for (const cmd of linuxCommands) {
 				try {
-					await execPromise(`${cmd} "${url}"`)
+					await execFilePromise(cmd, [url])
 					Logger.log(`Opened URL with '${cmd}' command`)
 					return
 				} catch (cmdError) {

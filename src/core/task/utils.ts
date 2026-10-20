@@ -1,5 +1,5 @@
 import { ApiHandler } from "@core/api"
-import { execSync } from "child_process"
+import { execFileSync } from "child_process"
 import { showApprovalNotification } from "@/integrations/notifications"
 import { ClineApiReqCancelReason, ClineApiReqInfo } from "@/shared/ExtensionMessage"
 import { calculateApiCostAnthropic } from "@/utils/cost"
@@ -113,8 +113,8 @@ export async function detectAvailableCliTools(): Promise<string[]> {
 
 	for (const command of CLI_TOOLS) {
 		try {
-			// Use execSync to check if the command exists
-			execSync(`${checkCommand} ${command}`, {
+			// execFileSync 以参数数组调用，不经过 shell：工具名不会变成 shell 语法
+			execFileSync(checkCommand, [command], {
 				stdio: "ignore", // Don't output to console
 				timeout: 1000, // 1 second timeout to avoid hanging
 			})

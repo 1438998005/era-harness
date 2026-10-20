@@ -23,15 +23,6 @@
 			"copied": "Copied",
 			"copy": "Copy"
 		},
-		"kanban": {
-			"introducing": "Introducing era harness Kanban",
-			"description": "A replacement for your IDE better suited for running many agents in parallel and reviewing diffs. Enable auto-commit and link cards together to create dependency chains that complete large amounts of work autonomously.",
-			"runInTerminal": "Run in terminal",
-			"runningInstallCommand": "Running install command...",
-			"copied": "Copied",
-			"copyCommand": "Copy command",
-			"doNotShowAgain": "Do not show again"
-		},
 		"markdownBlock": {
 			"clickToToggleActMode": "Click to toggle to Act Mode",
 			"alreadyInActMode": "Already in Act Mode",

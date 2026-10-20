@@ -20,6 +20,7 @@ const aliasResolverPlugin = {
 		const aliases = {
 			"@": path.resolve(__dirname, "src"),
 			"@core": path.resolve(__dirname, "src/core"),
+			"@eraharness": path.resolve(__dirname, "..", "era harness", "src"),
 			"@integrations": path.resolve(__dirname, "src/integrations"),
 			"@services": path.resolve(__dirname, "src/services"),
 			"@shared": path.resolve(__dirname, "src/shared"),
