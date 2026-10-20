@@ -43,6 +43,7 @@ era harness 针对每一条都给了具体机制，而不是提示词劝告。
 | ERB 结构体检 | 可用 | 检测 IF/FOR/SELECTCASE 等块与括号是否因本次改动而变得不配平 |
 | 真实启动引擎验加载 | 可用 | 启动真实引擎、等待静止，报告「加载痕迹」（懒加载索引是否重建、存档是否更新）与本次新写入的日志 |
 | 更新 eraTW | 可用 | 拉取社区版差异 → 生成计划 → 弹窗确认 → 备份后落盘，可一键撤销 |
+| 内置知识检索 | 可用 | 编码纪律 / 导入合并闸门 G1–G8 / 口上结构契约 / 存档迁移判据，每条附「症状→根因→修法」反模式；可离线 |
 
 ### 底座
 
@@ -58,7 +59,7 @@ era harness 针对每一条都给了具体机制，而不是提示词劝告。
 本插件**不进入任何在线分发渠道**，只做本地 sideload：
 
 ```bash
-code --install-extension era-harness-3.87.1.vsix
+code --install-extension era-harness-3.88.0.vsix
 ```
 
 或在编辑器里 `Ctrl+Shift+P` → `Extensions: Install from VSIX...`。装完重载窗口。

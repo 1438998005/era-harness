@@ -3,6 +3,36 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.88.0 — 2026-10-21
+
+一次集中的功能补全：编码安全写回落地、内嵌知识库扩到 7 条、更新工具 G1–G8 闸门全部接通、新增 `era_knowledge` 工具。
+
+### 新增
+
+- **编码安全写回**（`packages/era-harness-core/src/encoding/write.ts`）：落盘后按原编码 / BOM / 行尾还原并复检。
+  CP932 文件不会被静默转成 UTF-8；写不回原编码时降级为 UTF-8 带 BOM 并明确告知。
+  判据为纯函数，未引入 iconv-lite，核心库仍是零运行时依赖。
+- **`era_knowledge` 工具**：内嵌知识条目检索（编码纪律 / 导入合并闸门 G1–G8 / 口上结构契约 / 存档迁移判据），
+  每条附「症状→根因→修法」反模式，可离线。
+- **内嵌知识库扩到 7 条**：新增「工程结构纪律」「主流程管线」「OBJ 数据框架与 qol 层约定」「存档迁移判据」；
+  配套 `knowledge-candidates.json` 候选池（面 / 稳定性 / 裁定 / 常驻档位）。
+- **更新工具 G1–G8 闸门全部接通**：`src/core/update/{gates,version,keys,labels,decode}.ts`，
+  含全树调用方检索与被删函数的外部调用方检查。
+- **验收脚本**：`npm run gate` / `gate:full`（`scripts/gate-baseline.mjs`）——用例数由脚本现算，
+  并核对「用例登记 vs 磁盘文件」与知识候选池四处一致性。
+- **仓库级 `AGENTS.md`**：本仓专属约束（分层指令、验收命令、文件联动地图），不含任何本机路径。
+
+### 修复
+
+- `gate-baseline.mjs` 的汇总解析只认 TAP 的 `# tests N`，而 Node 24 默认 reporter 输出 `ℹ tests N`，
+  导致在 Node 24 上 `npm run gate` 恒报「没跑成（拿不到 TAP 汇总）」。
+
+### 验证
+
+- 核心库 `npm test`：104 例 / 103 过 / 1 跳过（跳过的是 `integration: real eratw project`，需 `ERA_PROJECT_PATH`）
+- 插件回归：`test/update` 240 / 240，`test/free` 24 / 24
+- 双方 `tsc --noEmit`：0 错；`esbuild --production`：EXIT 0
+
 ## 3.87.1 — 2026-10-20
 
 仓库自洽化，无行为变化。
