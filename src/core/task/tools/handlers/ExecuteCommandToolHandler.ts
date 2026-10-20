@@ -87,7 +87,7 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 	async execute(config: TaskConfig, block: ToolUse): Promise<ToolResponse> {
 		let command: string | undefined = block.params.command
 		const requiresApprovalRaw: string | undefined = block.params.requires_approval
-		const requiresApprovalPerLLM = requiresApprovalRaw?.toLowerCase() === "true"
+		let requiresApprovalPerLLM = requiresApprovalRaw?.toLowerCase() === "true"
 		const timeoutParam: string | undefined = block.params.timeout
 		let timeoutSeconds: number | undefined
 
@@ -107,8 +107,14 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 		}
 
 		if (!requiresApprovalRaw) {
-			config.taskState.consecutiveMistakeCount++
-			return await config.callbacks.sayAndCreateMissingParamError(this.name, "requires_approval")
+			// 第一次漏参数：报错让它纠正。
+			// 第二次起按「需要批准」降级继续执行：这是个布尔值细节，不是任务能力问题，
+			// 不应该因为它把整个任务推向 mistake_limit_reached（小模型会稳定漏，见知识库 D31）。
+			if (config.taskState.consecutiveMistakeCount === 0) {
+				config.taskState.consecutiveMistakeCount++
+				return await config.callbacks.sayAndCreateMissingParamError(this.name, "requires_approval")
+			}
+			requiresApprovalPerLLM = true
 		}
 
 		config.taskState.consecutiveMistakeCount = 0

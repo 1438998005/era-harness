@@ -5,6 +5,7 @@ import { getWorkspaceBasename, resolveWorkspacePath } from "@core/workspace"
 import { extractFileContent, type FileContentResult } from "@integrations/misc/extract-file-content"
 import { arePathsEqual, getReadablePath, isLocatedInWorkspace } from "@utils/path"
 import { telemetryService } from "@/services/telemetry"
+import { truncateAtLineBoundary } from "@/shared/content-limits"
 import { ClineSayTool } from "@/shared/ExtensionMessage"
 import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
@@ -89,6 +90,12 @@ export function formatFileContentWithLineNumbers(content: string, startLine?: nu
 	const { start, end, totalLines, lines, truncationSuffix } = meta
 	const slice = lines.slice(start - 1, end)
 	const labeled = slice.map((line, i) => `${start + i} | ${line}`).join("\n")
+
+	// 超大文件保护：先按行切片，再截断，保证 start_line 能取到文件任意位置
+	const bounded = truncateAtLineBoundary(labeled)
+	if (bounded !== labeled) {
+		return bounded
+	}
 
 	let suffix = truncationSuffix
 	if (!truncationSuffix) {
@@ -328,7 +335,7 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			const supportsImages = config.api.getModel().info.supportsImages ?? false
 			let fileContent: FileContentResult
 			try {
-				fileContent = await extractFileContent(absolutePath, supportsImages)
+				fileContent = await extractFileContent(absolutePath, supportsImages, { truncate: false })
 			} catch (error) {
 				config.taskState.consecutiveMistakeCount++
 				const errorMessage = error instanceof Error ? error.message : String(error)
@@ -359,7 +366,7 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 		const supportsImages = config.api.getModel().info.supportsImages ?? false
 		let fileContent: FileContentResult
 		try {
-			fileContent = await extractFileContent(absolutePath, supportsImages)
+			fileContent = await extractFileContent(absolutePath, supportsImages, { truncate: false })
 		} catch (error) {
 			// Return a graceful tool error instead of crashing. This allows the
 			// model to see the error (e.g. "File not found") and recover by

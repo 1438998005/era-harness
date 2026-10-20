@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { resolve as resolvePath } from "node:path"
 import type { ToolUse } from "@core/assistant-message"
+import { diffErbStructure, formatErbStructureWarning, isErbLikePath } from "@core/era/erb-check"
 import { resolveWorkspacePath } from "@core/workspace"
 import { processFilesIntoText } from "@integrations/misc/extract-text"
 import type { ClineSayTool } from "@shared/ExtensionMessage"
@@ -396,6 +397,16 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 					}
 					if (result.newProblemsMessage) {
 						responseLines.push(`\n\n${result.newProblemsMessage}`)
+					}
+					// .erb/.erh 结构体检：只警告，不阻断保存（对齐 write_to_file 的行为）
+					if (isErbLikePath(path)) {
+						const change = commit.changes[path] ?? Object.values(commit.changes).find((c) => c.movePath === path)
+						const warning = formatErbStructureWarning(
+							diffErbStructure(change?.oldContent ?? "", result.finalContent ?? change?.newContent ?? ""),
+						)
+						if (warning) {
+							responseLines.push(`\n${warning}`)
+						}
 					}
 				}
 			}

@@ -93,19 +93,42 @@ test("只有 ERB/ 没有 CSV/ 与配置：不算候选（避免把口上包误�
 	})
 })
 
-test("嵌套候选被标出来，且默认不选", async () => {
+test("空壳 ERB/CSV 目录不算候选，直接选中里层真游戏", async () => {
 	await withTempWorkspace(async (root) => {
-		// 外层只有 ERB/ + CSV/（中置信，会被继续下钻），里层是完整游戏
+		// 只有空目录名、没有任何文件证据：不能凭目录名就认定这是游戏根
 		const outer = path.join(root, "outer")
 		await fs.mkdir(path.join(outer, "ERB"), { recursive: true })
 		await fs.mkdir(path.join(outer, "CSV"), { recursive: true })
 		await makeGame(path.join(outer, "inner"))
 
 		const candidates = await discoverGameRoots(root)
+		assert.equal(
+			candidates.some((c) => c.relPath === "outer"),
+			false,
+			"空壳目录不该被当成游戏根",
+		)
+		assert.deepEqual(
+			defaultSelection(candidates).map((c) => c.relPath),
+			["outer/inner"],
+		)
+	})
+})
+
+test("嵌套候选被标出来，且默认不选", async () => {
+	await withTempWorkspace(async (root) => {
+		// 外层自己也有脚本（低置信候选，会被继续下钻），里层是完整游戏
+		const outer = path.join(root, "outer")
+		await fs.mkdir(outer, { recursive: true })
+		for (let i = 0; i < 24; i++) {
+			await fs.writeFile(path.join(outer, `f${i}.erb`), "; x\n", "utf8")
+		}
+		await makeGame(path.join(outer, "inner"))
+
+		const candidates = await discoverGameRoots(root)
 		const inner = candidates.find((c) => c.relPath === "outer/inner")
 		const outerCandidate = candidates.find((c) => c.relPath === "outer")
 
-		assert.ok(outerCandidate, "外层也应被识别为中置信候选")
+		assert.ok(outerCandidate, "外层有脚本，应被识别为候选")
 		assert.ok(inner)
 		assert.equal(inner.nestedUnder, outerCandidate?.path)
 		assert.deepEqual(
@@ -165,5 +188,55 @@ test("describeCandidate 给人看的标签里带版本与相对路径", async ()
 		const [candidate] = await discoverGameRoots(root)
 		assert.ok(candidate)
 		assert.equal(describeCandidate(candidate), "eratw 20261013 · eratw")
+	})
+})
+
+test("只跳过隐藏目录与生态级噪音，不跳过 build 产物目录", async () => {
+	await withTempWorkspace(async (root) => {
+		// 隐藏目录：编辑器 / AI 客户端 / 版本控制都靠这条通则跳过，不逐个列举产品名
+		await makeGame(path.join(root, ".vscode", "game"))
+		await makeGame(path.join(root, ".some-ai-client", "game"))
+		await makeGame(path.join(root, "node_modules", "pkg"))
+		// 游戏本体完全可能就解压在 dist/ 里：不能跳过
+		await makeGame(path.join(root, "dist", "game"))
+		// 备份目录要能被发现（见下一条测试），这里只确认它不会被当成噪音
+		await makeGame(path.join(root, "build", "game"))
+
+		const candidates = await discoverGameRoots(root)
+		assert.deepEqual(candidates.map((c) => c.relPath).sort(), ["build/game", "dist/game"])
+	})
+})
+
+test("唯一副本在备份目录里：仍能发现，但标为备份、降级且默认不勾", async () => {
+	await withTempWorkspace(async (root) => {
+		await makeGame(path.join(root, "_备份", "只此一份"))
+
+		const candidates = await discoverGameRoots(root)
+		assert.equal(candidates.length, 1, "备份里的唯一副本不能丢")
+		const [candidate] = candidates
+		assert.ok(candidate)
+		assert.equal(candidate.isBackupCopy, true)
+		assert.equal(candidate.confidence, "medium", "备份副本降一级")
+		assert.ok(candidate.markers.includes("位于备份目录"))
+		assert.deepEqual(
+			defaultSelection(candidates).map((c) => c.relPath),
+			["_备份/只此一份"],
+			"只有备份副本时仍然给它一个默认项",
+		)
+	})
+})
+
+test("本体 + 备份副本并存：默认只选本体，备份列出来但不勾", async () => {
+	await withTempWorkspace(async (root) => {
+		await makeGame(path.join(root, "本体"))
+		await makeGame(path.join(root, "_备份", "旧版"), { version: "20260727" })
+
+		const candidates = await discoverGameRoots(root)
+		assert.equal(candidates.length, 2)
+		assert.deepEqual(
+			defaultSelection(candidates).map((c) => c.relPath),
+			["本体"],
+			"备份副本不能抢默认选中",
+		)
 	})
 })

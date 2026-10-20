@@ -29,6 +29,13 @@ const OVH_BASE_URL = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
 export const ZEN_CLIENT_UA = "opencode/latest/2.0.26/cli"
 
 const LISTING_TTL_MS = 10 * 60 * 1000
+/**
+ * 拉取失败后的冷却。
+ *
+ * 以前失败不记时间，只返回旧缓存 —— 于是每一条消息都会重新等一次 4 秒超时，
+ * 网络正好不通的时候整段对话就这样被拖死。失败后短期内直接走缓存/静态表。
+ */
+const LISTING_FAILURE_TTL_MS = 60 * 1000
 
 export interface ZenClientHandle {
 	client: OpenAI
@@ -102,27 +109,39 @@ export function createOvhClient(apiKey?: string): OpenAI {
 // ---------------------------------------------------------------------------
 
 let kiloListingCache: { at: number; rows: KiloFreeRow[] } | undefined
+/** 上次拉取失败的时刻；用于失败冷却，与成功缓存的 TTL 分开计 */
+let kiloListingFailedAt = 0
 
 /** 拉取 Kilo 免费清单；失败返回 undefined（调用方回退静态实证表） */
 export async function fetchKiloFreeModels(now: number = Date.now()): Promise<KiloFreeRow[] | undefined> {
 	if (kiloListingCache && now - kiloListingCache.at < LISTING_TTL_MS) {
 		return kiloListingCache.rows
 	}
+	if (kiloListingFailedAt > 0 && now - kiloListingFailedAt < LISTING_FAILURE_TTL_MS) {
+		return kiloListingCache?.rows
+	}
 	try {
+		// 必须带超时：这个请求在 createMessage 开头被 await，
+		// 域名不可达时（DNS 挂起 / TCP 黑洞）会让每次对话的首包卡几分钟。
 		const response = await fetch("https://api.kilo.ai/api/gateway/models", {
 			method: "GET",
 			headers: { accept: "application/json" },
+			signal: AbortSignal.timeout(4000),
 		})
 		if (!response.ok) {
+			kiloListingFailedAt = now
 			return kiloListingCache?.rows
 		}
 		const rows = parseKiloFreeRows(await response.json())
 		if (rows.length === 0) {
+			kiloListingFailedAt = now
 			return kiloListingCache?.rows
 		}
 		kiloListingCache = { at: now, rows }
+		kiloListingFailedAt = 0
 		return rows
 	} catch {
+		kiloListingFailedAt = now
 		return kiloListingCache?.rows // 网络失败时沿用上次可用清单，再不行回退静态表
 	}
 }
@@ -130,6 +149,7 @@ export async function fetchKiloFreeModels(now: number = Date.now()): Promise<Kil
 /** 测试辅助：清空 listing 缓存 */
 export function resetFreeLaneCaches(): void {
 	kiloListingCache = undefined
+	kiloListingFailedAt = 0
 	laneCooldowns.clear()
 }
 

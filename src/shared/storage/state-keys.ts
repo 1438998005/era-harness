@@ -124,7 +124,8 @@ const USER_SETTINGS_FIELDS = {
 	globalClineRulesToggles: { default: {} as ClineRulesToggles },
 	globalWorkflowToggles: { default: {} as ClineRulesToggles },
 	globalSkillsToggles: { default: {} as Record<string, boolean> },
-	telemetrySetting: { default: "unset" as TelemetrySetting },
+	// 默认关闭遥测：用户可在设置里显式打开（见知识库/06-决策记录 ADR）
+	telemetrySetting: { default: "disabled" as TelemetrySetting },
 	planActSeparateModelsSetting: { default: false as boolean, isComputed: true },
 	enableCheckpointsSetting: { default: false as boolean },
 	shellIntegrationTimeout: { default: 4000 as number },

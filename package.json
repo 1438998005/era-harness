@@ -1,8 +1,8 @@
 {
 	"name": "era-harness",
 	"displayName": "era harness",
-	"description": "eraTW 画蛇添足版（R18）开发助手：编码安全读写（CP932/UTF-8）、Emuera 日志解析、MCP 工具扩展；每一步修改均生成 diff，审批后落盘。仅本地 sideload 测试，不上线任何市场。",
-	"version": "3.86.6",
+	"description": "eraTW / Emuera 脚本工程的 AI 开发助手：CP932/UTF-8 安全读写、引擎日志诊断、312 页指令手册（可在线同步）、真实启动引擎验证加载。改动先出 diff，审批后才落盘；无账号、无遥测，仅本地安装。",
+	"version": "3.87.0",
 	"icon": "assets/icons/icon.png",
 	"workspaces": [
 		"."

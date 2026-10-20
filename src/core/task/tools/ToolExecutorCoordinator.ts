@@ -8,15 +8,19 @@ import { ApplyPatchHandler } from "./handlers/ApplyPatchHandler"
 import { AskFollowupQuestionToolHandler } from "./handlers/AskFollowupQuestionToolHandler"
 import { AttemptCompletionHandler } from "./handlers/AttemptCompletionHandler"
 import { CondenseHandler } from "./handlers/CondenseHandler"
+import { EraReferenceToolHandler } from "./handlers/EraReferenceToolHandler"
+import { EraSymbolsToolHandler } from "./handlers/EraSymbolsToolHandler"
 import { ExecuteCommandToolHandler } from "./handlers/ExecuteCommandToolHandler"
 import { GenerateExplanationToolHandler } from "./handlers/GenerateExplanationToolHandler"
 import { ListCodeDefinitionNamesToolHandler } from "./handlers/ListCodeDefinitionNamesToolHandler"
 import { ListFilesToolHandler } from "./handlers/ListFilesToolHandler"
 import { LoadMcpDocumentationHandler } from "./handlers/LoadMcpDocumentationHandler"
+import { LogDiagnoseToolHandler } from "./handlers/LogDiagnoseToolHandler"
 import { NewTaskHandler } from "./handlers/NewTaskHandler"
 import { PlanModeRespondHandler } from "./handlers/PlanModeRespondHandler"
 import { ReadFileToolHandler } from "./handlers/ReadFileToolHandler"
 import { ReportBugHandler } from "./handlers/ReportBugHandler"
+import { RunGameToolHandler } from "./handlers/RunGameToolHandler"
 import { SearchFilesToolHandler } from "./handlers/SearchFilesToolHandler"
 import { UseSubagentsToolHandler } from "./handlers/SubagentToolHandler"
 import { SummarizeTaskHandler } from "./handlers/SummarizeTaskHandler"
@@ -104,6 +108,10 @@ export class ToolExecutorCoordinator {
 		[ClineDefaultTool.GENERATE_EXPLANATION]: (_v: ToolValidator) => new GenerateExplanationToolHandler(),
 		[ClineDefaultTool.USE_SKILL]: (_v: ToolValidator) => new UseSkillToolHandler(),
 		[ClineDefaultTool.USE_SUBAGENTS]: (_v: ToolValidator) => new UseSubagentsToolHandler(),
+		[ClineDefaultTool.LOG_DIAGNOSE]: (v: ToolValidator) => new LogDiagnoseToolHandler(v),
+		[ClineDefaultTool.ERA_SYMBOLS]: (v: ToolValidator) => new EraSymbolsToolHandler(v),
+		[ClineDefaultTool.ERA_REFERENCE]: (v: ToolValidator) => new EraReferenceToolHandler(v),
+		[ClineDefaultTool.RUN_GAME]: (v: ToolValidator) => new RunGameToolHandler(v),
 	}
 
 	/**

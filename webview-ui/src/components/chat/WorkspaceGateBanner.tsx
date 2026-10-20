@@ -38,7 +38,7 @@ export function WorkspaceGateBanner() {
 			<div style={{ flex: 1, minWidth: 0 }}>
 				<div style={{ fontWeight: 600 }}>尚未打开工作区</div>
 				<div style={{ color: "var(--vscode-descriptionForeground)" }}>
-					era harness 只读取你打开的文件夹。选中 eraTW 工程目录（含 ERB/ 与 CSV/ 的那一层）后再开始对话。
+					era harness 只读取你打开的文件夹。选中工程目录后再开始对话；不确定时选包含游戏的那一层，插件会自己往下找。
 				</div>
 				<button
 					onClick={() => void FileServiceClient.openWorkspaceFolder({})}

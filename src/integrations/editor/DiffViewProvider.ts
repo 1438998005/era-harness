@@ -5,6 +5,7 @@ import { getCwd } from "@utils/path"
 import * as diff from "diff"
 import * as fs from "fs/promises"
 import * as iconv from "iconv-lite"
+import * as path from "path"
 import { HostProvider } from "@/hosts/host-provider"
 import { diagnosticsToProblemsString, getNewDiagnostics } from "@/integrations/diagnostics"
 import { DiagnosticSeverity, FileDiagnostics } from "@/shared/proto/index.cline"
@@ -12,6 +13,9 @@ import { Logger } from "@/shared/services/Logger"
 import { detectEncoding } from "../misc/extract-text"
 import { sanitizeNotebookForLLM } from "../misc/notebook-utils"
 import { openFile } from "../misc/open-file"
+
+/** 推断新建文件 BOM 时最多采样多少个兄弟文件 */
+const MAX_BOM_SAMPLE_FILES = 12
 
 export abstract class DiffViewProvider {
 	editType?: "create" | "modify" | "delete"
@@ -23,6 +27,8 @@ export abstract class DiffViewProvider {
 	protected relPath?: string
 	protected absolutePath?: string
 	protected fileEncoding: string = "utf8"
+	/** 打开时原文件是否带 UTF-8 BOM（Emuera 靠它识别 UTF-8，丢了会读不出首行标签） */
+	protected originalHasBom = false
 	private streamedLines: string[] = []
 	private newContent?: string
 
@@ -44,10 +50,13 @@ export abstract class DiffViewProvider {
 
 			const fileBuffer = await fs.readFile(this.absolutePath)
 			this.fileEncoding = await detectEncoding(fileBuffer)
+			this.originalHasBom =
+				fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf
 			this.originalContent = iconv.decode(fileBuffer, this.fileEncoding)
 		} else {
 			this.originalContent = ""
 			this.fileEncoding = "utf8"
+			this.originalHasBom = false
 		}
 		// for new files, create any necessary directories and keep track of new directories to delete if the user denies the operation
 		this.createdDirs = await createDirectoriesForFile(this.absolutePath)
@@ -353,6 +362,7 @@ export abstract class DiffViewProvider {
 		}
 
 		await this.saveDocument()
+		await this.preserveEncoding()
 		// get text after save in case there is any auto-formatting done by the editor
 		const postSaveContent = (await this.getDocumentText()) || ""
 
@@ -401,6 +411,96 @@ export abstract class DiffViewProvider {
 			autoFormattingEdits,
 			finalContent,
 		}
+	}
+
+	/**
+	 * 保存后修正磁盘编码：
+	 * - 修改已有文件：原文件有 BOM 就补回 BOM（纯字节还原，不看目录名）；
+	 * - 新建文件：看**同目录同扩展名兄弟文件**的现状，而不是假设这是个什么工程。
+	 * 幂等：已经有 BOM 就什么都不做。失败只告警，不影响保存。
+	 */
+	private async preserveEncoding(): Promise<void> {
+		if (!this.absolutePath || this.editType === "delete") {
+			return
+		}
+
+		const shouldHaveBom =
+			this.editType === "create"
+				? await this.inferBomForNewFile(path.extname(this.absolutePath).toLowerCase())
+				: this.originalHasBom
+		if (!shouldHaveBom) {
+			return
+		}
+
+		try {
+			const fileBuffer = await fs.readFile(this.absolutePath)
+			if (fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf) {
+				return
+			}
+			await fs.writeFile(this.absolutePath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fileBuffer]))
+		} catch (error) {
+			Logger.warn("Failed to restore UTF-8 BOM after save:", error)
+		}
+	}
+
+	/**
+	 * 新建文件该不该带 BOM：按同目录同扩展名兄弟文件的实际情况投票。
+	 *
+	 * 这样在「全员带 BOM 的整合包」和「纯 UTF-8 无 BOM 的小工程」里都能跟上现状，
+	 * 也不会把 BOM 强加给一个普通项目的 CSV。
+	 * 没有可参照的兄弟文件时：脚本保守带 BOM（Emuera 靠它判断编码），其它类型不加。
+	 */
+	private async inferBomForNewFile(extension: string): Promise<boolean> {
+		const isScript = extension === ".erb" || extension === ".erh"
+		const isData = extension === ".csv"
+		if (!isScript && !isData) {
+			return false
+		}
+		if (!this.absolutePath) {
+			return isScript
+		}
+
+		const dir = path.dirname(this.absolutePath)
+		let siblings: string[] = []
+		try {
+			const entries = await fs.readdir(dir, { withFileTypes: true })
+			siblings = entries
+				.filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === extension)
+				.map((entry) => path.join(dir, entry.name))
+				.slice(0, MAX_BOM_SAMPLE_FILES)
+		} catch (error) {
+			Logger.warn("Failed to inspect sibling files for BOM inference:", error)
+			return isScript
+		}
+
+		if (siblings.length === 0) {
+			return isScript
+		}
+
+		let withBom = 0
+		let sampled = 0
+		for (const sibling of siblings) {
+			try {
+				const handle = await fs.open(sibling, "r")
+				try {
+					const buffer = Buffer.alloc(3)
+					const { bytesRead } = await handle.read(buffer, 0, 3, 0)
+					sampled++
+					if (bytesRead === 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+						withBom++
+					}
+				} finally {
+					await handle.close()
+				}
+			} catch {
+				// 读不到的兄弟文件不计入样本
+			}
+		}
+
+		if (sampled === 0) {
+			return isScript
+		}
+		return withBom * 2 >= sampled
 	}
 
 	async revertChanges(): Promise<void> {
@@ -496,6 +596,7 @@ export abstract class DiffViewProvider {
 
 		this.originalContent = undefined
 		this.fileEncoding = "utf8"
+		this.originalHasBom = false
 		this.documentWasOpen = false
 
 		this.streamedLines = []

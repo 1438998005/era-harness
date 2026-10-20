@@ -23,15 +23,6 @@
 			"copied": "已复制",
 			"copy": "复制"
 		},
-		"kanban": {
-			"introducing": "era harness 看板介绍",
-			"description": "一个更适合并行运行多个智能体和审查差异的 IDE 替代方案。启用自动提交并将卡片链接在一起，创建可以自主完成大量工作的依赖链。",
-			"runInTerminal": "在终端中运行",
-			"runningInstallCommand": "正在运行安装命令...",
-			"copied": "已复制",
-			"copyCommand": "复制命令",
-			"doNotShowAgain": "不再显示"
-		},
 		"markdownBlock": {
 			"clickToToggleActMode": "点击切换到执行模式",
 			"alreadyInActMode": "已处于执行模式",

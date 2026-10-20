@@ -25,25 +25,32 @@ import {
 } from "./types"
 
 /**
- * 本地专属目录：永远不参与更新，也不计入批量识别的分母。
- * 这些目录里的东西要么是存档/备份/日志，要么是编辑器与 AI 的工作区。
+ * 更新器永远不碰的目录（本地专属）：引擎/插件自己生成的产物 + 生态级通用噪音。
+ *
+ * 编辑器、AI 客户端、版本控制的目录不在这里逐个列举 —— 它们全是隐藏目录，
+ * 已被 {@link isLocalOnlyDir} 的通则覆盖。列举具体产品名等于把某个人的机器布局
+ * 当成全体用户的标准。
  */
-export const DEFAULT_EXCLUDED_DIRS = [
-	".git",
-	".era-harness",
-	"_备份",
+const LOCAL_ONLY_DIR_NAMES = new Set([
 	"sav",
 	"debug",
+	"_备份",
 	"node_modules",
-	".workbuddy",
-	".workbuddy-ai",
-	".codebuddy",
-	".zcode",
-	".vscode",
-	".trae",
-	".dsh",
 	"__pycache__",
-]
+	"system volume information",
+	"$recycle.bin",
+])
+
+/** 对外导出的默认值：`scanLocal` 用它算出要跳过哪些目录 */
+export const DEFAULT_EXCLUDED_DIRS = [...LOCAL_ONLY_DIR_NAMES]
+
+/**
+ * 更新时整棵跳过的目录：隐藏目录（`.git` / `.vscode` / 各种客户端）＋ 本地专属名。
+ * 隐藏目录一律不参与更新，宁可少写也绝不覆盖用户自己的工具配置。
+ */
+function isLocalOnlyDir(name: string): boolean {
+	return name.startsWith(".") || LOCAL_ONLY_DIR_NAMES.has(name.toLowerCase())
+}
 
 /** 即使扫描到了也绝不写/绝不删的路径前缀（双保险，防手滑） */
 const PROTECTED_PREFIXES = [".era-harness/", "_备份/", "sav/", "debug/"]
@@ -193,7 +200,7 @@ async function collectFiles(root: string, excluded: Set<string>, onlyRoots?: Set
 				continue
 			}
 			if (entry.isDirectory()) {
-				if (excluded.has(entry.name)) {
+				if (isLocalOnlyDir(entry.name) || excluded.has(entry.name.toLowerCase())) {
 					continue
 				}
 				await walk(path.join(dir, entry.name), rel)
@@ -218,7 +225,7 @@ async function collectFiles(root: string, excluded: Set<string>, onlyRoots?: Set
  */
 export async function scanLocal(root: string, opts: ScanOptions = {}): Promise<LocalScan> {
 	const excludedDirs = opts.excludeDirs ?? DEFAULT_EXCLUDED_DIRS
-	const excluded = new Set(excludedDirs)
+	const excluded = new Set(excludedDirs.map((name) => name.toLowerCase()))
 	const concurrency = Math.max(1, opts.concurrency ?? 8)
 	const onlyRoots = opts.onlyRoots ? new Set(opts.onlyRoots) : undefined
 

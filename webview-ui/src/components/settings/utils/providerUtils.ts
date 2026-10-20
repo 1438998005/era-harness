@@ -7,6 +7,7 @@ import {
 	ModelInfo,
 	openAiModelInfoSaneDefaults,
 } from "@shared/api"
+import { FREE_POOL } from "@shared/free-pools"
 import { Mode } from "@shared/storage/types"
 import * as reasoningSupport from "@shared/utils/reasoning-support"
 
@@ -54,11 +55,18 @@ export function normalizeApiConfiguration(
 
 	switch (provider) {
 		case "free":
-			// 免费模型：路由自动选模型，无用户可选模型 id；元数据取保守默认（无 UI 消费）
+			// 免费模型：路由自动选模型，无用户可选模型 id。
+			// 上下文窗口必须用真实值：openAiModelInfoSaneDefaults 的 128_000 是通用占位，
+			// 会让 UI 把所有免费模型都显示成 128k（实际池内为 32k~1M）。
+			// 后端从 FREE_POOL[0] 开始尝试，失败才 failover，所以取首候选的窗口。
+			// 局限：failover 到后续候选后这里会偏大；真实值以环境详情为准（后端按 activeCandidate 计算）。
 			return {
 				selectedProvider: "free",
 				selectedModelId: "",
-				selectedModelInfo: openAiModelInfoSaneDefaults,
+				selectedModelInfo: {
+					...openAiModelInfoSaneDefaults,
+					contextWindow: FREE_POOL[0]?.contextWindow ?? openAiModelInfoSaneDefaults.contextWindow,
+				},
 			}
 		case "deepseek":
 			const deepSeekResult = getProviderData(deepSeekModels, deepSeekDefaultModelId)

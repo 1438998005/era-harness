@@ -91,10 +91,13 @@ function pad2(n: number): string {
 	return String(n).padStart(2, "0")
 }
 
+/** 备份目录名的固定前缀：`backupDirName()` 生成，`rollbackFromBackup()` 校验 */
+export const BACKUP_DIR_PREFIX = "update_backup_"
+
 /** `update_backup_20261018_develop20261017`（沿用用户既有备份命名习惯） */
 export function backupDirName(label: string, date = new Date()): string {
 	const stamp = `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}_${pad2(date.getHours())}${pad2(date.getMinutes())}`
-	return `update_backup_${stamp}_${label}`
+	return `${BACKUP_DIR_PREFIX}${stamp}_${label}`
 }
 
 function isInsideRoot(root: string, rel: RelPath): boolean {
@@ -522,6 +525,13 @@ export async function applyPlanFromTar(opts: ApplyOptions & { stream: AsyncItera
 
 /** 事后撤销：读备份目录里的 manifest，把文件还原回去 */
 export async function rollbackFromBackup(backupDir: string): Promise<RollbackReport> {
+	// 只接受本插件自己生成的备份目录（`update_backup_*`）：撤销会写文件，
+	// 不能让一个任意目录（或别人塞进来的 manifest.json）决定往哪里写。
+	const base = path.basename(path.resolve(backupDir))
+	if (!base.startsWith(BACKUP_DIR_PREFIX)) {
+		throw new Error(`不是本插件生成的备份目录，无法自动撤销：${base}`)
+	}
+
 	const manifestPath = path.join(backupDir, "manifest.json")
 	const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as BackupManifest
 	if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.actions)) {
@@ -529,6 +539,11 @@ export async function rollbackFromBackup(backupDir: string): Promise<RollbackRep
 	}
 	if (manifest.status === "rolled-back") {
 		return { ok: true, restored: 0, removed: 0, errors: [] }
+	}
+	// manifest.root 是回滚的目标根：拒绝磁盘根目录（否则一个伪造清单就能改写整个盘）
+	const manifestRoot = path.resolve(manifest.root)
+	if (manifestRoot === path.parse(manifestRoot).root) {
+		throw new Error("备份清单里的游戏根是磁盘根目录，拒绝执行")
 	}
 
 	const errors: Array<{ path: string; message: string }> = []

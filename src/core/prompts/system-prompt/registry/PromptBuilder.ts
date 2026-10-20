@@ -1,5 +1,6 @@
 import { Logger } from "@/shared/services/Logger"
 import type { ClineDefaultTool } from "@/shared/tools"
+import { getEraDomainSection } from "../components/era_domain"
 import { ClineToolSet } from "../registry/ClineToolSet"
 import { type ClineToolSpec, resolveDescription, resolveInstruction } from "../spec"
 import { STANDARD_PLACEHOLDERS } from "../templates/placeholders"
@@ -24,7 +25,13 @@ export class PromptBuilder {
 		const componentSections = await this.buildComponents()
 		const placeholderValues = this.preparePlaceholders(componentSections)
 		const prompt = this.templateEngine.resolve(this.variant.baseTemplate, this.context, placeholderValues)
-		return this.postProcess(prompt)
+
+		// Emuera 领域约定：在单一处注入，天然覆盖所有 variant；
+		// 内容由运行时探测生成（不预设路径），探测不到 Emuera 工程时返回空串
+		const eraDomainSection = getEraDomainSection(this.context)
+		const promptWithDomain = eraDomainSection ? `${prompt}\n\n${eraDomainSection}` : prompt
+
+		return this.postProcess(promptWithDomain)
 	}
 
 	private async buildComponents(): Promise<Record<string, string>> {
@@ -103,7 +110,7 @@ export class PromptBuilder {
 				// Look for patterns like "SEARCH\n=======\n" or ";\n=======\n" (diff markers)
 				const beforeContext = string.substring(Math.max(0, offset - 50), offset)
 				const afterContext = string.substring(offset, Math.min(string.length, offset + 50))
-				const isDiffLike = /SEARCH|REPLACE|\+\+\+\+\+\+\+|-------/.test(beforeContext + afterContext)
+				const isDiffLike = /SEARCH|REPLACE|\+\+\+\+\+\+|-------/.test(beforeContext + afterContext)
 				return isDiffLike ? match : match.replace(/\n/, "\n\n")
 			})
 			.replace(/([^\n])\n(?!\n)====+/g, (match, prevChar, offset, string) => {
@@ -111,7 +118,7 @@ export class PromptBuilder {
 				// Exception: preserve single newlines when ====+ appears to be part of diff-like content
 				const beforeContext = string.substring(Math.max(0, offset - 50), offset)
 				const afterContext = string.substring(offset, Math.min(string.length, offset + 50))
-				const isDiffLike = /SEARCH|REPLACE|\+\+\+\+\+\+\+|-------/.test(beforeContext + afterContext)
+				const isDiffLike = /SEARCH|REPLACE|\+\+\+\+\+\+|-------/.test(beforeContext + afterContext)
 				return isDiffLike ? match : prevChar + "\n\n" + match.substring(1).replace(/\n/, "")
 			})
 			.replace(/\n\s*\n\s*\n/g, "\n\n") // Clean up any multiple empty lines created by header removal

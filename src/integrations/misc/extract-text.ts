@@ -11,7 +11,42 @@ import { truncateContent } from "@/shared/content-limits"
 import { Logger } from "@/shared/services/Logger"
 import { sanitizeNotebookForLLM } from "./notebook-utils"
 
+/**
+ * 严格判断一段字节是否是合法 UTF-8。
+ * Emuera 生态的脚本绝大多数是 UTF-8，先做这一步可以避免 jschardet
+ * 把日文 UTF-8 误判成 windows-1252 / GB2312 后产生乱码。
+ */
+function isStrictUtf8(fileBuffer: Buffer): boolean {
+	try {
+		const bufferWithIsUtf8 = Buffer as unknown as { isUtf8?: (input: Uint8Array) => boolean }
+		if (typeof bufferWithIsUtf8.isUtf8 === "function") {
+			return bufferWithIsUtf8.isUtf8(fileBuffer)
+		}
+		new TextDecoder("utf-8", { fatal: true }).decode(fileBuffer)
+		return true
+	} catch (_error) {
+		return false
+	}
+}
+
 export async function detectEncoding(fileBuffer: Buffer, fileExtension?: string): Promise<string> {
+	// 1) BOM 直判：Emuera 靠 BOM 识别 UTF-8，必须优先于任何猜测
+	if (fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf) {
+		return "utf8"
+	}
+	if (fileBuffer.length >= 2 && fileBuffer[0] === 0xff && fileBuffer[1] === 0xfe) {
+		return "utf16le"
+	}
+	if (fileBuffer.length >= 2 && fileBuffer[0] === 0xfe && fileBuffer[1] === 0xff) {
+		return "utf16be"
+	}
+
+	// 2) 能严格按 UTF-8 解码就是 UTF-8
+	if (isStrictUtf8(fileBuffer)) {
+		return "utf8"
+	}
+
+	// 3) 只有解不出来时才交给 chardet 推断（例如旧版 .txt/.bat）
 	const detected = chardet.detect(fileBuffer)
 	if (typeof detected === "string") {
 		return detected
@@ -38,11 +73,20 @@ export async function extractTextFromFile(filePath: string): Promise<string> {
 	return callTextExtractionFunctions(filePath)
 }
 
+export interface TextExtractionOptions {
+	/**
+	 * 是否在抽取后立即截断到 400KB。默认 true（保持既有行为）。
+	 * read_file 需要传 false：先按 start_line/end_line 切片，再对切片结果截断，
+	 * 否则超大 ERB 的后半段永远读不到。
+	 */
+	truncate?: boolean
+}
+
 /**
  * Expects the fs.access call to have already been performed prior to calling.
- * Content is automatically truncated if it exceeds 400KB to prevent context overflow.
+ * Content is automatically truncated if it exceeds 400KB unless `truncate: false` is passed.
  */
-export async function callTextExtractionFunctions(filePath: string): Promise<string> {
+export async function callTextExtractionFunctions(filePath: string, options?: TextExtractionOptions): Promise<string> {
 	const fileExtension = path.extname(filePath).toLowerCase()
 
 	let content: string
@@ -73,6 +117,9 @@ export async function callTextExtractionFunctions(filePath: string): Promise<str
 	}
 
 	// Truncate content if it exceeds 400KB to prevent context overflow
+	if (options?.truncate === false) {
+		return content
+	}
 	return truncateContent(content)
 }
 

@@ -1,0 +1,87 @@
+import { type EraProjectProfile, getEraProjectProfile } from "@core/era/project-profile"
+import type { SystemPromptContext } from "../types"
+
+/**
+ * Emuera 领域提示词。
+ *
+ * 三个原则：
+ * 1. **不预设任何路径**：工程根、脚本目录、口上目录全部来自运行时探测，
+ *    探测不到就明确写「未探测到」，不给模型留下「按习惯拼路径」的借口。
+ * 2. **不假设工作区是完整 eraTW**：脚本可能只有几个，目录可能被改名，
+ *    所以只写「模型不看代码就会做错」的通用硬事实，不写任何工程的具体统计。
+ * 3. 探测不到 Emuera 工程时返回空串，普通项目完全不受影响。
+ */
+
+function formatList(values: string[], empty: string): string {
+	return values.length > 0 ? values.join("、") : empty
+}
+
+function buildEraDomainSection(profile: EraProjectProfile): string {
+	const rootLines = profile.relativeRoots
+		.slice(0, 5)
+		.map((relPath, index) => `  ${index + 1}. ${relPath}${index === 0 ? "（主工程）" : ""}`)
+		.join("\n")
+
+	const scriptDirs = formatList(profile.scriptDirNames, "未探测到（脚本可能直接放在工程根下）")
+	const csvDirs = formatList(profile.csvDirNames, "未探测到")
+	const personaDirs = formatList(profile.personaDirNames, "未探测到")
+	const backupDirs = formatList(profile.backupDirNames, "未探测到")
+	const extensions = formatList(profile.scriptExtensions, ".erb")
+
+	return `====
+# Emuera（EraBasic）工程约定
+
+当前工作区里探测到了 Emuera 工程。以下事实来自本次运行时探测，不是对本工程结构的预设。
+
+## 探测结果
+- 工程根（相对工作区）：
+${rootLines}
+- 命中特征：${formatList(profile.markers, "仅脚本扩展名")}
+- 脚本目录：${scriptDirs}
+- 脚本文件：${profile.scriptFileCountTruncated ? "至少 " : "约 "}${profile.scriptFileCount} 个（${extensions}）
+- CSV 目录：${csvDirs}
+- 口上（剧本）目录：${personaDirs}
+- 备份目录：${backupDirs}
+- 引擎配置文件：${profile.hasEngineConfig ? "存在" : "未探测到"}
+
+## 路径判断铁律
+- 工作区根**不一定**是工程根：工程可能在子目录里，也可能一个工作区里放着多个工程（本体 / 魔改 / 整合包）。改文件前先按上面的相对路径确认真实位置。
+- 目录名会被创作者改名、嵌套或拆分。上面写着「未探测到」的目录就是不存在，不要凭习惯拼路径；需要定位时先用 era_symbols 或 search_files 查真实路径。
+- 脚本文件数量是本次扫描的估算值，且只统计脚本目录内部；需要精确文件列表时用 era_symbols 或 search_files。
+
+## 工具选择
+- 不确定某个指令的参数顺序、返回值，或它属于哪个引擎扩展时，用 era_reference 查：mode=lookup 按名字取整页，mode=search 按关键词检索（正文中文也算），mode=names 列出全部页面。不要凭记忆写签名，也不要为此去搜网页。
+- era_reference 的返回值带「来源」标注：在线版本表示本次取到了上游最新版，内置快照表示离线兜底。两者不会混用，引用参数时以返回的那一份为准。
+- 需要实测改动能否被引擎加载时用 run_game：它会启动真实引擎、等加载结束，并报告「加载痕迹」（lazyloading 索引有没有重建）与本次新写出的日志。只读代码判断不了语法层面的加载失败。
+- 引擎停在标题画面时**不会写游戏日志**，所以 run_game 说「日志没变」不等于加载失败 —— 是否加载成功要看「加载痕迹」那一节；要验证一次改动，先真的改至少一个 ERB 再跑。
+- run_game 会弹出游戏窗口，并让引擎重写游戏目录里它自己的文件（懒加载索引、全局存档），只应在用户明确要求实测时使用；默认报告完自动关闭（不保存进度），需要保留窗口才传 keep_alive=true。
+
+## EraBasic 语法要点
+- 分号开头是注释；#DIM / #DIMS 声明变量；#FUNCTION 表示带返回值的函数。
+- 控制流必须配平：IF/ELSEIF/ELSE/ENDIF、SELECTCASE/CASE/ENDSELECT、FOR/NEXT、REPEAT/REND、DO/LOOP、WHILE/WEND。
+- PRINTDATA / STRDATA 是数据块，内部用 DATAFORM 分隔分支。
+- 命令与参数之间用半角空格；全角符号（，、；）在表达式里会被当成普通字符，不能当分隔符。
+- 标签与变量作用域：@ 开头是全局标签，$ 开头是仅在当前函数内可见的局部标签。
+
+## 编码铁律
+- Emuera 靠 BOM 判断脚本编码。同目录的现有脚本带 BOM 就必须保持带 BOM，也不要整文件重写把 BOM 抹掉。
+- 不要在终端里用 PowerShell 的 Set-Content / Out-File 改脚本或 CSV，默认编码会写成 ANSI 或 UTF-16。
+- 新建脚本或 CSV 时，BOM 与换行风格要和同目录现有文件一致；没有可参照的兄弟文件时，脚本默认带 BOM、CSV 跟随同目录 CSV 的现状。
+
+## 编辑铁律
+- 超过 200KB 的脚本优先用 replace_in_file 做定点替换；这种大小的文件整篇重写极容易丢内容。
+- 读超大文件用 read_file 的 start_line / end_line 分段读，不要试图一次读完整篇。
+- 改完脚本后如果工具返回「ERB 结构警告」，必须回去检查对应块是否配平，不要直接结束任务。
+
+## 禁止事项
+- 不删除、不移动上面探测到的备份目录。
+- 不修改探测到的引擎配置文件，除非用户明确要求。
+- 不确定某个目录是不是有效源码时，先读一个文件确认，不要批量重命名或批量移动。
+====`
+}
+
+export function getEraDomainSection(context: SystemPromptContext): string {
+	const workspaceRoots = context.workspaceRoots?.map((root) => root.path)
+	const profile = getEraProjectProfile(context.cwd, workspaceRoots)
+	return profile.isEra ? buildEraDomainSection(profile) : ""
+}

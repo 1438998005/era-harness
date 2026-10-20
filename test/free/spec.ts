@@ -355,6 +355,43 @@ test("全部候选失败：抛错含候选数与 DeepSeek 引导（kiloFreeRows=
 	await assert.rejects(() => handler.createMessage("sys", userMessages).next(), /已尝试 10 个候选/)
 })
 
+test("用户中止：候选失败后不得再烧下一个（停止键不能被忽略）", async () => {
+	let handler: FreeModelHandler | undefined
+	const ovh = fakeClient({
+		chat: () => {
+			// 模拟「第一候选失败的同一瞬间用户按了停止」：
+			// 以前的实现只看 error.name，这里抛的是普通 Error，会被当成 switchable 继续 failover
+			handler?.abort()
+			return apiError(500, "boom")
+		},
+	})
+	handler = new FreeModelHandler({ ovhClient: ovh, kiloFreeRows: [] })
+
+	// 上抛的是当时真正的错误（boom）；关键是「不再发起下一个请求」
+	await assert.rejects(() => handler!.createMessage("sys", userMessages).next(), /boom/)
+	assert.deepEqual(callsOf(ovh).chat, ["Qwen3.8-27B"], "中止后不应再发起任何请求")
+})
+
+test("已吐内容后失败：报错而不是拼上另一个模型的开头", async () => {
+	async function* failAfterText(): AsyncGenerator<Record<string, unknown>> {
+		yield { choices: [{ delta: { content: "半句话" } }] }
+		throw apiError(500, "stream broke midway")
+	}
+	const ovh = fakeClient({ chat: () => failAfterText() })
+	const handler = new FreeModelHandler({ ovhClient: ovh, kiloFreeRows: [] })
+
+	const chunks: string[] = []
+	await assert.rejects(async () => {
+		for await (const chunk of handler.createMessage("sys", userMessages)) {
+			if (chunk.type === "text") {
+				chunks.push(chunk.text)
+			}
+		}
+	}, /stream broke midway/)
+	assert.equal(chunks.join(""), "半句话", "前半句应该已经吐给上层")
+	assert.deepEqual(callsOf(ovh).chat, ["Qwen3.8-27B"], "不能换模型接着写（会拼成两段回复）")
+})
+
 test("带图请求：只路由 vision 候选，落 vision 链首选 Inkling Small（重排后）", async () => {
 	const ovh = fakeClient({ chat: () => apiError(429, "rate limit") })
 	const kilo = fakeClient({ chat: () => textStream("OK") })
