@@ -1,0 +1,20 @@
+# 环境信息
+Emuera.NET SkiaSharp 1824+v24+EMv18+EEv56+Skiav10.1
+
+# 变体
+eraThe World【画蛇添足版】 0.00
+
+# 日志
+
+如果出现了错误，请根据目录下的报错指导文件进行报错
+注意：外部插件功能已启用。因该功能引发的问题不在Emuera支持范围内
+已记录 2198 个文件到懒加载索引表中
+警告Lv1:口上・メッセージ関連\個人口上\011 Sample\サンプル口上ver,0.01\M_KOJO_K11_イベント.ERB:第41行:#行只能在函数声明后立刻使用
+#LOCALSIZE 1
+发生了预期以外的错误:Emuera.NET SkiaSharp 1824+v24+EMv18+EEv56+Skiav10.1
+MinorShift.Emuera.Runtime.Utils.CodeEE:意料之外的行连接结束符号'}'
+由于ERB脚本出现无法解释的行，Emuera停止运行
+※由于兼容性选项「解釈不可能な行があっても実行する/EXECUTE ERROR LINES」可能出现强制执行的情况
+日志已保存至emuera.log
+※※※已创建Log文件emuera.log※※※
+按回车键或者点击鼠标左键结束程序

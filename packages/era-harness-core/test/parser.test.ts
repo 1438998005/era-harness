@@ -40,7 +40,7 @@ test('warnings fixture: unresolved identifier extraction + snippet', async () =>
   assert.ok(d);
   assert.equal(d.kind, 'unresolved-identifier');
   assert.equal(d.severity, 2);
-  assert.equal(d.file, '口上・メッセージ関連\\個人口上\\053 Tewi [てゐ]\\因幡帝海外版\\M_KOJO_K53_functions.ERB');
+  assert.equal(d.file, '口上・メッセージ関連\\個人口上\\053 Sample\\サンプル口上ver,0.01\\M_KOJO_K53_functions.ERB');
   assert.equal(d.line, 196);
   assert.equal(d.sourceLines.length, 1);
   assert.match(d.sourceLines[0] ?? '', /^FOR LOCAL, 1, MIN\(CFLAG:53:兒童人数\+1,MAXCHILD\)$/);
