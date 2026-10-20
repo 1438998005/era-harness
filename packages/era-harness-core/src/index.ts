@@ -78,6 +78,24 @@ export type {
   WriteTarget,
   WriteVerification,
 } from './encoding/write.js';
+export {
+  SETTINGS_CATALOG,
+  SETTINGS_CATEGORIES,
+  SETTINGS_SNAPSHOT_AT,
+  UNCOVERED_SETTINGS,
+  findSetting,
+  formatSetting,
+  formatSettingHits,
+  formatUncovered,
+  listSettingSummaries,
+  searchSettings,
+} from './settings/index.js';
+export type {
+  SettingCategoryGroup,
+  SettingHit,
+  SettingRecord,
+  SettingSource,
+} from './settings/index.js';
 export type {
   DiagnosticKind,
   EngineInfo,

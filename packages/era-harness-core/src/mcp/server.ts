@@ -46,6 +46,18 @@ import {
   searchKnowledge,
 } from '../knowledge/index.js';
 import { ALLOWED_ROOTS_ENV, assertPathAllowed, parseAllowedRoots } from './guard.js';
+import {
+  SETTINGS_CATALOG,
+  SETTINGS_CATEGORIES,
+  SETTINGS_SNAPSHOT_AT,
+  UNCOVERED_SETTINGS,
+  findSetting,
+  formatSetting,
+  formatSettingHits,
+  formatUncovered,
+  listSettingSummaries,
+  searchSettings,
+} from '../settings/index.js';
 
 const server = new McpServer({ name: 'era-harness', version: '0.1.0' });
 
@@ -265,6 +277,62 @@ server.registerTool(
       })),
       markdown: formatKnowledgeHits(hits, query),
     });
+  },
+);
+
+server.registerTool(
+  'setting_help',
+  {
+    title: '查插件设置说明',
+    description: `查 era harness **自己的**设置项（不是游戏侧知识）：某个开关有什么用、默认值、取值范围、关掉会怎样。内置 ${SETTINGS_CATALOG.length} 项（手写补充快照 ${SETTINGS_SNAPSHOT_AT}），可离线。使用者问「这个开关有什么用 / 怎么配置 / 为什么是灰的 / 关掉会有什么影响」时先查这里，不要凭印象答。key 与 query 都给时以 key 为准；都不给返回分组目录。`,
+    inputSchema: {
+      key: z
+        .string()
+        .optional()
+        .describe('设置键，如 eraHarness.erabasic.autoTakeover、subagents、checkpoints（允许只写后缀）'),
+      query: z.string().optional().describe('关键词，如 检查点、子代理、自动批准、压缩、钩子'),
+      limit: z.number().int().min(1).max(20).optional().describe('检索返回条数，默认 5'),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  async ({ key, query, limit }) => {
+    const library = { entries: SETTINGS_CATALOG.length, snapshotAt: SETTINGS_SNAPSHOT_AT };
+
+    if (key && key.trim()) {
+      const record = findSetting(SETTINGS_CATALOG, key);
+      if (record) {
+        return jsonResult({ library, key: record.key, markdown: formatSetting(record) });
+      }
+      const uncovered = Object.entries(UNCOVERED_SETTINGS).find(
+        ([candidate]) => candidate.replace(/[._-]/g, '') === key.trim().replace(/[._-]/g, ''),
+      );
+      if (uncovered) {
+        return jsonResult({ library, key: uncovered[0], covered: false, markdown: formatUncovered(uncovered[0], uncovered[1]) });
+      }
+      return jsonResult({
+        library,
+        error: `设置目录里没有 ${key}`,
+        available: SETTINGS_CATALOG.map((record) => record.key),
+        hint: '用 query 按关键词检索；也可能这一项被登记在「未收录」清单里',
+      });
+    }
+
+    if (query && query.trim()) {
+      const hits = searchSettings(SETTINGS_CATALOG, query, limit ?? 5);
+      return jsonResult({
+        library,
+        query,
+        hits: hits.map((hit) => ({
+          key: hit.record.key,
+          title: hit.record.title,
+          matchedIn: hit.field,
+          summary: hit.record.summary,
+        })),
+        markdown: formatSettingHits(hits, query),
+      });
+    }
+
+    return jsonResult({ library, categories: listSettingSummaries(SETTINGS_CATALOG, SETTINGS_CATEGORIES) });
   },
 );
 

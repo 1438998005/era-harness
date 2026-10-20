@@ -3,6 +3,39 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.89.0 — 2026-10-21
+
+插件开始「解释自己」：新增内置设置目录与 `setting_help` 工具，使用者问「这个开关有什么用」时
+模型不必再猜或翻源码。设置说明由构建时脚本从代码抽取，手写层只补「关掉会怎样」。
+
+### 新增
+
+- **`setting_help` 工具（扩展原生）**：查**本插件自己的**设置项——有什么用、默认值、取值范围、
+  关掉会怎样、与哪些设置联动。参数 `key`（支持只写后缀）/ `query`（关键词）/ 都不给则列分组目录，
+  纯离线。与 `era_knowledge` 分工明确：那边讲 EraBasic 工程侧纪律，这边讲插件自身。
+- **内置设置目录**（`packages/era-harness-core/src/settings/`）：构建时从四处抽取后生成 TS 常量——
+  `FeatureSettingsSection.tsx` 的 15 个 `FeatureToggle`、`locales/zh-CN/settings.json` 的中文文案、
+  `state-keys.ts` 的默认值、`package.json` 的 `contributes.configuration`（当前 1 项）。
+  生成物入库（`data/*.generated.ts`），clone 后不装依赖也能构建。
+- **手写补充层**（`data/overrides.ts`）：15 项「关闭后会怎样」+ 与它们联动的设置，
+  以及 22 项**明确不收录**的设置及理由（⛔ 不装作不知道，也不凭印象编）。
+- **MCP 侧同名工具** `setting_help`：独立进程／其他宿主不必装扩展也能查。
+- **三道新验收闸门**（`npm run gate` 共八道）：
+  - 设置目录完整性：`UpdateSettingsRequest` 的 37 个字段必须 ∈ 目录 ∪ 未收录清单（当前 37/37 = 100%）；
+  - 生成物新鲜度：生成物与源码不一致即红，提示重跑 `npm run build:settings`；
+  - 工具登记完整性：12 个 prompt 变体 + `READ_ONLY_TOOLS` 少一处即红——
+    漏登记时工具对某些模型永远不可见，而测试照样全绿。
+
+### 变更
+
+- `AGENTS.md` 文件地图补两条联动：改设置页文案要重跑生成器；proto 新增字段要进目录或白名单。
+
+### 验证
+
+- 核心库 `npm test`：125 例 / 124 过 / 1 跳过（新增 21 例设置目录用例）
+- 插件回归：`test/update` 240 / 240，`test/free` 24 / 24
+- 双方 `tsc --noEmit`：0 错；`npm run gate`：八道全绿
+
 ## 3.88.0 — 2026-10-21
 
 一次集中的功能补全：编码安全写回落地、内嵌知识库扩到 7 条、更新工具 G1–G8 闸门全部接通、新增 `era_knowledge` 工具。
