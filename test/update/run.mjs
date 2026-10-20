@@ -44,7 +44,7 @@ const aliasResolverPlugin = {
 		const aliases = {
 			"@": path.join(repoRoot, "src"),
 			"@core": path.join(repoRoot, "src", "core"),
-			"@eraharness": path.resolve(repoRoot, "..", "era harness", "src"),
+			"@eraharness": path.join(repoRoot, "packages", "era-harness-core", "src"),
 			"@integrations": path.join(repoRoot, "src", "integrations"),
 			"@services": path.join(repoRoot, "src", "services"),
 			"@shared": path.join(repoRoot, "src", "shared"),

@@ -131,7 +131,11 @@
 			"!**/webview-ui/build",
 			"!**/generated",
 			"!**/proto",
-			"!**/tests/specs"
+			"!**/tests/specs",
+			// 内置核心库是独立 package：自己的 tsconfig / 代码风格 / 测试，
+			// 且写时就没有 biome 约束（原本在仓库外）。纳入本仓库的 lint 范围会
+			// 产生 50+ 纯格式化错误，只会阻塞 pre-commit，不提供任何价值。
+			"!**/packages/era-harness-core"
 		]
 	},
 	"plugins": [

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+/*.log
+.DS_Store
+Thumbs.db
+# 指令知识库抓取缓存（生成物在 src/reference/data/，缓存不入库）
+.cache/

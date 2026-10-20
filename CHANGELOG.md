@@ -3,6 +3,19 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.87.1 — 2026-10-20
+
+仓库自洽化，无行为变化。
+
+### 变更
+
+- **核心库搬进仓库**：`era harness/`（日志解析、工程画像、编码安全读取、指令数据）
+  移入 `packages/era-harness-core/`。原先 `@eraharness` 别名指向仓库外的 `../era harness/src`，
+  导致 clone 到其他机器后无法构建；现在 clone 下来即可独立编译。
+- 三处别名同步更新：`esbuild.mjs`、`test/update/run.mjs`、`tsconfig.json`。
+- `.vscodeignore` 增加 `packages/**`：核心库是**构建期**依赖，esbuild 会把它内联进 `dist/extension.js`，
+  运行时不需要，因此不进 vsix。
+
 ## 3.87.0 — 2026-10-20
 
 首个带完整 era 专用工具集的本地版本。

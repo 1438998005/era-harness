@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "era-harness": {
+      "command": "node",
+      "args": ["--import", "tsx", "src/mcp/server.ts"],
+      "cwd": "D:/era harness工作区/era harness",
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
