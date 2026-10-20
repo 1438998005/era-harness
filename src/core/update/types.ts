@@ -106,9 +106,19 @@ export interface ConflictGroup {
  * 产品内嵌副本在核心库 src/knowledge/data/update-merge-gates.ts）。
  * 已实现 G2/G3/G4/G6/G7；G1/G5/G8 需仓库史或键账本，留待后续批次。
  */
-export type GateId = "G2" | "G3" | "G4" | "G6" | "G7"
+export type GateId = "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8"
 
-export type GateCode = "rand-unreachable" | "rand-hollow" | "dispatch-removed" | "caller-orphaned" | "hph-residue" | "eol-mixed"
+export type GateCode =
+	| "regression-reintroduced" // G1
+	| "rand-unreachable"
+	| "rand-hollow"
+	| "dispatch-removed"
+	| "caller-orphaned"
+	| "fsyn-unknown-key" // G5
+	| "hph-residue"
+	| "eol-mixed"
+	| "key-unknown" // G8
+	| "key-glyph-collision" // G8
 
 export interface GateFinding {
 	gate: GateId
