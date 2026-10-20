@@ -8,10 +8,10 @@
 
 import assert from "node:assert/strict"
 import test from "node:test"
+import { decodeLikeEngine } from "../../src/core/update/decode"
 import {
 	auditRandBranches,
 	collectChangedLabels,
-	decodeLikeEngine,
 	dispatchDriftFindings,
 	dispatchLabelFindings,
 	eolMixedFinding,

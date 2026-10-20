@@ -5,7 +5,7 @@
  * 1. 目标用户没有 git 概念，一个"是/否"的模态框比一张带 diff 的卡片更容易下决心；
  * 2. 原生弹窗不需要新增 proto 消息类型、不需要改 webview，风险面小得多；
  * 3. 弹窗的按钮本身就是**不可伪造的确认**——AI 没有任何办法替你点它，
- *    天然满足 `知识库/13 §13.10` 的「apply 必须有人点确认，与自动批准无关」。
+ *    天然满足「apply 必须有人点确认，与自动批准无关」。
  *
  * 全部文案走 `describe.ts`，这里只负责顺序与交互，不拼字符串。
  */
@@ -42,6 +42,8 @@ function stageText(event: UpdateEvent): string {
 			return "正在读取文件清单…"
 		case "scan":
 			return "正在扫描本地的游戏文件…"
+		case "labels":
+			return "正在建函数索引（查有没有人调被删掉的函数）…"
 		case "plan":
 			return "正在比对哪些文件要更新…"
 		case "merge":

@@ -104,11 +104,11 @@ export interface ConflictGroup {
 /**
  * 导入合并闸门 finding（正本：shared-trae knowledge/eratw/import-merge-gates.md，
  * 产品内嵌副本在核心库 src/knowledge/data/update-merge-gates.ts）。
- * 已实现 G2/G3/G6/G7；G1/G4/G5/G8 需仓库史或全仓索引，留待后续批次。
+ * 已实现 G2/G3/G4/G6/G7；G1/G5/G8 需仓库史或键账本，留待后续批次。
  */
-export type GateId = "G2" | "G3" | "G6" | "G7"
+export type GateId = "G2" | "G3" | "G4" | "G6" | "G7"
 
-export type GateCode = "rand-unreachable" | "rand-hollow" | "dispatch-removed" | "hph-residue" | "eol-mixed"
+export type GateCode = "rand-unreachable" | "rand-hollow" | "dispatch-removed" | "caller-orphaned" | "hph-residue" | "eol-mixed"
 
 export interface GateFinding {
 	gate: GateId
