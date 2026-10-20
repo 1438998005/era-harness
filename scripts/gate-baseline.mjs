@@ -43,10 +43,14 @@ function run(command, args, cwd) {
 	}
 }
 
-/** node:test 的 TAP 汇总行（`# tests 103` 这种）；拿不到就返回 null，由调用方标「未跑成」 */
+/**
+ * node:test 的汇总行。Node ≤22 在管道里输出 TAP（`# tests 103`），
+ * Node 24 的默认 reporter 输出 `ℹ tests 103` —— 两种都要认，
+ * 否则 gate 在 Node 24 上永远报「没跑成（拿不到 TAP 汇总）」，而测试其实是绿的。
+ */
 function tapNumbers(out) {
 	const grab = (key) => {
-		const match = new RegExp(`^# ${key} (\\d+\\s*)$`, "m").exec(out)
+		const match = new RegExp(`^(?:#|ℹ)\\s*${key}\\s+(\\d+)\\s*$`, "m").exec(out)
 		return match ? Number.parseInt(match[1].trim(), 10) : null
 	}
 	return { tests: grab("tests"), pass: grab("pass"), fail: grab("fail"), skipped: grab("skipped") }
