@@ -25,6 +25,8 @@ import type {
 	UpdatePlan,
 	UpstreamSnapshot,
 } from "./types"
+import type { NowVersions } from "./version"
+import { versionBumpNotice } from "./version"
 
 /** 口上目录标记（与 `src/core/identity/scope.ts` 的 PERSONA_DIR_MARKER 保持一致） */
 const PERSONA_ROOT = "口上・メッセージ関連/個人口上/"
@@ -77,6 +79,11 @@ export interface BuildPlanInput {
 	 * 才会跑 G4（被删标签的改动集外调用方检索）。
 	 */
 	labelIndex?: LabelIndex
+	/**
+	 * 两边 `NOW_VERSION`（存档迁移时机判据用）。任一读不到 ⇒ 该判据如实不报，
+	 * ⛔ 把「读不到」当成「没 bump」。
+	 */
+	versions?: NowVersions
 }
 
 function topSegment(rel: RelPath): string {
@@ -282,6 +289,9 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		}
 	}
 
+	// 存档迁移时机（第九问，G1–G8 之外）：版本号没变却动了剧本/数据 ⇒ 旧存档不会自动迁移
+	const versionNotice = versionBumpNotice(entries, input.versions)
+
 	return {
 		mode,
 		entries,
@@ -297,6 +307,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		warnings,
 		...(gateFindings ? { gateFindings } : {}),
 		...(input.gateSkipped ? { gatesSkipped: input.gateSkipped } : {}),
+		...(versionNotice ? { versionNotice } : {}),
 	}
 }
 

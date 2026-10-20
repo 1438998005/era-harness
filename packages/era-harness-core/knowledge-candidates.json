@@ -1,0 +1,52 @@
+{
+	"schemaVersion": 1,
+	"updatedAt": "2026-10-21",
+	"about": "内嵌知识库候选池（T1.2＝持续补充机制，不设终点）。本文件是候选清单的机器可读正本；NOTICE-knowledge-sources.md 的来源表只登记已落地条目。校验：node scripts/check-knowledge-pool.mjs（已并入 npm run gate）。",
+	"sharedTrae": {
+		"envOverride": "SHARED_TRAE_PATH",
+		"defaultRelative": "../shared-trae",
+		"note": "⛔ 硬编码集群绝对路径；默认按仓根相对定位，跨机器用环境变量指路。"
+	},
+	"judgement": [
+		"跨整合包版本稳定（⛔ 收某一工程的魔改现状现算值）",
+		"能指回 shared-trae 正本（sources 必须逐条存在）",
+		"与在册条目不重叠（重叠就补进已有条目，不新开）",
+		"装得进一条（装不下＝该切分或暂缓，残缺判据比没有更危险）"
+	],
+	"consumption": {
+		"default": "search",
+		"resident": ["interpreter-encoding-discipline", "project-structure-discipline", "main-flow-pipeline"],
+		"note": "常驻＝几乎所有 era 改动都要遵守；其余默认只进检索（常驻会让 era 域提示多约 10 条 / 900 字，要常驻必须单独论证）。"
+	},
+	"candidates": [
+		{
+			"id": "version-up-and-save-migration",
+			"status": "landed",
+			"landedAt": "2026-10-21",
+			"domain": "update",
+			"consumption": "search",
+			"sources": ["knowledge/eratw/kojo-script-index-system.md", "knowledge/eratw/newgame-plus-system.md"],
+			"surface": "小（8 铁律＋5 反模式）",
+			"stability": "稳（机制层，不含工程现算值）",
+			"verdict": "补上「更新 eraTW」apply 阶段缺的版本号 bump 判据；与 G1–G8 互补不重叠",
+			"note": "正本里的行号引用会漂移（实测抓到一次），故内嵌副本⛔ 不收行号与绝对路径"
+		},
+		{
+			"id": "portrait-slot-conventions",
+			"status": "deferred",
+			"domain": "portrait",
+			"consumption": "search",
+			"sources": [
+				"knowledge/eratw/portrait-quickstart.md",
+				"knowledge/eratw/portrait-differential-tokens.md",
+				"knowledge/eratw/portrait-dairi-workflow.md",
+				"knowledge/eratw/portrait-mapping-source-of-truth.md",
+				"knowledge/eratw/portrait-image-architecture.md"
+			],
+			"surface": "大（立绘域 21 个条目，一条内嵌条目装不下，只能取一角）",
+			"stability": "⚠️ 过渡期：portrait-import-transition-workflow.md 自称「合流后降级」，compose-v2 仍在分支上",
+			"verdict": "暂缓——残缺判据比没有更危险，且快照几个月内会过期",
+			"trigger": "feat/compose-v2-image-ex 合流进 develop、过渡期条目降级后重估"
+		}
+	]
+}

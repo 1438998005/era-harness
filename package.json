@@ -335,6 +335,8 @@
 	"scripts": {
 		"vscode:prepublish": "npm run package",
 		"compile": "npm run check-types && npm run lint && node esbuild.mjs",
+		"gate": "node scripts/gate-baseline.mjs",
+		"gate:full": "node scripts/gate-baseline.mjs --compile",
 		"dev": "npm run protos && npm run watch",
 		"watch": "npx npm-run-all -p watch:*",
 		"watch:esbuild": "node esbuild.mjs --watch",

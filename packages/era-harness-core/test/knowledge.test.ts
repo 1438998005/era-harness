@@ -108,24 +108,62 @@ test('新增条目：域与规则量（结构纪律 8 条、主流程 9 条）',
   }
 });
 
-test('searchKnowledge：版本升级与存档迁移条目可命中（T1.2 第一批）', () => {
-  for (const query of ['UPDATE_MAIN', 'modding_version', '存档迁移', 'bump', '静默失声', 'idx0']) {
-    assert.equal(
-      searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
-      'version-up-and-save-migration',
-      `「${query}」首条应为版本升级与存档迁移`,
-    );
+/**
+ * 检索排序锁：每个在册条目配若干「只该由它首条命中」的检索词。
+ *
+ * 为什么要有这张表：档位是「只进检索」的条目全靠关键词命中被模型看见，
+ * 新增条目带来近义 tag 就可能把老条目的主关键词抢走——四关与计数断言都不查这个，
+ * 只有「主关键词仍归原主」能被机械锁住。新增条目必须同时补锁（下面有覆盖断言兜着）。
+ */
+const RANKING_LOCKS: Array<{ query: string; entryId: string }> = [
+  { query: 'BOM', entryId: 'interpreter-encoding-discipline' },
+  { query: 'CP932', entryId: 'interpreter-encoding-discipline' },
+  { query: 'RAND', entryId: 'update-merge-gates' },
+  { query: 'G8', entryId: 'update-merge-gates' },
+  { query: 'M_KOJO', entryId: 'kojo-structure-contracts' },
+  { query: 'NOW_VERSION', entryId: 'project-structure-discipline' },
+  { query: 'VariableSize', entryId: 'project-structure-discipline' },
+  { query: 'SELECTCOM', entryId: 'main-flow-pipeline' },
+  { query: 'O_DATA', entryId: 'obj-qol-conventions' },
+  { query: 'GETMETH_STR', entryId: 'obj-qol-conventions' },
+  { query: 'UPDATE_MAIN', entryId: 'version-up-and-save-migration' },
+  { query: 'modding_version', entryId: 'version-up-and-save-migration' },
+  { query: '存档迁移', entryId: 'version-up-and-save-migration' },
+  { query: 'bump', entryId: 'version-up-and-save-migration' },
+  { query: '静默失声', entryId: 'version-up-and-save-migration' },
+  { query: 'idx0', entryId: 'version-up-and-save-migration' },
+];
+
+test('searchKnowledge：排序锁全部命中归属条目（新增条目不得抢走老条目的主关键词）', () => {
+  for (const { query, entryId } of RANKING_LOCKS) {
+    assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id, entryId, `「${query}」首条应为 ${entryId}`);
   }
+  const locked = new Set(RANKING_LOCKS.map((lock) => lock.entryId));
+  for (const entry of KNOWLEDGE_ENTRIES) {
+    assert.ok(locked.has(entry.id), `${entry.id} 没有排序锁——新增条目要顺手补一对主关键词`);
+  }
+});
+
+test('tags 体检：每条要有独占检索抓手，且一个 tag 最多两个条目共用', () => {
+  const owners = new Map<string, string[]>();
+  for (const entry of KNOWLEDGE_ENTRIES) {
+    for (const tag of entry.tags) {
+      owners.set(tag, [...(owners.get(tag) ?? []), entry.id]);
+    }
+  }
+  for (const [tag, list] of owners) {
+    assert.ok(list.length <= 2, `tag「${tag}」被 ${list.length} 个条目共用（${list.join('、')}），检索会互相稀释`);
+  }
+  for (const entry of KNOWLEDGE_ENTRIES) {
+    const mine = entry.tags.filter((tag) => (owners.get(tag) ?? []).length === 1).length;
+    assert.ok(mine >= 8, `${entry.id} 只剩 ${mine} 个独占 tag，抓不到它就等于没内嵌`);
+  }
+});
+
+test('版本升级与存档迁移条目：域、规则数与铁律纪律', () => {
   const entry = findKnowledge(KNOWLEDGE_ENTRIES, 'version-up-and-save-migration');
   assert.equal(entry?.domain, 'update');
   assert.equal(entry?.rules.length, 8);
-  // 与闸门条目共用「更新」语境，但不能互相顶掉对方的主关键词
-  assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, 'RAND')[0]?.entry.id, 'update-merge-gates');
-  assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, 'NOW_VERSION')[0]?.entry.id, 'project-structure-discipline');
-});
-
-test('新增条目：铁律不含行号与绝对路径（与既有条目同口径）', () => {
-  const entry = findKnowledge(KNOWLEDGE_ENTRIES, 'version-up-and-save-migration');
   for (const rule of entry?.rules ?? []) {
     assert.doesNotMatch(rule.text, /[Ll]ine\s?\d|#L\d/, '铁律含行号证据');
     assert.doesNotMatch(rule.text, /[A-Za-z]:\\/, '铁律含绝对路径');

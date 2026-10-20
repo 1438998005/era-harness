@@ -151,6 +151,19 @@ export type PlanWarning =
 	| "first-sync" // 本次是首次同步（无基线）
 	| "no-deletable-root" // 上游顶层目录为空，禁止任何删除
 
+/**
+ * 存档迁移时机提醒（G1–G8 之外的第九问，判据见 `version.ts`）。
+ * 只在「两边 NOW_VERSION 都读得到、且相等、且本次要落盘的改动里有剧本/数据」时出现。
+ */
+export interface VersionNotice {
+	/** 本地与社区相同的那个 NOW_VERSION */
+	version: string
+	/** 本次改动集会落盘/删除的 ERB·CSV 文件数 */
+	saveAffectingFiles: number
+	/** 其中属于删除的数量 */
+	saveAffectingDeletes: number
+}
+
 export interface UpdatePlan {
 	mode: "first-sync" | "incremental"
 	entries: PlanEntry[]
@@ -161,6 +174,8 @@ export interface UpdatePlan {
 	gateFindings?: GateFinding[]
 	/** 因超出扫描上限而未过闸门的脚本文件数（>0 时 finding 不完整） */
 	gatesSkipped?: number
+	/** 存档迁移时机提醒；不需要提醒时为 undefined（判据见 `version.ts`） */
+	versionNotice?: VersionNotice
 }
 
 /** 落盘状态：`.era-harness/update-state.json` */

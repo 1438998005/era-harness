@@ -31,6 +31,7 @@ const SPECS = [
 	"service.spec.ts",
 	"gates.spec.ts",
 	"gates-g158.spec.ts",
+	"version.spec.ts",
 	"labels.spec.ts",
 	"merge.spec.ts",
 	"mergeResolve.spec.ts",
