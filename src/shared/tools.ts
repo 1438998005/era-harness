@@ -35,6 +35,7 @@ export enum ClineDefaultTool {
 	LOG_DIAGNOSE = "log_diagnose",
 	ERA_SYMBOLS = "era_symbols",
 	ERA_REFERENCE = "era_reference",
+	ERA_KNOWLEDGE = "era_knowledge",
 	RUN_GAME = "run_game",
 }
 
@@ -69,4 +70,5 @@ export const READ_ONLY_TOOLS = [
 	ClineDefaultTool.LOG_DIAGNOSE,
 	ClineDefaultTool.ERA_SYMBOLS,
 	ClineDefaultTool.ERA_REFERENCE,
+	ClineDefaultTool.ERA_KNOWLEDGE,
 ] as const

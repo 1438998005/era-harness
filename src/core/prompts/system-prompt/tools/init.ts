@@ -5,6 +5,7 @@ import { act_mode_respond_variants } from "./act_mode_respond"
 import { apply_patch_variants } from "./apply_patch"
 import { ask_followup_question_variants } from "./ask_followup_question"
 import { attempt_completion_variants } from "./attempt_completion"
+import { era_knowledge_variants } from "./era_knowledge"
 import { era_reference_variants } from "./era_reference"
 import { era_symbols_variants } from "./era_symbols"
 import { execute_command_variants } from "./execute_command"
@@ -40,6 +41,7 @@ export function registerClineToolSets(): void {
 		...ask_followup_question_variants,
 		...attempt_completion_variants,
 		...execute_command_variants,
+		...era_knowledge_variants,
 		...era_reference_variants,
 		...era_symbols_variants,
 		...focus_chain_variants,

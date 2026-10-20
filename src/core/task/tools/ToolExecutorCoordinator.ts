@@ -8,6 +8,7 @@ import { ApplyPatchHandler } from "./handlers/ApplyPatchHandler"
 import { AskFollowupQuestionToolHandler } from "./handlers/AskFollowupQuestionToolHandler"
 import { AttemptCompletionHandler } from "./handlers/AttemptCompletionHandler"
 import { CondenseHandler } from "./handlers/CondenseHandler"
+import { EraKnowledgeToolHandler } from "./handlers/EraKnowledgeToolHandler"
 import { EraReferenceToolHandler } from "./handlers/EraReferenceToolHandler"
 import { EraSymbolsToolHandler } from "./handlers/EraSymbolsToolHandler"
 import { ExecuteCommandToolHandler } from "./handlers/ExecuteCommandToolHandler"
@@ -111,6 +112,7 @@ export class ToolExecutorCoordinator {
 		[ClineDefaultTool.LOG_DIAGNOSE]: (v: ToolValidator) => new LogDiagnoseToolHandler(v),
 		[ClineDefaultTool.ERA_SYMBOLS]: (v: ToolValidator) => new EraSymbolsToolHandler(v),
 		[ClineDefaultTool.ERA_REFERENCE]: (v: ToolValidator) => new EraReferenceToolHandler(v),
+		[ClineDefaultTool.ERA_KNOWLEDGE]: (v: ToolValidator) => new EraKnowledgeToolHandler(v),
 		[ClineDefaultTool.RUN_GAME]: (v: ToolValidator) => new RunGameToolHandler(v),
 	}
 

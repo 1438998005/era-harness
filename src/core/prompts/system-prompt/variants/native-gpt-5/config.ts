@@ -78,6 +78,7 @@ export const config = createVariant(ModelFamily.NATIVE_GPT_5)
 		ClineDefaultTool.LOG_DIAGNOSE,
 		ClineDefaultTool.ERA_SYMBOLS,
 		ClineDefaultTool.ERA_REFERENCE,
+		ClineDefaultTool.ERA_KNOWLEDGE,
 		ClineDefaultTool.RUN_GAME,
 	)
 	.placeholders({

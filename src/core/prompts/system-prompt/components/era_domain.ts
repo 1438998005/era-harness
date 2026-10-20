@@ -12,9 +12,9 @@ import type { SystemPromptContext } from "../types"
  *    所以只写「模型不看代码就会做错」的通用硬事实，不写任何工程的具体统计。
  * 3. 探测不到 Emuera 工程时返回空串，普通项目完全不受影响。
  *
- * 编码、结构槽位、指令主流程三节铁律取自内嵌知识条目（`interpreter-encoding-discipline` /
- * `project-structure-discipline` / `main-flow-pipeline`，正本在 shared-trae `knowledge/`）——
- * 提示层与知识库不复制正文，只消费 rules 级短句；完整判据经 MCP `lookup_knowledge` 可取。
+ * 常驻注入的铁律小节只取 `injectedKnowledgeIds` 里那几个条目（正本在 shared-trae `knowledge/`）——
+ * 提示层不复制正文，只消费 rules 级短句；其余条目与整篇判据都经原生工具 `era_knowledge` 按需检索
+ * （独立宿主下另有 MCP `lookup_knowledge` / `search_knowledge`，共用同一份条目表）。
  */
 
 function formatList(values: string[], empty: string): string {
@@ -27,6 +27,22 @@ const encodingRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "interpreter-encoding
 const structureRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "project-structure-discipline")
 /** 主流程与指令生命周期铁律（正本：shared-trae knowledge/eratw/game-flow-command-pipeline.md） */
 const flowRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "main-flow-pipeline")
+
+/**
+ * 常驻注入的条目白名单：其余条目只走按需检索（⛔ 全量进提示层会让 era 域膨胀）。
+ * 目录行由 KNOWLEDGE_ENTRIES 现算，⛔ 手写清单——新增条目时这里不用改。
+ */
+const injectedKnowledgeIds = new Set(["interpreter-encoding-discipline", "project-structure-discipline", "main-flow-pipeline"])
+
+const shortKnowledgeTitle = (title: string) => title.split("（")[0]
+
+const injectedKnowledgeLines = KNOWLEDGE_ENTRIES.filter((entry) => injectedKnowledgeIds.has(entry.id))
+	.map((entry) => `- era_knowledge mode=lookup entry_id=${entry.id}（${shortKnowledgeTitle(entry.title)}）`)
+	.join("\n")
+
+const onDemandKnowledgeLines = KNOWLEDGE_ENTRIES.filter((entry) => !injectedKnowledgeIds.has(entry.id))
+	.map((entry) => `- ${entry.id}：${shortKnowledgeTitle(entry.title)}（检索词如 ${entry.tags.slice(0, 3).join("、")}）`)
+	.join("\n")
 
 function buildEraDomainSection(profile: EraProjectProfile): string {
 	const rootLines = profile.relativeRoots
@@ -64,6 +80,7 @@ ${rootLines}
 ## 工具选择
 - 不确定某个指令的参数顺序、返回值，或它属于哪个引擎扩展时，用 era_reference 查：mode=lookup 按名字取整页，mode=search 按关键词检索（正文中文也算），mode=names 列出全部页面。不要凭记忆写签名，也不要为此去搜网页。
 - era_reference 的返回值带「来源」标注：在线版本表示本次取到了上游最新版，内置快照表示离线兜底。两者不会混用，引用参数时以返回的那一份为准。
+- 机制与纪律类问题（编码、变量槽位、口上命名与分发、指令时序与回合快照、OBJ 属性键、上游内容合并闸门）用 era_knowledge 查内置知识库：mode=search 按关键词找条目，mode=lookup 取全文（铁律＋反模式＋正文），mode=list 看目录。库里的内容是集群知识库的内置**快照**，⛔ 当成本工程的实测结论——具体数值与现状仍要读代码确认。
 - 需要实测改动能否被引擎加载时用 run_game：它会启动真实引擎、等加载结束，并报告「加载痕迹」（lazyloading 索引有没有重建）与本次新写出的日志。只读代码判断不了语法层面的加载失败。
 - 引擎停在标题画面时**不会写游戏日志**，所以 run_game 说「日志没变」不等于加载失败 —— 是否加载成功要看「加载痕迹」那一节；要验证一次改动，先真的改至少一个 ERB 再跑。
 - run_game 会弹出游戏窗口，并让引擎重写游戏目录里它自己的文件（懒加载索引、全局存档），只应在用户明确要求实测时使用；默认报告完自动关闭（不保存进度），需要保留窗口才传 keep_alive=true。
@@ -85,11 +102,10 @@ ${structureRules.map((rule) => `- ${rule.text}`).join("\n")}
 ## 指令主流程铁律
 ${flowRules.map((rule) => `- ${rule.text}`).join("\n")}
 
-以上三节只给铁律短句；要完整判据（反模式、取证链、目录地图）用 lookup_knowledge 取对应条目：
-interpreter-encoding-discipline / project-structure-discipline / main-flow-pipeline。
-另有按需检索的条目（⛔ 不常驻注入）：obj-qol-conventions（OBJ 数据框架与 O_DATA 键）、
-update-merge-gates（上游内容合并闸门）、kojo-structure-contracts（口上命名与分发）——
-碰到对应场景先用 search_knowledge 按关键词查（如 O_DATA、合并、口上）。
+以上三节只给铁律短句；要完整判据（反模式、取证链、目录地图）用 era_knowledge 取：
+${injectedKnowledgeLines}
+另有按需检索的条目（⛔ 不常驻注入，命中场景先用 era_knowledge mode=search）：
+${onDemandKnowledgeLines}
 
 ## 编辑铁律
 - 超过 200KB 的脚本优先用 replace_in_file 做定点替换；这种大小的文件整篇重写极容易丢内容。

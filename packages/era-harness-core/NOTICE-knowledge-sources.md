@@ -34,5 +34,6 @@ shared-trae 是 Emuera 集群的私有枢纽仓（`$EMUERA_WS/emuera/shared-trae
 
 ## 检索与消费
 
-- MCP：`lookup_knowledge`（按 id 取完整条目）、`search_knowledge`（关键词检索，可离线）。
-- 提示层：`knowledgeRulesFor(entries, id)` 取铁律短句，供 `era_domain` 注入。
+- 扩展内原生工具：`era_knowledge`（mode=lookup / search / list，纯离线；条目目录从 `KNOWLEDGE_ENTRIES` 现算）。
+- MCP：`lookup_knowledge`（按 id 取完整条目）、`search_knowledge`（关键词检索，可离线）——同一份条目表，给独立进程与其他宿主。
+- 提示层：`knowledgeRulesFor(entries, id)` 取铁律短句，供 `era_domain` 注入（常驻子集由 `injectedKnowledgeIds` 指定，其余只按需检索）。
