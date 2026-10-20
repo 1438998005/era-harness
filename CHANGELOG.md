@@ -23,11 +23,29 @@
   ⚠️ 自动批准只收**活着的**开关：`enabled` / `maxRequests` / `favorites` 在代码里已标 Legacy field
   （恒为 true / 功能已移除），把它们当用户开关讲就是给错知识，因此刻意不收录并在容器条目里写明。
 - **MCP 侧同名工具** `setting_help`：独立进程／其他宿主不必装扩展也能查。
-- **三道新验收闸门**（`npm run gate` 共八道）：
+- **四道新验收闸门**（`npm run gate` 共九道）：
   - 设置目录完整性：`UpdateSettingsRequest` 的 37 个字段必须 ∈ 目录 ∪ 未收录清单（当前 37/37 = 100%）；
   - 生成物新鲜度：生成物与源码不一致即红，提示重跑 `npm run build:settings`；
   - 工具登记完整性：12 个 prompt 变体 + `READ_ONLY_TOOLS` 少一处即红——
     漏登记时工具对某些模型永远不可见，而测试照样全绿。
+  - 语言归属声明：`.erb/.erh` 必须由 `contributes.languages.extensions` 声明，且 `syncAssociations` 不得回退。
+
+### 修复
+
+- **禁用/卸载扩展后 `.erb` 变纯文本（严重，影响所有装过旧版的用户）**：旧实现把 `.erb/.erh`
+  的语言归属靠**运行时写用户的** `settings.json`（`"*.erb": "era-erb"`）来抢。扩展一旦被禁用/卸载，
+  语言 id `era-erb` 就没了，但那条关联还在，而 `files.associations` 优先级高于静态声明。
+  于是 `.erb` 落到不存在的语言上 = 纯文本，**不会回退到内置 Ruby**，比不装还糟；开设置同步的还会传播到其他机器。
+  现在改为标准做法：`contributes.languages.extensions: [".erb", ".erh"]`，语言随扩展注册/注销，
+  **禁用即自动归还 Ruby**，运行时零自动写入。另外：
+  - 激活时**自愈**，静默清掉旧版留在 `files.associations` 里的 `era-erb` 值；
+  - 新增命令「让位给 sasami.erabasic」（写对方语言 id，状态栏常驻入口）与「收回 .erb/.erh 的语法归属」（可逆）；
+  - `eraHarness.erabasic.autoTakeover` 语义收敛为「补全/跳转/符号」开关——语法高亮不再受它控制（静态声明无法运行时撤销）。
+  - 代价（已接受）：同时装了 `sasami.erabasic` 的人需点一次「让位」才切回它的语法。
+- **`.vscodeignore` 里两条失效的 codicons 例外规则**：`node_modules/` 已排除父目录，`!` 无法
+  把子项捞回来，那两行从未生效。实测出厂 vsix 的 `assets/index.css` 已把 codicon 内联为
+  `@font-face`（`./codicon.ttf` 也在包里），运行时不再请求 `node_modules/@vscode/codicons`，故删除规则并注释说明。
+  （另：反馈里的 codicon 404 在 3.87.1 的 release 产物里**无法复现**——全树搜 `@vscode/codicons` 只命中 `package.json` 的依赖声明。）
 
 ### 变更
 
@@ -37,7 +55,7 @@
 
 - 核心库 `npm test`：126 例 / 125 过 / 1 跳过（新增 22 例设置目录用例）
 - 插件回归：`test/update` 240 / 240，`test/free` 24 / 24
-- 双方 `tsc --noEmit`：0 错；`npm run gate`：八道全绿
+- 双方 `tsc --noEmit`：0 错；`npm run gate`：九道全绿
 
 ## 3.88.0 — 2026-10-21
 
