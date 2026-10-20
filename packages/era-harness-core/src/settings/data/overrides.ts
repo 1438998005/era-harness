@@ -71,6 +71,69 @@ export const SETTING_OVERRIDES: Record<string, SettingOverride> = {
     whenOff: '生命周期钩子脚本全部跳过：TaskStart / UserPromptSubmit / PreToolUse / PostToolUse / TaskResume 都不执行。',
   },
 
+  // ── auto-approve（自动批准）────────────────────────────────────────────
+  // 这 11 项的键与默认值由生成器从 src/shared/AutoApprovalSettings.ts 抽出，
+  // 这里只负责把英文注释/裸字段名换成能直接给使用者看的中文。
+  autoApprovalSettings: {
+    title: '自动批准（开关集合）',
+    summary:
+      '自动批准的总容器：真正起作用的是下面 9 个 action 子项与「完成通知」。enabled / maxRequests / favorites 是遗留字段（恒为 true / 功能已移除），⛔ 不要按它们判断行为。',
+    whenOff: '容器本身没有「关掉」这个动作——要收紧权限，就逐个关掉下面的 action 子项。',
+  },
+  'autoApprovalSettings.actions.readFiles': {
+    title: '自动批准：读取工作区文件',
+    summary: '自动同意读取工作区内的文件与目录列表（列目录、读文件都算）。',
+    whenOff: '每次读工作区内的文件都要点一次确认。',
+  },
+  'autoApprovalSettings.actions.readFilesExternally': {
+    title: '自动批准：读取工作区外文件',
+    summary: '自动同意读取工作区之外的文件（例如工程引用了工作区外的共享库）。',
+    whenOff: '读工作区外的文件要人工确认（默认就是关的）。',
+  },
+  'autoApprovalSettings.actions.editFiles': {
+    title: '自动批准：修改工作区文件',
+    summary: '自动同意在工作区内写文件、替换内容，不再先弹 diff 确认。',
+    whenOff: '每次落盘改动都要先看 diff 再点确认（默认关）。',
+    related: ['自动批准：修改工作区外文件'],
+  },
+  'autoApprovalSettings.actions.editFilesExternally': {
+    title: '自动批准：修改工作区外文件',
+    summary: '自动同意写入工作区之外的文件。',
+    whenOff: '改工作区外的文件必须人工确认（默认关，建议保持）。',
+  },
+  'autoApprovalSettings.actions.executeSafeCommands': {
+    title: '自动批准：执行安全命令',
+    summary: '自动同意执行被判为「安全」的终端命令（只读类，如 ls / cat / grep）。',
+    whenOff: '所有终端命令都要人工确认。',
+  },
+  'autoApprovalSettings.actions.executeAllCommands': {
+    title: '自动批准：执行所有命令',
+    summary: '自动同意执行任意终端命令，不再区分安全与否。',
+    whenOff: '只有安全命令可自动执行，其余要人工确认（默认关，这是风险最高的一项）。',
+    related: ['YOLO 模式'],
+  },
+  'autoApprovalSettings.actions.useBrowser': {
+    title: '自动批准：浏览器操作',
+    summary: '自动同意浏览器类工具（打开页面、点击、截图等）。',
+    whenOff: '浏览器操作要人工确认（默认关）。',
+  },
+  'autoApprovalSettings.actions.useMcp': {
+    title: '自动批准：MCP 工具',
+    summary: '自动同意调用已配置的 MCP 服务器工具。',
+    whenOff: '每次调 MCP 工具都要人工确认。',
+  },
+  'autoApprovalSettings.actions.autoApproveByIdentity': {
+    title: '自动批准：按身份放行文件修改',
+    summary: 'era harness 自有开关：落在「当前身份可写范围内」的文件修改自动同意，跨范围的仍需人工确认。',
+    whenOff: '不启用按身份放行；文件修改只按「修改工作区文件 / 修改工作区外文件」两个粒度判断（默认关）。',
+    related: ['自动批准：修改工作区文件'],
+  },
+  'autoApprovalSettings.enableNotifications': {
+    title: '自动批准：完成与审批通知',
+    summary: '自动批准动作发生或任务完成时弹系统通知。',
+    whenOff: '不弹通知，只能从界面看结果（默认关）。',
+  },
+
   // ── erabasic（VS Code 配置项）───────────────────────────────────────
   'eraHarness.erabasic.autoTakeover': {
     title: 'erabasic 自动接管',

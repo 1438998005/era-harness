@@ -174,6 +174,22 @@ test('listSettingSummaries：分组有序且条目齐全', () => {
   }
 });
 
+test('自动批准：收录的是活着的开关，不是遗留字段', () => {
+  const group = SETTINGS_CATALOG.filter((record) => record.category === 'auto-approve');
+  assert.ok(group.length >= 10, `自动批准只收了 ${group.length} 项`);
+  const keys = new Set(group.map((record) => record.key));
+  assert.ok(keys.has('autoApprovalSettings.actions.readFiles'));
+  assert.ok(keys.has('autoApprovalSettings.enableNotifications'));
+  // `enabled` / `maxRequests` / `favorites` 在代码里标了 Legacy field：
+  // 恒为 true / 功能已移除。把它们当开关讲就是给错知识。
+  for (const legacy of ['version', 'enabled', 'favorites', 'maxRequests']) {
+    assert.ok(!keys.has(`autoApprovalSettings.${legacy}`), `遗留字段 ${legacy} 不该被当成开关`);
+  }
+  const container = findSetting(SETTINGS_CATALOG, 'autoApprovalSettings');
+  assert.ok(container, '容器本身应该可查（不然「自动批准怎么配」无从回答）');
+  assert.match(container.summary, /遗留字段/);
+});
+
 test('formatSettingHits / formatUncovered：空命中与未收录都给明确说法', () => {
   assert.match(formatSettingHits([], '检查点'), /未命中/);
   const [key, reason] = Object.entries(UNCOVERED_SETTINGS)[0]!;

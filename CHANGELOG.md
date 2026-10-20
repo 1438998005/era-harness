@@ -13,12 +13,15 @@
 - **`setting_help` 工具（扩展原生）**：查**本插件自己的**设置项——有什么用、默认值、取值范围、
   关掉会怎样、与哪些设置联动。参数 `key`（支持只写后缀）/ `query`（关键词）/ 都不给则列分组目录，
   纯离线。与 `era_knowledge` 分工明确：那边讲 EraBasic 工程侧纪律，这边讲插件自身。
-- **内置设置目录**（`packages/era-harness-core/src/settings/`）：构建时从四处抽取后生成 TS 常量——
+- **内置设置目录**（`packages/era-harness-core/src/settings/`）：构建时从五个源抽取后生成 TS 常量——
   `FeatureSettingsSection.tsx` 的 15 个 `FeatureToggle`、`locales/zh-CN/settings.json` 的中文文案、
-  `state-keys.ts` 的默认值、`package.json` 的 `contributes.configuration`（当前 1 项）。
+  `state-keys.ts` 的默认值、`package.json` 的 `contributes.configuration`（1 项）、
+  `AutoApprovalSettings.ts` 的 9 个 action 子开关 ＋ 通知开关（11 项）。共 27 项。
   生成物入库（`data/*.generated.ts`），clone 后不装依赖也能构建。
-- **手写补充层**（`data/overrides.ts`）：15 项「关闭后会怎样」+ 与它们联动的设置，
+- **手写补充层**（`data/overrides.ts`）：27 项「关闭后会怎样」＋ 与它们联动的设置，
   以及 22 项**明确不收录**的设置及理由（⛔ 不装作不知道，也不凭印象编）。
+  ⚠️ 自动批准只收**活着的**开关：`enabled` / `maxRequests` / `favorites` 在代码里已标 Legacy field
+  （恒为 true / 功能已移除），把它们当用户开关讲就是给错知识，因此刻意不收录并在容器条目里写明。
 - **MCP 侧同名工具** `setting_help`：独立进程／其他宿主不必装扩展也能查。
 - **三道新验收闸门**（`npm run gate` 共八道）：
   - 设置目录完整性：`UpdateSettingsRequest` 的 37 个字段必须 ∈ 目录 ∪ 未收录清单（当前 37/37 = 100%）；
@@ -32,7 +35,7 @@
 
 ### 验证
 
-- 核心库 `npm test`：125 例 / 124 过 / 1 跳过（新增 21 例设置目录用例）
+- 核心库 `npm test`：126 例 / 125 过 / 1 跳过（新增 22 例设置目录用例）
 - 插件回归：`test/update` 240 / 240，`test/free` 24 / 24
 - 双方 `tsc --noEmit`：0 错；`npm run gate`：八道全绿
 
