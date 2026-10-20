@@ -95,6 +95,9 @@ protoc.zip
 SUBTRACTION-PLAN.md
 
 # era harness 分发清洁：开发/上游遗留文件不进 vsix
+# packages/era-harness-core 是内置核心库的**源码**，编译时被 esbuild 内联进 dist，
+# 运行时不需要它（`@eraharness` 别名只在构建期生效），因此整个目录不进包。
+packages/**
 # 这些只在本地构建期使用（vsce prepublish 先从文件系统跑，再按本清单过滤进包）
 CLAUDE.md
 changelog.md

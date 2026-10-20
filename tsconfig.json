@@ -34,7 +34,7 @@
 				"./src/core/*"
 			],
 			"@eraharness/*": [
-				"../era harness/src/*"
+				"./packages/era-harness-core/src/*"
 			],
 			"@generated/*": [
 				"./src/generated/*"

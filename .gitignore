@@ -38,6 +38,10 @@ coverage-unit
 src/generated/
 src/shared/proto/
 webview-ui/src/services/grpc-client.ts
+
+## 内置核心库（packages/era-harness-core）##
+# node_modules / dist 已被上面的全局规则覆盖，这里只补它独有的缓存目录
+packages/era-harness-core/.cache/
 *.tsbuildinfo
 
 # E2E Tests

@@ -4,7 +4,7 @@
 
 这不是又一个通用编程助手。它把日式脚本工程里最容易出事的那几件事——**编码、日志、指令语义、加载验证、改动边界**——做成插件自己的一等约束，而不是指望模型「注意一下」。每一步写盘都先出 diff，你点了才落盘。
 
-配套的核心库 `era-harness-core` 负责日志解析、工程画像与编码安全读取，零运行时依赖。
+配套的核心库位于 `packages/era-harness-core/`（日志解析、工程画像、编码安全读取、指令数据），零运行时依赖；它在**构建期**被 esbuild 内联进扩展产物，因此不进入分发包。
 
 ---
 
@@ -58,7 +58,7 @@ era harness 针对每一条都给了具体机制，而不是提示词劝告。
 本插件**不进入任何在线分发渠道**，只做本地 sideload：
 
 ```bash
-code --install-extension era-harness-3.87.0.vsix
+code --install-extension era-harness-3.87.1.vsix
 ```
 
 或在编辑器里 `Ctrl+Shift+P` → `Extensions: Install from VSIX...`。装完重载窗口。
@@ -82,19 +82,25 @@ code --install-extension era-harness-3.87.0.vsix
 ## 目录
 
 ```
-src/           扩展宿主侧（TypeScript）
-webview-ui/    侧栏界面（React + Vite）
-assets/icons/  图标
-scripts/       构建、proto 生成、图标生成
+src/                          扩展宿主侧（TypeScript）
+packages/era-harness-core/    核心库：日志解析 / 工程画像 / 编码安全读取 / 指令数据
+webview-ui/                   侧栏界面（React + Vite）
+assets/icons/                 图标
+scripts/                      构建、proto 生成、图标生成
 ```
 
 ## 构建
 
 ```bash
-npm install
-npm run protos      # 生成 proto 客户端
-npm run package     # 类型检查 + webview 构建 + lint + 打包 dist
+npm install                                 # 插件依赖
+npm run protos                              # 生成 proto 客户端
+npm run package                             # 类型检查 + webview 构建 + lint + 打包 dist
 npx vsce package --no-dependencies --allow-missing-repository
+
+# 只跑核心库测试时需要它自己的依赖
+cd packages/era-harness-core
+npm install
+npm test
 ```
 
 ## 免责声明

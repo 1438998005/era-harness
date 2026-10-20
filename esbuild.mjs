@@ -20,7 +20,8 @@ const aliasResolverPlugin = {
 		const aliases = {
 			"@": path.resolve(__dirname, "src"),
 			"@core": path.resolve(__dirname, "src/core"),
-			"@eraharness": path.resolve(__dirname, "..", "era harness", "src"),
+			// 核心库跟着仓库走（packages/era-harness-core），不再引用仓库外的同级目录
+			"@eraharness": path.resolve(__dirname, "packages", "era-harness-core", "src"),
 			"@integrations": path.resolve(__dirname, "src/integrations"),
 			"@services": path.resolve(__dirname, "src/services"),
 			"@shared": path.resolve(__dirname, "src/shared"),

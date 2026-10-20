@@ -1,0 +1,28 @@
+{
+  "name": "era-harness-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "era harness 核心库：Emuera 日志解析、诊断分类（Phase 0）、编码安全读取与 MCP server（Phase 1）",
+  "license": "Apache-2.0",
+  "bin": {
+    "era-harness-mcp": "dist/src/mcp/server.js"
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/parser.test.ts test/profile.test.ts test/encoding.test.ts test/mcp-guard.test.ts test/reference.test.ts",
+    "analyze": "tsx scripts/analyze-log.ts",
+    "profile": "tsx scripts/profile-project.ts",
+    "build:reference": "tsx scripts/build-reference.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1"
+  }
+}
