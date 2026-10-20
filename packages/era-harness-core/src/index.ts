@@ -53,6 +53,31 @@ export { parseAlsEntries, parseCsvEntries } from './profile/csv.js';
 export { parseDimFile } from './profile/dim.js';
 export { detectEncoding, sampleErbEncodings, scanErbTree } from './profile/scan.js';
 export { detectBom, decodeToUtf8, readTextFile } from './encoding/encoding.js';
+export {
+  applyEol,
+  countBom,
+  countEol,
+  detectEol,
+  formatWriteTarget,
+  formatWriteVerification,
+  inspectFileBytes,
+  planSafeWrite,
+  verifyWrite,
+  writeTargetMatches,
+} from './encoding/write.js';
+export type {
+  EolCounts,
+  EolKind,
+  FileEncodingFacts,
+  NewFileHints,
+  WriteEncoding,
+  WriteEol,
+  WriteIssue,
+  WriteIssueCode,
+  WritePlan,
+  WriteTarget,
+  WriteVerification,
+} from './encoding/write.js';
 export type {
   DiagnosticKind,
   EngineInfo,
