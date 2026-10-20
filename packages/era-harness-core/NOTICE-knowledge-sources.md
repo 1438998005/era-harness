@@ -12,6 +12,7 @@
 | `project-structure-discipline` | `knowledge/eratw/project-structure.md`（＋ `variable-slot-allocation.md` / `clothes-system.md`「死规矩 2 现语义」段 / `qol-system.md` NOW_VERSION 铁律） | 2026-10-21 |
 | `main-flow-pipeline` | `knowledge/eratw/game-flow-command-pipeline.md`（引擎侧 TRAIN 循环：`knowledge/erabasic/event-functions.md` §4） | 2026-10-21 |
 | `obj-qol-conventions` | `knowledge/eratw/obj-system.md`（＋ `clothes-system.md`「死规矩 2 现语义」段 / `identifier-tag-system/` 域） | 2026-10-21 |
+| `version-up-and-save-migration` | `knowledge/eratw/kojo-script-index-system.md`（「版本更新时的主动切换与自愈链（UPDATE_MAIN）」＋「剧本增删对存档的影响（迁移判据）」两段；＋ `newgame-plus-system.md`） | 2026-10-21 |
 
 shared-trae 是 Emuera 集群的私有枢纽仓（`$EMUERA_WS/emuera/shared-trae`）。
 **内嵌副本是快照，正本在 shared-trae**；正本变更（commit/日期变化）时按下方流程同步。
@@ -23,6 +24,23 @@ shared-trae 是 Emuera 集群的私有枢纽仓（`$EMUERA_WS/emuera/shared-trae
   或带路径/行号的工程状态——那些留在 shared-trae 正本，不随 vsix 分发。
 - 与指令数据（`src/reference/data/`，CC BY-NC 4.0，见 `NOTICE-emuera-sk-doc.md`）分开管理：
   两者许可不同，不要混放。
+
+## 候选池（T1.2 持续补充用）
+
+> 背景：T1.2 是**持续机制**，但此前没有候选清单，每轮都要重新调研一遍才决定补什么。
+> 每条候选必须写清三件事——**正本在不在 / 面多大 / 会不会很快过期**；裁定后挪进上面的来源表。
+
+| 候选 | 正本 | 面 | 稳定性 | 裁定 |
+|---|---|---|---|---|
+| ~~`version-up-and-save-migration`~~ | `kojo-script-index-system.md` 两段 | 小（8 铁律） | 稳 | ✅ 已落地（2026-10-21） |
+| `portrait-slot-conventions` | 21 个 `portrait-*` 条目 | 大（一条装不下） | ⚠️ 过渡期条目「合流后降级」 | ⏸ 暂缓至 compose-v2 合流进 develop 后重估 |
+
+**进产品的判据**（每次新增前自问）：
+① 跨整合包版本稳定（⛔ 收工程魔改现状）；② 能指回 shared-trae 正本；
+③ 与在册条目不重叠（重叠就补进已有条目，不新开）；④ 装得进一条（装不下说明该切分或暂缓）。
+
+**消费档位口径**：常驻（几乎所有 era 改动都要遵守）＝①编码 ④结构 ⑤主流程；
+其余只进检索。新条目**默认只进检索**，要常驻必须单独论证（常驻会让 era 域提示多约 10 条 / 900 字）。
 
 ## 如何更新
 

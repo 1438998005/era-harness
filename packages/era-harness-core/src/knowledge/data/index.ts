@@ -5,6 +5,7 @@ import { mainFlowPipelineEntry } from './main-flow-pipeline.js';
 import { objQolConventionsEntry } from './obj-qol-conventions.js';
 import { projectStructureDisciplineEntry } from './project-structure-discipline.js';
 import { updateMergeGatesEntry } from './update-merge-gates.js';
+import { versionUpAndSaveMigrationEntry } from './version-up-and-save-migration.js';
 
 /**
  * 内嵌知识条目总表。
@@ -19,6 +20,7 @@ export const KNOWLEDGE_ENTRIES: KnowledgeEntry[] = [
   projectStructureDisciplineEntry,
   mainFlowPipelineEntry,
   objQolConventionsEntry,
+  versionUpAndSaveMigrationEntry,
 ];
 
 /** 条目数（测试与 MCP 描述用） */

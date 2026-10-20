@@ -37,9 +37,9 @@
 
 | 命令 | 位置 | 期望 |
 |---|---|---|
-| `npm test` | `packages/era-harness-core` | 101 例＝100 过／**1 跳过**（`integration: real eratw project`，需 `ERA_PROJECT_PATH` 才跑＝正常，⛔ 当缺陷） |
+| `npm test` | `packages/era-harness-core` | 103 例＝102 过／**1 跳过**（`integration: real eratw project`，需 `ERA_PROJECT_PATH` 才跑＝正常，⛔ 当缺陷） |
 | `npx tsc --noEmit` | `packages/era-harness-core` | 0 错 |
-| `node test/update/run.mjs` | 仓根 | 209/209 |
+| `node test/update/run.mjs` | 仓根 | 229/229 |
 | `npm run compile` | 仓根 | EXIT=0（重跑 protos＋biome＋esbuild） |
 
 > 本机 shell 的 PATH 没有 node，且 `C:\Windows\System32\bash.exe` 是 WSL 存根会抢先解析 ⇒
