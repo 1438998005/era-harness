@@ -1,5 +1,17 @@
 import { formatResponse } from "@core/prompts/responses"
 import { workspaceResolver } from "@core/workspace"
+import { decodeToUtf8 } from "@eraharness/encoding/encoding"
+import {
+	applyEol,
+	type FileEncodingFacts,
+	formatWriteTarget,
+	formatWriteVerification,
+	inspectFileBytes,
+	type NewFileHints,
+	planSafeWrite,
+	verifyWrite,
+	writeTargetMatches,
+} from "@eraharness/encoding/write"
 import { createDirectoriesForFile } from "@utils/fs"
 import { getCwd } from "@utils/path"
 import * as diff from "diff"
@@ -14,8 +26,10 @@ import { detectEncoding } from "../misc/extract-text"
 import { sanitizeNotebookForLLM } from "../misc/notebook-utils"
 import { openFile } from "../misc/open-file"
 
-/** 推断新建文件 BOM 时最多采样多少个兄弟文件 */
+/** 采样兄弟文件时最多看多少个 */
 const MAX_BOM_SAMPLE_FILES = 12
+/** 采样兄弟文件 BOM 时每个文件只读开头这几个字节 */
+const SIBLING_SAMPLE_BYTES = 4096
 
 export abstract class DiffViewProvider {
 	editType?: "create" | "modify" | "delete"
@@ -29,6 +43,8 @@ export abstract class DiffViewProvider {
 	protected fileEncoding: string = "utf8"
 	/** 打开时原文件是否带 UTF-8 BOM（Emuera 靠它识别 UTF-8，丢了会读不出首行标签） */
 	protected originalHasBom = false
+	/** 打开时原文件的编码事实（BOM / 行尾 / 末尾换行），写回与写后复检都以它为基准 */
+	private originalFacts?: FileEncodingFacts
 	private streamedLines: string[] = []
 	private newContent?: string
 
@@ -52,11 +68,13 @@ export abstract class DiffViewProvider {
 			this.fileEncoding = await detectEncoding(fileBuffer)
 			this.originalHasBom =
 				fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf
+			this.originalFacts = inspectFileBytes(fileBuffer)
 			this.originalContent = iconv.decode(fileBuffer, this.fileEncoding)
 		} else {
 			this.originalContent = ""
 			this.fileEncoding = "utf8"
 			this.originalHasBom = false
+			this.originalFacts = undefined
 		}
 		// for new files, create any necessary directories and keep track of new directories to delete if the user denies the operation
 		this.createdDirs = await createDirectoriesForFile(this.absolutePath)
@@ -348,6 +366,8 @@ export abstract class DiffViewProvider {
 		userEdits: string | undefined
 		autoFormattingEdits: string | undefined
 		finalContent: string | undefined
+		/** 编码写回结论；符合判据时为 undefined */
+		encodingNote: string | undefined
 	}> {
 		// get the contents before save operation which may do auto-formatting
 		const preSaveContent = await this.getDocumentText()
@@ -358,11 +378,12 @@ export abstract class DiffViewProvider {
 				userEdits: undefined,
 				autoFormattingEdits: undefined,
 				finalContent: undefined,
+				encodingNote: undefined,
 			}
 		}
 
 		await this.saveDocument()
-		await this.preserveEncoding()
+		const encodingNote = await this.enforceWriteEncoding()
 		// get text after save in case there is any auto-formatting done by the editor
 		const postSaveContent = (await this.getDocumentText()) || ""
 
@@ -410,97 +431,145 @@ export abstract class DiffViewProvider {
 			userEdits,
 			autoFormattingEdits,
 			finalContent,
+			encodingNote,
 		}
 	}
 
 	/**
-	 * 保存后修正磁盘编码：
-	 * - 修改已有文件：原文件有 BOM 就补回 BOM（纯字节还原，不看目录名）；
-	 * - 新建文件：看**同目录同扩展名兄弟文件**的现状，而不是假设这是个什么工程。
-	 * 幂等：已经有 BOM 就什么都不做。失败只告警，不影响保存。
+	 * 保存后按判据还原磁盘形态，并写后复检。
+	 *
+	 * 判据＝内嵌知识条目 `interpreter-encoding-discipline`：
+	 * - 既有文件保持原编码、原 BOM、原行尾（⛔ CP932↔UTF-8 互转）；
+	 * - 新建 .ERB/.ERH/.CSV 一律 UTF-8 带 BOM；
+	 * - 写后复检 BOM 数量与行尾。
+	 *
+	 * 字节编码在宿主侧执行（iconv-lite），判据本身来自核心库 `@eraharness/encoding/write`。
+	 * 失败只告警，绝不阻断保存——保存已经成功了，这里只是把形态修正回来。
+	 *
+	 * @returns 人话结论；符合判据且无需说明时返回 undefined（⛔ 给模型制造噪音）
 	 */
-	private async preserveEncoding(): Promise<void> {
+	private async enforceWriteEncoding(): Promise<string | undefined> {
 		if (!this.absolutePath || this.editType === "delete") {
-			return
-		}
-
-		const shouldHaveBom =
-			this.editType === "create"
-				? await this.inferBomForNewFile(path.extname(this.absolutePath).toLowerCase())
-				: this.originalHasBom
-		if (!shouldHaveBom) {
-			return
+			return undefined
 		}
 
 		try {
-			const fileBuffer = await fs.readFile(this.absolutePath)
-			if (fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf) {
-				return
+			const before = this.originalFacts ?? null
+			const hints = before ? undefined : await this.sampleSiblingHints(path.extname(this.absolutePath).toLowerCase())
+			const plan = planSafeWrite(before, this.absolutePath, hints)
+
+			const current = await fs.readFile(this.absolutePath)
+			let degraded = false
+			if (!writeTargetMatches(inspectFileBytes(current), plan.target)) {
+				const encoded = this.encodeToTarget(decodeToUtf8(current).text, plan.target)
+				degraded = encoded.degraded
+				// 只有字节真的变了才落盘：fs.writeFile 会刷新 mtime，而 mtime 是引擎
+				// 懒加载索引判断「这个文件变没变」的依据，无谓重写会白白触发重新加载。
+				if (!encoded.buffer.equals(current)) {
+					await fs.writeFile(this.absolutePath, encoded.buffer)
+				}
 			}
-			await fs.writeFile(this.absolutePath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fileBuffer]))
+
+			const finalBytes = await fs.readFile(this.absolutePath)
+			const verification = verifyWrite(before, plan.target, finalBytes)
+			const notes: string[] = []
+			if (plan.encodingConverted || plan.eolChanged) {
+				notes.push(`已按 ${formatWriteTarget(plan.target)} 写回（${plan.reason}）`)
+			}
+			if (degraded) {
+				notes.push(
+					`注意：新内容里有 CP932 表示不了的字符（简体中文等），写不回原编码；` +
+						`已降级为 UTF-8 带 BOM —— 原文件是 CP932，这次改动等于把它转成了 UTF-8。`,
+				)
+			}
+			const problemText = formatWriteVerification(verification)
+			if (problemText) {
+				notes.push(problemText)
+			}
+			return notes.length > 0 ? notes.join("\n\n") : undefined
 		} catch (error) {
-			Logger.warn("Failed to restore UTF-8 BOM after save:", error)
+			Logger.warn("Failed to enforce write encoding/line endings:", error)
+			return undefined
 		}
 	}
 
 	/**
-	 * 新建文件该不该带 BOM：按同目录同扩展名兄弟文件的实际情况投票。
-	 *
-	 * 这样在「全员带 BOM 的整合包」和「纯 UTF-8 无 BOM 的小工程」里都能跟上现状，
-	 * 也不会把 BOM 强加给一个普通项目的 CSV。
-	 * 没有可参照的兄弟文件时：脚本保守带 BOM（Emuera 靠它判断编码），其它类型不加。
+	 * 按目标形态把文本变成字节。
+	 * CP932 目标下若新内容含 CP932 表示不了的字符（简体中文等），宁可降级 UTF-8 带 BOM
+	 * 也不能写出满篇 '?' —— 降级会被 `verifyWrite` 报成 encoding-converted 让人看见。
 	 */
-	private async inferBomForNewFile(extension: string): Promise<boolean> {
-		const isScript = extension === ".erb" || extension === ".erh"
-		const isData = extension === ".csv"
-		if (!isScript && !isData) {
-			return false
+	private encodeToTarget(
+		text: string,
+		target: { encoding: "utf8" | "cp932"; bom: "none" | "utf8"; eol: "lf" | "crlf" },
+	): { buffer: Buffer; degraded: boolean } {
+		const withEol = applyEol(text, target.eol)
+		let body: Buffer
+		let bom = target.bom
+		if (target.encoding === "cp932") {
+			const encoded = iconv.encode(withEol, "cp932")
+			if (iconv.decode(encoded, "cp932") === withEol) {
+				body = encoded
+			} else {
+				body = Buffer.from(withEol, "utf8")
+				// 降级时补 BOM：无 BOM 的 UTF-8 一旦含坏字节会被引擎静默按 CP932 解（enc-07）
+				bom = "utf8"
+			}
+		} else {
+			body = Buffer.from(withEol, "utf8")
 		}
+		const buffer = bom === "utf8" ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), body]) : body
+		return { buffer, degraded: target.encoding === "cp932" && bom !== target.bom }
+	}
+
+	/**
+	 * 新建文件该写成什么样：采样**同目录同扩展名兄弟文件**的现状，而不是假设这是个什么工程。
+	 * 这样在「全员带 BOM 的整合包」和「纯 UTF-8 无 BOM 的小工程」里都能跟上现状。
+	 */
+	private async sampleSiblingHints(extension: string): Promise<NewFileHints | undefined> {
 		if (!this.absolutePath) {
-			return isScript
+			return undefined
 		}
 
-		const dir = path.dirname(this.absolutePath)
 		let siblings: string[] = []
 		try {
-			const entries = await fs.readdir(dir, { withFileTypes: true })
+			const entries = await fs.readdir(path.dirname(this.absolutePath), { withFileTypes: true })
 			siblings = entries
 				.filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === extension)
-				.map((entry) => path.join(dir, entry.name))
+				.map((entry) => path.join(path.dirname(this.absolutePath!), entry.name))
 				.slice(0, MAX_BOM_SAMPLE_FILES)
 		} catch (error) {
-			Logger.warn("Failed to inspect sibling files for BOM inference:", error)
-			return isScript
-		}
-
-		if (siblings.length === 0) {
-			return isScript
+			Logger.warn("Failed to inspect sibling files for encoding hints:", error)
+			return undefined
 		}
 
 		let withBom = 0
+		let crlf = 0
+		let lf = 0
 		let sampled = 0
 		for (const sibling of siblings) {
 			try {
-				const handle = await fs.open(sibling, "r")
-				try {
-					const buffer = Buffer.alloc(3)
-					const { bytesRead } = await handle.read(buffer, 0, 3, 0)
-					sampled++
-					if (bytesRead === 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
-						withBom++
-					}
-				} finally {
-					await handle.close()
+				const buffer = await fs.readFile(sibling)
+				sampled++
+				if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+					withBom++
 				}
+				// 只看开头一段：行尾形态在前几 KB 就定下来了，没必要读完整份大文件
+				const head = buffer.subarray(0, Math.min(buffer.length, SIBLING_SAMPLE_BYTES))
+				const eol = inspectFileBytes(head).eol
+				if (eol === "crlf") crlf++
+				else if (eol === "lf") lf++
 			} catch {
 				// 读不到的兄弟文件不计入样本
 			}
 		}
 
 		if (sampled === 0) {
-			return isScript
+			return undefined
 		}
-		return withBom * 2 >= sampled
+		return {
+			siblingBomRatio: withBom / sampled,
+			siblingEol: crlf === 0 && lf === 0 ? null : crlf >= lf ? "crlf" : "lf",
+		}
 	}
 
 	async revertChanges(): Promise<void> {
@@ -597,6 +666,7 @@ export abstract class DiffViewProvider {
 		this.originalContent = undefined
 		this.fileEncoding = "utf8"
 		this.originalHasBom = false
+		this.originalFacts = undefined
 		this.documentWasOpen = false
 
 		this.streamedLines = []

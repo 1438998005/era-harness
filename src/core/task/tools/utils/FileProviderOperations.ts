@@ -6,6 +6,8 @@ export interface FileOpsResult {
 	newProblemsMessage?: string
 	userEdits?: string
 	autoFormattingEdits?: string
+	/** 编码写回结论；符合判据时为 undefined */
+	encodingNote?: string
 }
 
 /**

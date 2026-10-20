@@ -3,6 +3,7 @@ import path from "node:path"
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import type { ToolUse } from "@core/assistant-message"
 import { constructNewFileContent, getLineNumberFromCharIndex } from "@core/assistant-message/diff"
+import { appendEncodingNote } from "@core/era/encoding-write"
 import { appendErbStructureWarning, isErbLikePath } from "@core/era/erb-check"
 import { formatResponse } from "@core/prompts/responses"
 import { getWorkspaceBasename, resolveWorkspacePath } from "@core/workspace"
@@ -398,7 +399,7 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			config.services.fileContextTracker.markFileAsEditedByCline(relPath)
 
 			// Save the changes and get the result
-			const { newProblemsMessage, userEdits, autoFormattingEdits, finalContent } =
+			const { newProblemsMessage, userEdits, autoFormattingEdits, finalContent, encodingNote } =
 				await config.services.diffViewProvider.saveChanges()
 
 			// Reset consecutive mistake counter on successful file operation
@@ -440,12 +441,15 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 					modelId,
 				})
 
-				return formatResponse.fileEditWithUserChanges(
-					relPath,
-					userEdits,
-					autoFormattingEdits,
-					finalContent,
-					newProblemsMessage,
+				return appendEncodingNote(
+					formatResponse.fileEditWithUserChanges(
+						relPath,
+						userEdits,
+						autoFormattingEdits,
+						finalContent,
+						newProblemsMessage,
+					),
+					encodingNote,
 				)
 			}
 			const editResult = formatResponse.fileEditWithoutUserChanges(
@@ -454,9 +458,10 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 				finalContent,
 				newProblemsMessage,
 			)
+			const withEncoding = appendEncodingNote(editResult, encodingNote)
 			return isErbLikePath(relPath)
-				? appendErbStructureWarning(editResult, originalContentBeforeEdit, finalContent ?? newContent)
-				: editResult
+				? appendErbStructureWarning(withEncoding, originalContentBeforeEdit, finalContent ?? newContent)
+				: withEncoding
 		} catch (error) {
 			// Reset diff view on error
 			await config.services.diffViewProvider.revertChanges()
