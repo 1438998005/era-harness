@@ -36,6 +36,7 @@ import {
 	DEFAULT_BRANCH,
 	DEFAULT_PROJECT_URL,
 	type GitLabSource,
+	parseNowVersion,
 	parseProjectUrl,
 	type RepoHead,
 	snapshotFromArchiveFile,
@@ -43,6 +44,7 @@ import {
 } from "./source"
 import { extractTar } from "./tarball"
 import type { ConflictGroup, RelPath, UpdatePlan, UpdateState, UpstreamSnapshot } from "./types"
+import type { NowVersions } from "./version"
 
 export type UpdateSourceInput =
 	| { kind: "gitlab"; projectUrl?: string; branch?: string; token?: string }
@@ -257,6 +259,30 @@ async function collectGateContents(
 	return { contents, skipped }
 }
 
+/**
+ * 上游的 `NOW_VERSION`。gitlab 源在 head 里；本地文件夹/压缩包没有 head，
+ * 就按同一判据从快照内容里读（压缩包只解 `DIM.ERH` 一个文件，不整包展开）。
+ * 读不到返回 null ⇒ 存档迁移判据如实不报（⛔ 把「读不到」当成「没 bump」）。
+ */
+async function readUpstreamNowVersion(prepared: Prepared): Promise<string | null> {
+	if (prepared.head?.nowVersion) {
+		return prepared.head.nowVersion
+	}
+	if (prepared.dirPath) {
+		return readNowVersion(prepared.dirPath)
+	}
+	if (prepared.archivePath) {
+		const rel = [...prepared.snapshot.files.keys()].find((path) => /(^|\/)DIM\.ERH$/i.test(path))
+		if (!rel) {
+			return null
+		}
+		const bytes = await readArchiveEntries(prepared.archivePath, new Set([rel])).catch(() => null)
+		const chunk = bytes?.get(rel)
+		return chunk ? parseNowVersion(chunk) : null
+	}
+	return null
+}
+
 /** 合并成功的冲突条目提升为 write，其余保持 conflict（= 磁盘上什么都不动） */
 function promoteMerged(plan: UpdatePlan, merged: Set<RelPath>): UpdatePlan {
 	if (merged.size === 0) {
@@ -323,6 +349,11 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		theirs: prepared.snapshot,
 	})
 	const gateInput = await collectGateContents(opts, prepared, draft)
+	// 存档迁移时机判据的输入：两边 NOW_VERSION（各读一个 DIM.ERH，便宜）
+	const versions: NowVersions = {
+		local: await readNowVersion(opts.root),
+		upstream: await readUpstreamNowVersion(prepared),
+	}
 	// G4 全树标签索引：有改动脚本才需要（没有就没法删函数）；labelScan: false 可关
 	let labelIndex: LabelIndex | undefined
 	if (gateInput.contents && opts.labelScan !== false) {
@@ -338,12 +369,14 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		gateContents: gateInput.contents,
 		gateSkipped: gateInput.skipped,
 		labelIndex,
+		versions,
 	})
 
 	const gateNote = plan.gateFindings && plan.gateFindings.length > 0 ? `，闸门警告 ${plan.gateFindings.length} 条` : ""
+	const migrationNote = plan.versionNotice ? "，旧存档不会自动迁移" : ""
 	emit(opts, {
 		stage: "plan",
-		message: `${plan.summary.write} 改 / ${plan.summary.delete} 删 / ${plan.summary.conflict} 待定${gateNote}`,
+		message: `${plan.summary.write} 改 / ${plan.summary.delete} 删 / ${plan.summary.conflict} 待定${gateNote}${migrationNote}`,
 	})
 
 	if (plan.summary.write + plan.summary.delete + plan.summary.conflict === 0) {

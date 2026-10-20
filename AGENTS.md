@@ -35,15 +35,28 @@
 
 ## 2. 验收闸门（改完必跑，数字对不上就是回归）
 
+**一条命令现算，⛔ 在文档里手抄用例数**（2026-10-21 实证：209 与 229 差了 20 例没人发现）：
+
+```
+npm run gate          # 三条快闸门 ＋ 用例登记核对
+npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
+```
+
 | 命令 | 位置 | 期望 |
 |---|---|---|
-| `npm test` | `packages/era-harness-core` | 103 例＝102 过／**1 跳过**（`integration: real eratw project`，需 `ERA_PROJECT_PATH` 才跑＝正常，⛔ 当缺陷） |
-| `npx tsc --noEmit` | `packages/era-harness-core` | 0 错 |
-| `node test/update/run.mjs` | 仓根 | 229/229 |
+| `npm run gate` | 仓根 | 全绿、退出码 0（数字由脚本现算，含「漏登记」检查） |
+| `npm test` | `packages/era-harness-core` | 全过；**跳过 1 例**是 `integration: real eratw project`，需 `ERA_PROJECT_PATH` 才跑＝正常，⛔ 当缺陷 |
+| `npm run typecheck` | `packages/era-harness-core` | 0 错 |
+| `node test/update/run.mjs` | 仓根 | 全过 |
 | `npm run compile` | 仓根 | EXIT=0（重跑 protos＋biome＋esbuild） |
 
+> ⚠️ 两处清单都是**显式文件列表不是 glob** ⇒ 新增用例必须登记（核心库 `package.json` 的 `test`、
+> `test/update/run.mjs` 的 `SPECS`），否则新用例根本不跑**而且照样全绿**。`npm run gate` 的第 0 道就是查这个。
+>
 > 本机 shell 的 PATH 没有 node，且 `C:\Windows\System32\bash.exe` 是 WSL 存根会抢先解析 ⇒
-> 每条命令前先 `export PATH="<node 所在目录>;D:\Program Files\Git\bin;$PATH"`。⛔ 把这个绝对路径写进仓内任何文件。
+> PowerShell 前置 `$env:Path = "<node 所在目录>;D:\Program Files\Git\bin;$env:Path"`；
+> **Git Bash 必须用冒号分隔** `export PATH="<node 目录>:/d/Program Files/Git/bin:$PATH"`（分号会被当成一个目录名）。
+> ⛔ 把这个绝对路径写进仓内任何文件。
 > protoc 走本地脚手架 `era-harness/tmp-protoc/bin/protoc.exe`（官方 v29.3 release，被 gitignore 排除）；
 > `grpc-tools` 自带的是调试构建、缺调试运行时，⛔ 用。
 
@@ -53,8 +66,9 @@
 
 | 动的地方 | 必须跟着动 |
 |---|---|
-| `src/knowledge/data/<新条目>.ts` | `data/index.ts`（import＋数组登记＋必要时 `KNOWLEDGE_SNAPSHOT_AT`）→ `test/knowledge.test.ts` 条目数期望 → `NOTICE-knowledge-sources.md` 来源行；要进提示层再加 `era_domain.ts` 的 `injectedKnowledgeIds`。**条目目录一律从 `KNOWLEDGE_ENTRIES` 现算**，⛔ 手写清单 |
-| `src/core/update/` 任一闸门 | `plan.ts` 接线 → `describe.ts` 人话文案 → `test/update/*.spec`；新 `UpdateStage` 阶段要补 `src/hosts/vscode/updateGame.ts` 的 exhaustive switch（漏了编译直接报错，别绕过） |
+| `src/knowledge/data/<新条目>.ts` | `knowledge-candidates.json` 立候选（面／稳定性／裁定）→ `data/index.ts`（import＋数组登记＋必要时 `KNOWLEDGE_SNAPSHOT_AT`）→ `test/knowledge.test.ts` 条目数期望＋**检索排序锁** → `NOTICE-knowledge-sources.md` 来源行；要进提示层再加 `era_domain.ts` 的 `injectedKnowledgeIds` **并同步改候选池 `consumption.resident`**（两处不一致由 `npm run gate` 的候选池核对报出）。**条目目录一律从 `KNOWLEDGE_ENTRIES` 现算**，⛔ 手写清单 |
+| `src/core/update/` 任一闸门 | `plan.ts` 接线 → `describe.ts` 人话文案 → `test/update/*.spec`（**新 spec 必须登记进 `run.mjs` 的 SPECS**）；新 `UpdateStage` 阶段要补 `src/hosts/vscode/updateGame.ts` 的 exhaustive switch（漏了编译直接报错，别绕过）。⚠️ `describePlan` 的确认弹窗只渲染 `lines`，只挂 `text`/`gateNotes` 用户看不见 |
+| 更新流程的新判据（非 G1–G8） | 放 `src/core/update/version.ts` 一类的**纯函数模块**（无 IO、读不到就如实不报），由 `plan.ts` 装配进 `UpdatePlan`；IO（读 `DIM.ERH` 等）留在 `service.ts` |
 | 新增扩展原生工具（`era_knowledge` 是样板） | 七处成套：`src/shared/tools.ts` 枚举＋`READ_ONLY_TOOLS`；`system-prompt/tools/<名>.ts` spec；`tools/index.ts` export；`tools/init.ts` spread；**12 个** `variants/*/config.ts` 放行；`task/tools/handlers/<驼峰>ToolHandler.ts`；`ToolExecutorCoordinator.ts` 注册。参数名若不在 `src/core/assistant-message/index.ts` 的 `toolParamNames` 里 ⇒ 加它（⛔ 复用泛化的 `id`） |
 | 核心库任何导出 | `packages/era-harness-core/src/index.ts` barrel＋`npm test`＋根 `npm run compile` |
 | 新增核心库**测试文件** | ⚠️ `package.json` 的 `test` 脚本是**显式文件清单不是 glob** ⇒ 不登记则用例根本不会被跑 |

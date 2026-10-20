@@ -108,15 +108,42 @@ export function describePlan(plan: UpdatePlan, opts: DescribePlanOptions = {}): 
 		lines.push(`你自己加的 ${mineOnly} 个文件（社区版里没有）不会被动。`)
 	}
 
+	const migrationNotes = describeVersionNotes(plan)
+	for (const note of migrationNotes) {
+		lines.push(note)
+	}
+
 	lines.push("更新前会自动备份，随时可以撤销。")
 
 	const narrative: PlanNarrative = { title, lines, text: [title, ...lines].join("\n"), hasConflicts: conflicted > 0 }
 	const gateNotes = describeGateNotes(plan)
 	if (gateNotes.length > 0) {
 		narrative.gateNotes = gateNotes
+		// 确认弹窗只渲染 lines（updateGame.ts 用 lines.join），只挂 text 等于用户看不见
+		lines.push(...gateNotes)
 		narrative.text = `${narrative.text}\n\n${gateNotes.join("\n")}`
 	}
 	return narrative
+}
+
+/**
+ * 存档迁移时机 → 人话（判据在 `version.ts`）。
+ * 判不了时返回空数组，⛔ 编一条吓人的话；有删除才多点方向性那句。
+ */
+function describeVersionNotes(plan: UpdatePlan): string[] {
+	const notice = plan.versionNotice
+	if (!notice) {
+		return []
+	}
+	const notes = [
+		`注意：社区这版和你现在都是 ${notice.version}，但这次要动 ${notice.saveAffectingFiles} 个剧本/数据文件。`,
+		"版本号没变，游戏读旧存档时不会自动迁移——可能有些角色从此不出台词，而且不报错。",
+	]
+	if (notice.saveAffectingDeletes > 0) {
+		notes.push(`其中有 ${notice.saveAffectingDeletes} 个是要删掉的剧本/数据——删掉默认那份没有自愈，老存档会一直不出台词。`)
+	}
+	notes.push("更新后把 DIM.ERH 里的 NOW_VERSION 抬一级，或让旧存档手动跑一次 UPDATE，迁移才会跑。")
+	return notes
 }
 
 /** 闸门警告 → 人话（最多列 10 条，防弹窗被淹没） */
