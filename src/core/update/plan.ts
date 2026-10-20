@@ -11,7 +11,7 @@
  * 闸门判据（G2/G3/G6/G7）正本在 `knowledge/eratw/import-merge-gates.md`。
  */
 
-import { collectChangedLabels, extractDefinedLabels, runContentGates } from "./gates"
+import { collectChangedLabels, extractDefinedLabels, type GateInputs, runContentGates } from "./gates"
 import { findOrphanedCallers, type LabelIndex } from "./labels"
 import { isProtectedPath } from "./manifest"
 import type {
@@ -66,6 +66,12 @@ export interface BuildPlanInput {
 	gateContents?: Map<RelPath, { local: string | null; theirs: string | null }>
 	/** 因超出扫描上限而未进 gateContents 的脚本文件数 */
 	gateSkipped?: number
+	/**
+	 * 闸门的可选输入。没给的那一门**如实不跑**（⛔ 不拿通用串兜底＝制造误报）：
+	 * - bugPatterns：G1 的既知 bug 串清单（工程自己的历史，模块内置不了）
+	 * - fsynKeys：G5 的 FSYN 键表；literalKeys：G8 的既有键集（G8 的字形撞名不需要键表）
+	 */
+	gateInputs?: GateInputs
 	/**
 	 * G4 全树标签索引（`manifest.ts#scanLabels` 的产物）。与 gateContents 同时传
 	 * 才会跑 G4（被删标签的改动集外调用方检索）。
@@ -253,7 +259,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		)
 		gateFindings = []
 		for (const [rel, texts] of input.gateContents) {
-			gateFindings.push(...runContentGates(rel, texts, changedLabels))
+			gateFindings.push(...runContentGates(rel, texts, changedLabels, input.gateInputs))
 		}
 
 		// G4：被本次更新删掉的全局标签，改动集之外还有没有调用方（需全树索引）

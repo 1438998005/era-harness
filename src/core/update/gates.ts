@@ -9,9 +9,11 @@
  * - **保守不误报**：拿不准的一律不报。闸门是更新计划里的**警告**，不是硬拦截——
  *   误报会让用户对真问题脱敏（集群实证：单次作者更新曾净引入 32 处 RAND 问题，
  *   但存量 125 处不能算本次回归，所以判据必须精确）。
- * - 本模块覆盖可用机器判据实现的五门（G2/G3/G4/G6/G7；G4 的全树索引在 `labels.ts` +
- *   `manifest.ts#scanLabels`）；G1（git log -S 回归扫描）/ G5（FSYN 键回英文原文）/
- *   G8（标识符键预检）需要仓库史或键账本，留待后续批次。
+ * - 本模块直接实现 G1/G2/G3/G6/G7（G4 的全树索引在 `labels.ts` + `manifest.ts#scanLabels`；
+ *   G5/G8 的键判据在 `keys.ts`，由本模块合流）。
+ * - **需要外部输入的闸门如实不跑**：G1 要既知 bug 串清单、G5 要 FSYN 键表、G8 要既有键集
+ *   （G8 的字形撞名不需要键表，恒跑）。这些是工程自己的历史与键账本，模块内置不了——
+ *   ⛔ 编几条通用串当默认值＝制造误报，所以没喂就静默跳过，由 UI 明说"这一门没跑"。
  *
  * ERB 语法口径（来自集群取证与文档仓）：
  * - `RAND:N` 只有**单独占一行**（语句位）时才是分发骰子；写成参数（`RAND:360`）的是表达式，不参与。
@@ -19,6 +21,7 @@
  * - `RAND:N` 与 CASE 之间允许夹 `SELECTCASE RESULT`（同构造的结构行）。
  */
 
+import { runKeyGates } from "./keys"
 import type { GateFinding, RelPath } from "./types"
 
 /** 一个 RAND 块的对账结果 */
@@ -345,10 +348,96 @@ export interface GateTexts {
 }
 
 /**
+ * 既知 bug 模式（G1 回归扫描的输入）。
+ *
+ * G1 要回答的是「本地修过的东西有没有被整包覆盖冲掉」，因此必须有一个**既知 bug 串清单**
+ * ——那是工程自己的历史，模块内置不了（⛔ 编几条通用串当默认值＝制造误报）。
+ * 调用方从工程配置/知识里喂进来；没喂 ⇒ 本闸门如实不跑，由 UI 明说。
+ */
+export interface BugPattern {
+	/** 稳定 id，用于去重与报告 */
+	id: string
+	/** 匹配用的正则源（字符串，便于放进 JSON 配置） */
+	pattern: string
+	/** 命中时给人看的一句话：这个串为什么算 bug */
+	hint: string
+}
+
+/**
+ * G1：包更新回归扫描（git 无关的那半）。
+ *
+ * 判据：同一个 bug 串在**上游新版里出现、而本地旧版里没有** ⇒ 本地的修复被这次覆盖冲掉了。
+ * - 两边都有 ＝ 存量问题，**不算本次回归**（与 G2「存量不算回归」同一口径）；
+ * - 本地有、上游没有 ＝ 上游也修了，不报；
+ * - 两边都没有 ＝ 不报。
+ *
+ * 集群原版 G1 还有「git log -S 搜增删史」那半（取证是哪次提交修的），需要本地是 git 仓库；
+ * 终端用户的游戏目录通常不是 git 仓，故这里只做**不依赖仓库史**的这半，
+ * 那半留给 `service.ts` 在能拿到 git 时追加（拿不到就如实报告未跑）。
+ */
+export function regressionFindings(path: RelPath, texts: GateTexts, patterns: readonly BugPattern[]): GateFinding[] {
+	if (!texts.theirs || patterns.length === 0) {
+		return []
+	}
+	const out: GateFinding[] = []
+	for (const bug of patterns) {
+		let re: RegExp
+		try {
+			re = new RegExp(bug.pattern)
+		} catch {
+			continue // 坏正则不报——配置问题，不是内容问题
+		}
+		const inTheirs = re.test(texts.theirs)
+		if (!inTheirs) {
+			continue
+		}
+		if (texts.local && re.test(texts.local)) {
+			continue // 存量，不算本次回归
+		}
+		const line = firstMatchLine(texts.theirs, re)
+		out.push({
+			gate: "G1",
+			code: "regression-reintroduced",
+			path,
+			...(line ? { line } : {}),
+			detail: `本地已修的问题被这次更新带回来了：${bug.hint}`,
+		})
+	}
+	return out
+}
+
+function firstMatchLine(text: string, re: RegExp): number | undefined {
+	const lines = text.split(/\r\n|\r|\n/)
+	const probe = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`)
+	for (let i = 0; i < lines.length; i++) {
+		probe.lastIndex = 0
+		if (probe.test(lines[i])) {
+			return i + 1
+		}
+	}
+	return undefined
+}
+
+/** 内容闸门的额外输入（可选；没给的部分对应闸门如实不跑） */
+export interface GateInputs {
+	/** G1 的既知 bug 串清单；没给 ⇒ G1 不跑 */
+	bugPatterns?: readonly BugPattern[]
+	/** G5 的 FSYN 键表；没给 ⇒ G5 不跑 */
+	fsynKeys?: ReadonlySet<string>
+	/** G8 的既有键集；没给 ⇒ G8 的"未知键"部分不跑（字形撞名仍跑） */
+	literalKeys?: ReadonlySet<string>
+}
+
+/**
  * 跑一个文件的全部已实现闸门。
  * `changedLabels` = 改动集内所有文件定义的标签并集（用于 G3 去误报）。
  */
-export function runContentGates(path: RelPath, texts: GateTexts, changedLabels: Set<string>): GateFinding[] {
+export function runContentGates(
+	path: RelPath,
+	texts: GateTexts,
+	changedLabels: Set<string>,
+	inputs: GateInputs = {},
+): GateFinding[] {
 	const target = texts.theirs ?? texts.local
 	if (target === null) {
 		return []
@@ -358,6 +447,8 @@ export function runContentGates(path: RelPath, texts: GateTexts, changedLabels: 
 		...hphResidueFindings(path, target),
 		...eolMixedFinding(path, target),
 		...dispatchDriftFindings(path, texts.local, texts.theirs, changedLabels),
+		...regressionFindings(path, texts, inputs.bugPatterns ?? []),
+		...runKeyGates(path, target, { fsyn: inputs.fsynKeys, literal: inputs.literalKeys }),
 	]
 }
 
