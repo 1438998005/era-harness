@@ -8,11 +8,11 @@
  *   - read_erb_file     编码安全读取（UTF-8 BOM / CP932 自动探测转 UTF-8）
  *   - lookup_reference  Emuera 指令手册单条查询（在线优先，本地快照兜底）
  *   - search_reference  指令手册关键词检索（永远走内置索引，可离线）
- *   - lookup_knowledge  内嵌纪律/机制知识单条查询（编码纪律 / 合并闸门 / 口上契约）
+ *   - lookup_knowledge  内嵌纪律/机制知识单条查询（条目清单见其工具描述，从条目表现算）
  *   - search_knowledge  内嵌知识关键词检索（可离线）
  *
- * 依赖纪律见 `知识库/06-决策记录.md` D14：核心库（src/index.ts）保持零运行时依赖，
- * @modelcontextprotocol/sdk 只被本入口引用。
+ * 依赖纪律：核心库入口（`src/index.ts`）保持零运行时依赖，
+ * `@modelcontextprotocol/sdk` 只被本入口引用。
  *
  * 注意：stdio 传输下严禁向 stdout 打印（会污染 JSON-RPC 协议），调试信息走 stderr。
  */

@@ -20,7 +20,7 @@ import { gitBlobSha1, scanLocal } from "./manifest"
 import { extractTar } from "./tarball"
 import type { RelPath, UpstreamSnapshot } from "./types"
 
-/** 内置默认源（用户不需要知道它长什么样，见 知识库/13 §13.0 Z1） */
+/** 内置默认源（对用户透明：换源走 `UpdateSourceInput.projectUrl`，⛔ 改这里的常量） */
 export const DEFAULT_PROJECT_URL = "https://gitgud.io/era-games-zh/touhou/eratw-sub-modding"
 export const DEFAULT_BRANCH = "develop"
 

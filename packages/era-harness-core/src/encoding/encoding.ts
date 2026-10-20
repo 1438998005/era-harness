@@ -79,7 +79,9 @@ export function decodeToUtf8(buffer: Buffer): DecodedText {
 /**
  * 编码安全读文件：探测 → 解码 → 统一 UTF-8。
  * IO 错误（文件不存在等）照常抛错，不吞。
- * 注意：只解决**读**；harness 写文件必须按原编码还原（见 知识库/02 §2.2），本模块不含写路径。
+ * 注意：只解决**读**；harness 写文件必须按原编码还原（判据见内嵌知识条目
+ * `interpreter-encoding-discipline`，正本＝shared-trae `knowledge/lazyloading/encoding-discipline.md`），
+ * 本模块不含写路径。
  *
  * 传 `maxBytes` 时只读文件开头那一段（日志上百 MB 时整份读进来会卡死宿主），
  * 返回的 `truncated` / `totalBytes` 让调用方把「我只看了开头」如实告诉模型。

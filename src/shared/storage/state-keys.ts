@@ -124,7 +124,8 @@ const USER_SETTINGS_FIELDS = {
 	globalClineRulesToggles: { default: {} as ClineRulesToggles },
 	globalWorkflowToggles: { default: {} as ClineRulesToggles },
 	globalSkillsToggles: { default: {} as Record<string, boolean> },
-	// 默认关闭遥测：用户可在设置里显式打开（见知识库/06-决策记录 ADR）
+	// 默认关闭遥测。注意：批次 2 起 Provider 已换成 no-op 实现，即使设置为 enabled 也不外发
+	// （SUBTRACTION-PLAN.md §2a）；此项仅保留给上游设置页兼容。
 	telemetrySetting: { default: "disabled" as TelemetrySetting },
 	planActSeparateModelsSetting: { default: false as boolean, isComputed: true },
 	enableCheckpointsSetting: { default: false as boolean },

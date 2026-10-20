@@ -193,7 +193,7 @@ async function planFor(root: string): Promise<Planned | null> {
  * 找正在运行的 Emuera 进程。
  *
  * Windows 上文件被占用时写入会半途失败，虽然 `apply.ts` 会整体回滚，
- * 但让用户先关游戏比"更新失败再来一次"体验好得多（`知识库/13 §13.10` 第 3 条）。
+ * 但让用户先关游戏比"更新失败再来一次"体验好得多（写盘前拦，⛔ 事后回滚）。
  */
 async function runningGameProcesses(): Promise<string[]> {
 	if (process.platform !== "win32") {

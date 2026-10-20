@@ -40,7 +40,7 @@
 
 ## 4. 已知边界
 
-- **只读不写**：写文件必须按原编码/项目规范还原（见 知识库/02 §2.2），本模块不含写路径。
+- **只读不写**：写文件必须按原编码/项目规范还原（判据见内嵌知识条目 `interpreter-encoding-discipline`，正本＝shared-trae `knowledge/lazyloading/encoding-discipline.md`），本模块不含写路径。
 - UTF-16 文件在 era 工程未见，但解码路径已覆盖（探测成本为零）。
 - CP932 语义取 Windows-31J；与严格 Shift-JIS 的差异字节（NEC/IBM 扩展区）在 era 文件中未出现，如出现由 fatal→lossy 路径兜底。
 

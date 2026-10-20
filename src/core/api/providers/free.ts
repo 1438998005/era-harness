@@ -1,7 +1,7 @@
 /**
  * FreeModelHandler：免费模型路由 handler（当前两渠道：Kilo / OVHcloud AI Endpoints）。
  * Zen 渠道已暂时移出池（开箱即用原则）；其客户端构造、Responses wire 与车道级冷却代码
- * 保留休眠（链上无 zen 候选即永不触发），待未来按 知识库/07 §7.7 恢复。
+ * 保留休眠（链上无 zen 候选即永不触发），待未来按「免费门三要素」恢复（判据见 free-lanes.ts 顶部注释）。
  *
  * 每次 createMessage：
  * 1. 多模态硬过滤（带图只留 vision 候选）+ Kilo listing 门控；
