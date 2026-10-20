@@ -14,6 +14,7 @@ import path from "node:path"
 import { createGunzip } from "node:zlib"
 import { type ApplyReport, applyPlan, applyPlanFromTar } from "./apply"
 import { readNowVersion } from "./discover"
+import { decodeLikeEngine } from "./gates"
 import {
 	cachePath,
 	gitBlobSha1,
@@ -205,6 +206,50 @@ async function readArchiveEntries(archivePath: string, wanted: Set<RelPath>): Pr
 	return out
 }
 
+/** 闸门扫描上限：一次更新改动几千文件时，只对前 N 个脚本过内容闸门（防呆） */
+const GATE_SCAN_CAP = 300
+const GATE_FILE_RE = /\.(ERB|ERH)$/i
+
+/**
+ * 收集改动脚本文件的内容供闸门使用。
+ * - 只取 write/conflict 的 .ERB/.ERH（删除文件没有"改后"内容，新增文件没有旧版）
+ * - 上限 GATE_SCAN_CAP，超出记 skipped（finding 因此不完整，UI 须标注）
+ * - 解码按引擎口径（BOM/UTF-8/CP932），闸门只需要对齐行号与标签
+ */
+async function collectGateContents(
+	opts: RunUpdateOptions,
+	prepared: Prepared,
+	plan: UpdatePlan,
+): Promise<{ contents: Map<RelPath, { local: string | null; theirs: string | null }> | undefined; skipped: number }> {
+	const candidates = plan.entries.filter(
+		(entry) => (entry.action === "write" || entry.action === "conflict") && GATE_FILE_RE.test(entry.path),
+	)
+	if (candidates.length === 0) {
+		return { contents: undefined, skipped: 0 }
+	}
+	const skipped = Math.max(0, candidates.length - GATE_SCAN_CAP)
+	const chosen = candidates.slice(0, GATE_SCAN_CAP)
+
+	const wanted = new Set(chosen.map((entry) => entry.path))
+	const theirsBuf = prepared.archivePath ? await readArchiveEntries(prepared.archivePath, wanted) : undefined
+
+	const contents = new Map<RelPath, { local: string | null; theirs: string | null }>()
+	for (const entry of chosen) {
+		const local = await fs.readFile(toFsPath(opts.root, entry.path)).catch(() => null)
+		let theirs: Buffer | null = null
+		if (prepared.dirPath) {
+			theirs = await fs.readFile(toFsPath(prepared.dirPath, entry.path)).catch(() => null)
+		} else {
+			theirs = theirsBuf?.get(entry.path) ?? null
+		}
+		contents.set(entry.path, {
+			local: local ? decodeLikeEngine(local) : null,
+			theirs: theirs ? decodeLikeEngine(theirs) : null,
+		})
+	}
+	return { contents, skipped }
+}
+
 /** 合并成功的冲突条目提升为 write，其余保持 conflict（= 磁盘上什么都不动） */
 function promoteMerged(plan: UpdatePlan, merged: Set<RelPath>): UpdatePlan {
 	if (merged.size === 0) {
@@ -264,13 +309,26 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 	})
 
 	const state = await readState(opts.root)
-	let plan = buildPlan({
+	// 先出草案计划拿改动集（纯 sha1 层，便宜）；再按改动脚本喂内容闸门重建
+	const draft = buildPlan({
 		base: stateToBase(state),
 		local: scan,
 		theirs: prepared.snapshot,
 	})
+	const gateInput = await collectGateContents(opts, prepared, draft)
+	let plan = buildPlan({
+		base: stateToBase(state),
+		local: scan,
+		theirs: prepared.snapshot,
+		gateContents: gateInput.contents,
+		gateSkipped: gateInput.skipped,
+	})
 
-	emit(opts, { stage: "plan", message: `${plan.summary.write} 改 / ${plan.summary.delete} 删 / ${plan.summary.conflict} 待定` })
+	const gateNote = plan.gateFindings && plan.gateFindings.length > 0 ? `，闸门警告 ${plan.gateFindings.length} 条` : ""
+	emit(opts, {
+		stage: "plan",
+		message: `${plan.summary.write} 改 / ${plan.summary.delete} 删 / ${plan.summary.conflict} 待定${gateNote}`,
+	})
 
 	if (plan.summary.write + plan.summary.delete + plan.summary.conflict === 0) {
 		return { status: "up-to-date", plan, head: prepared.head }
