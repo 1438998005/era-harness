@@ -7,7 +7,7 @@ export const VSCODE_CONFIG_SETTINGS: SettingRecord[] = [
   {
     key: 'eraHarness.erabasic.autoTakeover',
     title: 'autoTakeover',
-    summary: '未安装 erabasic 时，是否由 era harness 接管 .erb/.erh（写入 files.associations 并启用高亮/补全/跳转）。关闭后仅保留内置方法数据，不修改文件关联。',
+    summary: '是否由 era harness 提供 .erb/.erh 的 EraBasic 补全/跳转/符号（语法高亮由本扩展的语言声明提供，禁用扩展即自动归还 Ruby，不写你的设置）。关闭后只保留内置方法数据。「让位给 sasami.erabasic」是一条单独的命令，不在这里控制。',
     valueType: 'boolean',
     category: 'erabasic',
     storage: 'vscode-config:eraHarness.erabasic.autoTakeover',

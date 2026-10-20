@@ -38,7 +38,7 @@
 **一条命令现算，⛔ 在文档里手抄用例数**（2026-10-21 实证：209 与 229 差了 20 例没人发现）：
 
 ```
-npm run gate          # 八道快闸门（用例登记／知识候选池／设置目录完整性／生成物新鲜度／工具登记／核心库测试／typecheck／更新回归）
+npm run gate          # 九道快闸门（用例登记／知识候选池／设置目录完整性／生成物新鲜度／工具登记／语言归属声明／核心库测试／typecheck／更新回归）
 npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 ```
 
@@ -76,6 +76,7 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 | `proto/cline/state.proto` 的 `UpdateSettingsRequest` 新增字段 | 该字段必须∈设置目录 或 ∈ `overrides.ts` 的 `UNCOVERED_SETTINGS`（写一句为什么不收录），否则 gate 红。两侧命名不同名时在 `SETTING_KEY_ALIASES` 里对照 |
 | 写文件落盘形态（编码/BOM/行尾） | 判据在核心库 `src/encoding/write.ts`（纯函数，⛔ 不引 iconv-lite）；执行在 `src/integrations/editor/DiffViewProvider.ts#enforceWriteEncoding`；结论经 `saveChanges().encodingNote` → `WriteToFileToolHandler`，拼接在 `src/core/era/encoding-write.ts` |
 | 改 `state-keys.ts` | 先 `node scripts/generate-state-proto.mjs`，再 `npm run protos`；提交前看 `proto/cline/state.proto` 是否被带进暂存区 |
+| 动语言贡献 / `.erb` `.erh` 归属（`src/hosts/vscode/erabasic/index.ts`、`package.json` 的 `contributes.languages`） | 后缀写在 `contributes.languages.extensions`（随扩展注册/注销，禁用即归还 Ruby）。⛔ 不要用运行时写用户 `files.associations` 做「条件接管」——用户禁用/卸载后关联残留而语言 id 消失，`.erb` 会变纯文本（比不装还糟，见 3.89.0 修复）。让位/收回走显式命令；`npm run gate` 的「语言归属声明」会拦回归 |
 
 ---
 

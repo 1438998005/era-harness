@@ -1,11 +1,14 @@
 // EraBasic 语言支持整合入口（复刻 sasami/vscode-erabasic 的高亮/补全/跳转/符号能力）。
 //
-// 关键设计：TextMate grammar / languages / snippets 是 VS Code 静态贡献，激活后无法运行时卸载。
-// 因此"装了 erabasic 就关闭我们的语法高亮"不能靠注销 grammar，只能靠**让 .erb/.erh 不绑定到我们的语言**：
-//   - 本扩展贡献独立语言 id `era-erb`（不声明 extensions，自身不抢占任何文件）。
-//   - 激活时检测 sasami.erabasic：
-//       · 存在且启用 → 让位：撤销关联、注销 provider，.erb/.erh 继续用 erabasic 的 grammar。
-//       · 不存在/被禁用 → 接管：经 files.associations 把 *.erb/*.erh 指向 era-erb，并注册 provider。
+// 关键设计：高亮走 **静态语言声明**，不碰用户配置。
+//   - `package.json` → `contributes.languages[0].extensions: [".erb", ".erh"]`。
+//     这是 VS Code 的标准做法：语言随扩展注册，**禁用/卸载即自动注销**，`.erb` 会回到内置 Ruby，
+//     不会在 settings.json 里留下指向不存在语言 id 的脏 `files.associations`
+//     （早期版本正是那么做的，导致禁用本扩展后 .erb 变纯文本，比不装还糟）。
+//   - 本文件**不再自动写任何用户设置**。唯一会写 `files.associations` 的是两条显式命令：
+//       · `eraHarness.erabasic.yieldToSasami` —— 用户主动把 .erb/.erh 让给 sasami.erabasic；
+//       · `eraHarness.erabasic.reclaimFiles`   —— 撤销上述让位（以及清理历史脏值）。
+//   - 启动时会**自愈**：把旧版本写进去的 `"*.erb": "era-erb"` 静默删掉（现在不需要它了）。
 
 import type { ExtensionContext } from "vscode"
 import * as vscode from "vscode"
@@ -61,52 +64,132 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		declarationProvider = undefined
 	}
 
-	async function syncAssociations(enable: boolean): Promise<void> {
+	/** 当前用户级 files.associations（只读快照） */
+	async function readAssociations(): Promise<Record<string, string>> {
 		const cfg = vscode.workspace.getConfiguration("files")
-		const assoc: Record<string, string | undefined> = { ...(cfg.get<Record<string, string>>("associations", {}) ?? {}) }
+		return { ...(cfg.get<Record<string, string>>("associations", {}) ?? {}) }
+	}
+
+	/**
+	 * 写用户级 files.associations。
+	 * ⚠️ 只允许被**用户显式点的命令**调到（让位 / 收回），⛔ 不要在 evaluate() 里自动调——
+	 * 自动写入会在扩展被禁用后留下指向不存在语言 id 的关联，.erb 会变成纯文本。
+	 */
+	async function writeAssociations(assoc: Record<string, string>): Promise<void> {
+		await vscode.workspace.getConfiguration("files").update("associations", assoc, vscode.ConfigurationTarget.Global)
+	}
+
+	/** sasami.erabasic 声明的第一个语言 id（让位时写到它的语言上，不猜） */
+	function erabasicLanguageId(): string | undefined {
+		const pkg = vscode.extensions.getExtension(ERABASIC_EXTENSION_ID)?.packageJSON as
+			| { languages?: Array<{ id?: string }> }
+			| undefined
+		return pkg?.languages?.find((entry) => typeof entry.id === "string")?.id
+	}
+
+	/**
+	 * 自愈：删掉旧版本（≤3.88.0）在激活时写进用户设置里的 "*.erb": "era-erb"。
+	 * 那时不声明 extensions 只能靠关联抢文件；现在语言声明替了它，这两条值既多余、
+	 * 又正是「禁用扩展后 .erb 变纯文本」的根因。只在真的存在脏值时才写一次。
+	 */
+	async function healLegacyAssociations(): Promise<void> {
+		const assoc = await readAssociations()
 		let changed = false
 		for (const key of MANAGED_ASSOCIATIONS) {
-			if (enable) {
-				// 仅在用户未自定义该扩展名时接管，绝不覆盖已有偏好。
-				if (assoc[key] === undefined) {
-					assoc[key] = LANGUAGE_ID
-					changed = true
-				}
-			} else if (assoc[key] === LANGUAGE_ID) {
-				// 只清除由本扩展写入的关联，保留用户自定义值。
+			if (assoc[key] === LANGUAGE_ID) {
 				delete assoc[key]
 				changed = true
 			}
 		}
 		if (changed) {
-			await cfg.update("associations", assoc, vscode.ConfigurationTarget.Global)
+			await writeAssociations(assoc)
+		}
+	}
+
+	/** 让位：把 .erb/.erh 显式交给 sasami.erabasic（用户主动执行） */
+	async function yieldToSasami(): Promise<void> {
+		const target = erabasicLanguageId()
+		if (!target) {
+			void vscode.window.showWarningMessage(
+				"没有找到 sasami.erabasic，或它没有声明语言 id，无法让位。装好并启用它之后重试。",
+			)
+			return
+		}
+		const assoc = await readAssociations()
+		let changed = false
+		for (const key of MANAGED_ASSOCIATIONS) {
+			if (assoc[key] !== target) {
+				assoc[key] = target
+				changed = true
+			}
+		}
+		if (changed) {
+			await writeAssociations(assoc)
+		}
+		void vscode.window.showInformationMessage(
+			`已让位：.erb/.erh 改用 ${target}（sasami.erabasic）。撤销请执行「收回 .erb/.erh 的语法归属」。`,
+		)
+	}
+
+	/** 收回：只删本扩展写过的值（era-erb 或 erabasic 的语言 id），不碰用户自己的映射 */
+	async function reclaimFiles(): Promise<void> {
+		const erabasicId = erabasicLanguageId()
+		const assoc = await readAssociations()
+		const removed: string[] = []
+		for (const key of MANAGED_ASSOCIATIONS) {
+			const value = assoc[key]
+			if (value === LANGUAGE_ID || (erabasicId !== undefined && value === erabasicId)) {
+				delete assoc[key]
+				removed.push(key)
+			}
+		}
+		if (removed.length > 0) {
+			await writeAssociations(assoc)
+			void vscode.window.showInformationMessage(
+				`已清除 ${removed.join("、")} 的文件关联，.erb/.erh 重新由语言声明决定（禁用本扩展即回到 Ruby）。`,
+			)
+		} else {
+			void vscode.window.showInformationMessage("files.associations 里没有 era harness 写入的条目，无需清理。")
 		}
 	}
 
 	function evaluate(): void {
 		const present = vscode.extensions.getExtension(ERABASIC_EXTENSION_ID) !== undefined
 		const autoTakeover = vscode.workspace.getConfiguration("eraHarness.erabasic").get<boolean>("autoTakeover", true)
-		if (present) {
-			teardownProviders()
-			void syncAssociations(false)
-			statusBarItem.text = "$(circle-slash) EraBasic: 让位 erabasic"
-			statusBarItem.tooltip = "检测到 sasami.erabasic 已启用，era harness 不接管 .erb/.erh 语法高亮"
-			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
-			statusBarItem.show()
-		} else {
-			if (autoTakeover) {
-				void syncAssociations(true)
-			}
+
+		// provider 按语言 id 注册，所以装了 erabasic 也无需撤销：
+		// 若那个文件最终归到 erabasic 的语言，我们的 provider 本就不会被触发。
+		if (autoTakeover) {
 			setupProviders()
-			statusBarItem.text = "$(file-code) EraBasic: era harness"
-			statusBarItem.tooltip = "未检测到 erabasic，era harness 提供 .erb/.erh 高亮/补全/跳转（点击搜索 ERB 符号）"
-			statusBarItem.backgroundColor = undefined
-			statusBarItem.show()
+		} else {
+			teardownProviders()
 		}
+
+		statusBarItem.backgroundColor = undefined
+		if (present) {
+			// 语法归属仍是 era-erb（静态声明无法运行时让），所以把让位入口摆在状态栏：
+			// 点一下才写 files.associations，不自动代用户决策。
+			statusBarItem.command = "eraHarness.erabasic.yieldToSasami"
+			statusBarItem.text = "$(circle-slash) EraBasic: 让位 erabasic"
+			statusBarItem.tooltip =
+				"检测到 sasami.erabasic。点这里把 .erb/.erh 的语法交给它（会写入你的 files.associations，可随时撤销）"
+			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
+		} else if (autoTakeover) {
+			statusBarItem.command = "eraHarness.erabasic.revealSymbols"
+			statusBarItem.text = "$(file-code) EraBasic: era harness"
+			statusBarItem.tooltip = "era harness 提供 .erb/.erh 的 EraBasic 语法与补全/跳转（点击搜索 ERB 符号）"
+		} else {
+			statusBarItem.command = "eraHarness.erabasic.revealSymbols"
+			statusBarItem.text = "$(circle-slash) EraBasic: 补全已关闭"
+			statusBarItem.tooltip = "eraHarness.erabasic.autoTakeover 已关闭：只保留内置方法数据，不提供补全/跳转/符号"
+		}
+		statusBarItem.show()
 	}
 
 	// 内化：从状态栏一键搜索工作区 ERB 符号并跳转（接管时用我们的索引，让位时用 erabasic 的）。
 	context.subscriptions.push(
+		vscode.commands.registerCommand("eraHarness.erabasic.yieldToSasami", () => yieldToSasami()),
+		vscode.commands.registerCommand("eraHarness.erabasic.reclaimFiles", () => reclaimFiles()),
 		vscode.commands.registerCommand("eraHarness.erabasic.revealSymbols", async () => {
 			const query = await vscode.window.showInputBox({
 				prompt: "搜索工作区 ERB 符号（@函数 / #DIM 变量），支持驼峰缩写模糊匹配",
@@ -149,5 +232,9 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 	)
 	context.subscriptions.push({ dispose: () => teardownProviders() })
 
+	// 先自愈旧版留下的脏关联，再决定状态；两者都是异步写盘，不阻塞激活
+	void healLegacyAssociations().catch(() => {
+		/* 用户设置写不了（只读配置/远程工作区）不是致命错误，忽略 */
+	})
 	evaluate()
 }

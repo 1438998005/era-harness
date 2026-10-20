@@ -222,6 +222,44 @@ function push(name, detail, status, problems) {
 	)
 }
 
+// 1e) 语言归属声明：`.erb/.erh` 必须由 contributes.languages.extensions 静态声明。
+//     为什么：早期版本靠**运行时给用户 settings.json 写 files.associations** 来接管，
+//     扩展被禁用/卸载后那个关联还在、语言 id 却没了 ⇒ .erb 直接变纯文本，比不装还糟
+//     （2026-10-21 用户反馈，已改回标准做法）。本道门锁住两件事：
+//       · 后缀声明存在（否则又要回去写用户配置）；
+//       · 自愈逻辑在（升级用户的旧脏值得能被清掉）。
+{
+	const problems = []
+	const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
+	const languages = pkg.contributes?.languages ?? []
+	const eraErb = languages.find((entry) => entry.id === "era-erb")
+	if (!eraErb) {
+		problems.push("package.json 没有 contributes.languages[id=era-erb]")
+	} else {
+		const declared = new Set(eraErb.extensions ?? [])
+		for (const ext of [".erb", ".erh"]) {
+			if (!declared.has(ext)) {
+				problems.push(`languages[era-erb].extensions 缺少 ${ext}（否则只能靠改用户 files.associations 接管）`)
+			}
+		}
+	}
+
+	const hostSrc = fs.readFileSync(path.join(ROOT, "src/hosts/vscode/erabasic/index.ts"), "utf8")
+	if (hostSrc.includes("syncAssociations")) {
+		problems.push("src/hosts/vscode/erabasic/index.ts 又出现了 syncAssociations（自动写用户设置，正是那个 bug）")
+	}
+	if (!hostSrc.includes("healLegacyAssociations")) {
+		problems.push("src/hosts/vscode/erabasic/index.ts 缺少 healLegacyAssociations（旧脏值无法自愈）")
+	}
+
+	push(
+		"语言归属声明",
+		problems.length === 0 ? ".erb/.erh 由 languages.extensions 声明，零自动写入" : `${problems.length} 处回归`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
 // 2) 核心库测试（用例数会随批次变，这就是它不该手抄的原因）
 {
 	const result = run(NPM, ["test"], CORE)

@@ -71,9 +71,9 @@ webview-ui/node_modules/**
 docs/**
 old_docs/**
 
-# Fix issue where codicons don't get packaged (https://github.com/microsoft/vscode-extension-samples/issues/692)
-!node_modules/@vscode/codicons/dist/codicon.css
-!node_modules/@vscode/codicons/dist/codicon.ttf
+# 注：这里的 codicon 例外规则已删——`node_modules/` 已排除父目录，`!` 无法把子项捞回来（ignore 语义），
+# 那两行从来没生效过。现在 codicons 由 webview 构建时内联进 assets/index.css（@font-face + ./codicon.ttf），
+# 运行时不再请求 node_modules/@vscode/codicons，所以不需要打包它。
 
 # Include default themes JSON files used in getTheme
 !src/integrations/theme/default-themes/**
