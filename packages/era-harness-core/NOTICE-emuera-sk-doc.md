@@ -13,6 +13,11 @@
 | 抓取版本 | `606670cd78b58f5d9a050013d1d3f41db5a87a1b` |
 | 抓取目录 | `docs/Reference/*.zh.md`（中文版页面，共 312 篇） |
 | 抓取时间 | 见 `src/reference/data/meta.json` 的 `fetchedAt` |
+| **本地正本** | 集群文档仓 `emuera.em.doc-1`（同一分支）的检出；`--local` 直接读它的 `docs/Reference/`，版本标识取该检出的 `git rev-parse HEAD`。**本机没有该检出时才走 GitHub raw**（在线兜底） |
+
+> 快照与本地正本的漂移：本机实测 `606670c`（内嵌）与本地检出 HEAD `84937d9` 的
+> **312 页正文逐字节相同**（只有生成文件头部的 sha 注释不同），即后续上游提交未改动
+> Reference 页面内容。⇒ 目前重跑 `--local` 只会刷新 sha 与 `fetchedAt`，不产生内容变动。
 
 ## 许可
 
@@ -41,10 +46,16 @@
 
 ```bash
 cd "era-harness-plugin/packages/era-harness-core"
-npm run build:reference                 # 默认分支，联网
-npm run build:reference -- --offline    # 只用本地缓存重新生成
+npm run build:reference                          # 默认分支，联网
+npm run build:reference -- --offline             # 只用本地缓存重新生成
 npm run build:reference -- --branch main
+npm run build:reference -- --local <repo 路径>    # 本地正本（推荐）：读集群文档仓检出，⛔ 不联网
 ```
+
+`--local` 接受两种给法：文档仓的检出根（自动拼 `docs/Reference`）或直接指到
+`docs/Reference` 目录本身。它**完全不走网络**，版本标识取该检出的 HEAD commit；
+检出不在约定分支时会打印警告但仍按该分支生成（要认这条分支就显式加 `--branch`）。
+⛔ 该目录不在 git 工作树内时会直接报错——拿不到 commit 的内嵌数据无法溯源。
 
 更新后请：
 

@@ -2,8 +2,15 @@
  * 把 emuera.sk.doc 的 Reference 页面抓下来，生成本地指令知识库数据。
  *
  * 用法（在 `era harness/` 目录下）：
- *   npm run build:reference                 # 抓取 → 解析 → 写 src/reference/data/
- *   npm run build:reference -- --offline    # 只用缓存，不联网（改解析器时用）
+ *   npm run build:reference                          # 抓取 → 解析 → 写 src/reference/data/
+ *   npm run build:reference -- --offline             # 只用缓存，不联网（改解析器时用）
+ *   npm run build:reference -- --local <repo 路径>    # 从本地集群文档仓读（本地正本，⛔ 不联网）
+ *
+ * 两个来源：
+ *   - **本地正本**＝集群的 `emuera.em.doc-1` 检出（`feature/tutorial-restructure`，
+ *     受三语同步与 CJK 锚点治理）。加 `--local` 走这条：直接从 `docs/Reference/*.zh.md`
+ *     读，版本标识取该检出的 `git rev-parse HEAD`，因此生成的数据可溯源到具体 commit。
+ *   - **GitHub raw**＝在线兜底，本机没有该检出时用（默认路径）。
  *
  * 为什么是「生成 TS」而不是「运行时读 JSON」：
  *   数据要被**两处**同时消费——核心库的 MCP server 与插件的 esbuild 打包。
@@ -13,12 +20,16 @@
  * 许可：上游是 CC BY-NC 4.0。生成的文件顶部带来源与许可声明，
  * 与代码的 Apache-2.0 分开管理（见 NOTICE-emuera-sk-doc.md）。
  */
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { parseReferencePage } from '../src/reference/parse.js';
 import type { ReferenceEntry } from '../src/reference/types.js';
+
+const execFileAsync = promisify(execFile);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(HERE, '..');
@@ -34,6 +45,8 @@ const CHUNK_SIZE = 40;
 interface Options {
   branch: string;
   offline: boolean;
+  /** 本地集群文档仓路径（本地正本）；给了就完全不走网络 */
+  local?: string;
   cacheDir: string;
   outDir: string;
   concurrency: number;
@@ -53,6 +66,9 @@ function parseArgs(argv: readonly string[]): Options {
     const next = argv[i + 1];
     if (arg === '--offline') {
       options.offline = true;
+    } else if (arg === '--local' && next) {
+      options.local = next;
+      i++;
     } else if (arg === '--branch' && next) {
       options.branch = next;
       i++;
@@ -110,6 +126,82 @@ function rawUrl(branchOrSha: string, repoPath: string): string {
 interface TreeResponse {
   tree: { path: string; type: string; size?: number }[];
   truncated?: boolean;
+}
+
+/** 在指定目录里跑 git，拿不到就抛（本地正本必须能给出 commit，否则内嵌数据无法溯源） */
+async function gitIn(dir: string, args: readonly string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+  return stdout.trim();
+}
+
+/**
+ * 把 `--local` 给的路径规整到 Reference 目录。
+ * 两种给法都收：仓库根（自动拼 `docs/Reference`）或直接指到 Reference 目录本身。
+ */
+async function resolveReferenceDir(input: string): Promise<string> {
+  const base = path.resolve(input);
+  const candidates = [path.join(base, REFERENCE_DIR), base];
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isDirectory()) {
+        return candidate;
+      }
+    } catch {
+      /* 换下一个候选 */
+    }
+  }
+  throw new Error(
+    `--local 找不到 Reference 目录：${base}\n` +
+      `期望是 emuera.em.doc-1 的检出根（会自动拼 ${REFERENCE_DIR}）或直接指到该目录。`,
+  );
+}
+
+/** 读本地检出的全部中文页面；README.zh.md 是总索引页，跳过 */
+async function loadLocalPages(referenceDir: string): Promise<{ id: string; text: string }[]> {
+  const names = (await fs.readdir(referenceDir, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.zh.md') && !SKIP_FILES.has(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (names.length === 0) {
+    throw new Error(`--local 目录里没有 *.zh.md：${referenceDir}`);
+  }
+
+  const result: { id: string; text: string }[] = [];
+  for (const name of names) {
+    const text = await fs.readFile(path.join(referenceDir, name), 'utf8');
+    result.push({ id: path.basename(name, '.zh.md'), text });
+  }
+  console.error(`本地页面 ${result.length} 个（来自 ${referenceDir}）`);
+  return result;
+}
+
+interface LocalSource {
+  sha: string;
+  repoRoot: string;
+  branch: string | undefined;
+}
+
+/** 本地来源的版本标识＝该检出的 HEAD；顺带回分支名用于核对是否站在约定分支上 */
+async function resolveLocalSource(referenceDir: string): Promise<LocalSource> {
+  let repoRoot: string;
+  try {
+    repoRoot = await gitIn(referenceDir, ['rev-parse', '--show-toplevel']);
+  } catch {
+    throw new Error(
+      `--local 指向的目录不在 git 工作树内，无法记录版本：${referenceDir}\n` +
+        `本地正本必须能给出 commit sha，否则内嵌数据的来源无从追溯。`,
+    );
+  }
+  const sha = await gitIn(repoRoot, ['rev-parse', 'HEAD']);
+  let branch: string | undefined;
+  try {
+    branch = await gitIn(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  } catch {
+    branch = undefined;
+  }
+  return { sha, repoRoot, branch };
 }
 
 /** 解析出版本标识：优先用 commit sha，离线时读上次写入的 meta */
@@ -255,12 +347,31 @@ export const REFERENCE_NAME_COUNT = ${totalNames};
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const sha = await resolveSourceRef(options);
-  console.error(`上游版本：${sha}`);
 
-  const pages = await loadPages(options, sha);
+  let sha: string;
+  let pages: { id: string; text: string }[];
+  if (options.local) {
+    const referenceDir = await resolveReferenceDir(options.local);
+    const source = await resolveLocalSource(referenceDir);
+    sha = source.sha;
+    if (source.branch && source.branch !== options.branch) {
+      console.error(
+        `⚠️ 本地检出在分支 ${source.branch}，与默认分支 ${options.branch} 不一致` +
+          `（要按别的分支生成请显式加 --branch 确认）`,
+      );
+    }
+    console.error(`来源：本地正本 ${source.repoRoot}`);
+    console.error(`上游版本：${sha}（分支 ${source.branch ?? '(未知)'}）`);
+    pages = await loadLocalPages(referenceDir);
+  } else {
+    sha = await resolveSourceRef(options);
+    console.error(`来源：GitHub raw（在线兜底）`);
+    console.error(`上游版本：${sha}`);
+    pages = await loadPages(options, sha);
+  }
+
   if (pages.length === 0) {
-    throw new Error('没抓到任何页面，检查网络或 --offline 缓存');
+    throw new Error('没拿到任何页面：本地模式检查 --local 路径，在线模式检查网络或 --offline 缓存');
   }
 
   const entries: ReferenceEntry[] = [];
