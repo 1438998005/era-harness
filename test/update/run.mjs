@@ -29,6 +29,7 @@ const SPECS = [
 	"profile.spec.ts",
 	"apply.spec.ts",
 	"service.spec.ts",
+	"gates.spec.ts",
 	"merge.spec.ts",
 	"mergeResolve.spec.ts",
 	"mergeProvider.spec.ts",

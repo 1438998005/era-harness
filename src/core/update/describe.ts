@@ -2,12 +2,12 @@
  * eratw 一键更新 —— 把计划翻译成人话。
  *
  * 所有面向用户的文案集中在这里，理由有三：
- * 1. 零词汇原则（`知识库/13 §13.0` Z2）要求界面里不出现 commit / merge / 冲突 / 基线。
+ * 1. 零词汇原则要求界面里不出现 commit / merge / 冲突 / 基线。
  *    文案散落在各处必然走味，集中起来才守得住。
  * 2. 纯函数，可以单元测试 —— 文案错了和逻辑错了同等严重。
  * 3. 同一段文案要给 VS Code 弹窗、聊天区、工具返回三处复用。
  *
- * 术语替换表（`知识库/13 §13.11`）：冲突 → 「你改过，社区也改了」；
+ * 术语替换表：冲突 → 「你改过，社区也改了」；
  * 覆盖 → 「替换」；上游 → 「社区」；基线 → 「上次更新的记录」。
  */
 
@@ -22,6 +22,8 @@ export interface PlanNarrative {
 	text: string
 	/** 有没有需要用户拍板的东西 */
 	hasConflicts: boolean
+	/** 闸门警告（诊断细节保留 ERB 术语，与引擎错误消息一致；没有时为 undefined） */
+	gateNotes?: string[]
 }
 
 export interface DescribePlanOptions {
@@ -108,7 +110,33 @@ export function describePlan(plan: UpdatePlan, opts: DescribePlanOptions = {}): 
 
 	lines.push("更新前会自动备份，随时可以撤销。")
 
-	return { title, lines, text: [title, ...lines].join("\n"), hasConflicts: conflicted > 0 }
+	const narrative: PlanNarrative = { title, lines, text: [title, ...lines].join("\n"), hasConflicts: conflicted > 0 }
+	const gateNotes = describeGateNotes(plan)
+	if (gateNotes.length > 0) {
+		narrative.gateNotes = gateNotes
+		narrative.text = `${narrative.text}\n\n${gateNotes.join("\n")}`
+	}
+	return narrative
+}
+
+/** 闸门警告 → 人话（最多列 10 条，防弹窗被淹没） */
+function describeGateNotes(plan: UpdatePlan): string[] {
+	const findings = plan.gateFindings ?? []
+	if (findings.length === 0) {
+		return []
+	}
+	const notes: string[] = ["这次更新的文件里发现几处老毛病（不拦更新，但建议处理）："]
+	for (const finding of findings.slice(0, 10)) {
+		const where = finding.line ? `${finding.path} 第 ${finding.line} 行` : finding.path
+		notes.push(`· ${where}：${finding.detail}`)
+	}
+	if (findings.length > 10) {
+		notes.push(`· ……还有 ${findings.length - 10} 条类似的，更新完可以在日志里看全。`)
+	}
+	if (plan.gatesSkipped && plan.gatesSkipped > 0) {
+		notes.push(`（有 ${plan.gatesSkipped} 个改动脚本太大没扫，以上清单不全。）`)
+	}
+	return notes
 }
 
 /** 一个冲突组 → 一句问话 */

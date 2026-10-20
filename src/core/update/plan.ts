@@ -7,11 +7,23 @@
  * - incremental：有基线（state 里上次应用的上游快照），走标准三方比对（10 种组合）。
  * - first-sync：无基线，靠 `detectBatches` 的 mtime 批量识别代替 base（5 种组合）。
  *
- * 判定表见 知识库/13 §13.3.1 / §13.3.3；任何改动必须先改表驱动测试。
+ * 判定表与批量识别的设计记录见 shared-trae `workspaces/era-harness/documents/开发计划-2026-10-20.md`；
+ * 闸门判据（G2/G3/G6/G7）正本在 `knowledge/eratw/import-merge-gates.md`。
  */
 
+import { collectChangedLabels, runContentGates } from "./gates"
 import { isProtectedPath } from "./manifest"
-import type { ConflictGroup, LocalScan, PlanEntry, PlanReason, PlanWarning, RelPath, UpdatePlan, UpstreamSnapshot } from "./types"
+import type {
+	ConflictGroup,
+	GateFinding,
+	LocalScan,
+	PlanEntry,
+	PlanReason,
+	PlanWarning,
+	RelPath,
+	UpdatePlan,
+	UpstreamSnapshot,
+} from "./types"
 
 /** 口上目录标记（与 `src/core/identity/scope.ts` 的 PERSONA_DIR_MARKER 保持一致） */
 const PERSONA_ROOT = "口上・メッセージ関連/個人口上/"
@@ -46,6 +58,13 @@ export interface BuildPlanInput {
 	local: LocalScan
 	theirs: UpstreamSnapshot
 	firstSyncPolicy?: FirstSyncPolicy
+	/**
+	 * 改动脚本文件的内容（过闸门用）。键 = 会改动的文件（write/conflict 的 .ERB/.ERH）。
+	 * 不传则不跑内容闸门（plan.gateFindings 为 undefined）。
+	 */
+	gateContents?: Map<RelPath, { local: string | null; theirs: string | null }>
+	/** 因超出扫描上限而未进 gateContents 的脚本文件数 */
+	gateSkipped?: number
 }
 
 function topSegment(rel: RelPath): string {
@@ -220,6 +239,18 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		keepByReason[entry.reason] = (keepByReason[entry.reason] ?? 0) + 1
 	}
 
+	// 内容闸门（G2/G3/G6/G7）：只对调用方喂进来的改动脚本跑，纯函数、无 IO
+	let gateFindings: GateFinding[] | undefined
+	if (input.gateContents && input.gateContents.size > 0) {
+		const changedLabels = collectChangedLabels(
+			[...input.gateContents].map(([path, texts]) => ({ path, text: texts.theirs ?? texts.local })),
+		)
+		gateFindings = []
+		for (const [rel, texts] of input.gateContents) {
+			gateFindings.push(...runContentGates(rel, texts, changedLabels))
+		}
+	}
+
 	return {
 		mode,
 		entries,
@@ -233,11 +264,13 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 			keepByReason,
 		},
 		warnings,
+		...(gateFindings ? { gateFindings } : {}),
+		...(input.gateSkipped ? { gatesSkipped: input.gateSkipped } : {}),
 	}
 }
 
 /**
- * 冲突分组：口上按角色整包问，本体侧逐文件问（用户明确要求，见 知识库/13 §13.4）。
+ * 冲突分组：口上按角色整包问，本体侧逐文件问。
  * 角色目录含子目录，必须用 `<角色目录>/**` 归并 —— 实测 `053 Tewi [てゐ]/因幡帝海外版/` 就是子目录。
  */
 export function groupConflicts(entries: PlanEntry[]): ConflictGroup[] {

@@ -1,7 +1,7 @@
 /**
  * 文案测试。
  *
- * 这些断言看着琐碎，但零门槛原则（`知识库/13 §13.0` Z2）就靠它们守：
+ * 这些断言看着琐碎，但零门槛原则就靠它们守：
  * 界面上出现 commit / 冲突 / 覆盖 / 基线 任何一个词，这个功能对目标用户就失败了。
  */
 
@@ -131,6 +131,30 @@ test("文案：只有冲突且全部保留时不说「更新完成」", () => {
 	assert.equal(narrative.title, "没有需要更新的文件")
 	assert.match(narrative.text, /3 个文件都留着/)
 	assert.ok(!narrative.text.includes("更新完成"))
+})
+
+test("文案：闸门警告列文件行号与修法，且无术语", () => {
+	const base = plan([entry("ERB/a.ERB", "write", "clean-update")])
+	base.gateFindings = [
+		{
+			gate: "G2",
+			code: "rand-hollow",
+			path: "ERB/a.ERB",
+			line: 42,
+			detail: "RAND:9 只有 5 种走法且无 CASEELSE（4/9 概率落空）",
+		},
+	]
+	base.gatesSkipped = 3
+	const narrative = describePlan(base)
+	assert.ok(narrative.gateNotes && narrative.gateNotes.length >= 3)
+	assert.ok(narrative.text.includes("ERB/a.ERB 第 42 行"))
+	assert.ok(narrative.text.includes("以上清单不全"))
+	assertNoJargon(narrative.text)
+})
+
+test("文案：没有闸门 finding 时不出 gateNotes", () => {
+	const narrative = describePlan(plan([entry("ERB/a.ERB", "write", "clean-update")]))
+	assert.equal(narrative.gateNotes, undefined)
 })
 
 test("文案：已是最新时给出当前版本", () => {

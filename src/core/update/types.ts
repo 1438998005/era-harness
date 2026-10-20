@@ -101,6 +101,25 @@ export interface ConflictGroup {
 	paths: RelPath[]
 }
 
+/**
+ * 导入合并闸门 finding（正本：shared-trae knowledge/eratw/import-merge-gates.md，
+ * 产品内嵌副本在核心库 src/knowledge/data/update-merge-gates.ts）。
+ * 已实现 G2/G3/G6/G7；G1/G4/G5/G8 需仓库史或全仓索引，留待后续批次。
+ */
+export type GateId = "G2" | "G3" | "G6" | "G7"
+
+export type GateCode = "rand-unreachable" | "rand-hollow" | "dispatch-removed" | "hph-residue" | "eol-mixed"
+
+export interface GateFinding {
+	gate: GateId
+	code: GateCode
+	path: RelPath
+	/** 1 基行号；拿不准时省略 */
+	line?: number
+	/** 给人看的一句话（含关键数字） */
+	detail: string
+}
+
 export interface PlanSummary {
 	write: number
 	delete: number
@@ -128,6 +147,10 @@ export interface UpdatePlan {
 	groups: ConflictGroup[]
 	summary: PlanSummary
 	warnings: PlanWarning[]
+	/** 闸门 finding（G2/G3/G6/G7）；没跑过内容闸门时为 undefined */
+	gateFindings?: GateFinding[]
+	/** 因超出扫描上限而未过闸门的脚本文件数（>0 时 finding 不完整） */
+	gatesSkipped?: number
 }
 
 /** 落盘状态：`.era-harness/update-state.json` */
