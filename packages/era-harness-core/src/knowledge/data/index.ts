@@ -2,6 +2,7 @@ import type { KnowledgeEntry } from '../types.js';
 import { encodingDisciplineEntry } from './encoding-discipline.js';
 import { kojoStructureContractsEntry } from './kojo-structure-contracts.js';
 import { mainFlowPipelineEntry } from './main-flow-pipeline.js';
+import { objQolConventionsEntry } from './obj-qol-conventions.js';
 import { projectStructureDisciplineEntry } from './project-structure-discipline.js';
 import { updateMergeGatesEntry } from './update-merge-gates.js';
 
@@ -17,6 +18,7 @@ export const KNOWLEDGE_ENTRIES: KnowledgeEntry[] = [
   kojoStructureContractsEntry,
   projectStructureDisciplineEntry,
   mainFlowPipelineEntry,
+  objQolConventionsEntry,
 ];
 
 /** 条目数（测试与 MCP 描述用） */

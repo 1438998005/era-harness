@@ -16,7 +16,7 @@ import {
 import type { KnowledgeEntry } from '../src/knowledge/types.js';
 
 test('条目登记：数量与唯一 id', () => {
-  assert.equal(KNOWLEDGE_ENTRY_COUNT, 5);
+  assert.equal(KNOWLEDGE_ENTRY_COUNT, 6);
   const ids = KNOWLEDGE_ENTRIES.map((entry) => entry.id);
   assert.equal(new Set(ids).size, ids.length, 'id 必须唯一');
 });
@@ -58,7 +58,7 @@ test('searchKnowledge：闸门与口上条目各自可命中', () => {
 });
 
 test('searchKnowledge：工程结构与主流程条目可命中（T3 第二批）', () => {
-  for (const query of ['VariableSize', 'NOW_VERSION', '槽位', 'AutoConst', '衣物']) {
+  for (const query of ['VariableSize', 'NOW_VERSION', '槽位', 'AutoConst', '容量']) {
     assert.equal(
       searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
       'project-structure-discipline',
@@ -72,6 +72,23 @@ test('searchKnowledge：工程结构与主流程条目可命中（T3 第二批�
       `「${query}」首条应为主流程管线`,
     );
   }
+});
+
+test('searchKnowledge：OBJ 数据框架条目可命中（T3 第三批）', () => {
+  for (const query of ['O_DATA', 'GETMETH_STR', 'TEMP_STOCK', 'CLASS_NUM', 'NAME2ID']) {
+    assert.equal(
+      searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
+      'obj-qol-conventions',
+      `「${query}」首条应为 OBJ 约定`,
+    );
+  }
+  const obj = findKnowledge(KNOWLEDGE_ENTRIES, 'obj-qol-conventions');
+  assert.equal(obj?.domain, 'project');
+  assert.equal(obj?.rules.length, 10);
+  // 结构纪律与 OBJ 约定在「衣物」这类共用词上都要能被检索到（谁在前都可接受，但不能双双漏掉）
+  const clothes = searchKnowledge(KNOWLEDGE_ENTRIES, '衣物').map((hit) => hit.entry.id);
+  assert.ok(clothes.includes('project-structure-discipline'), '「衣物」应命中结构纪律');
+  assert.ok(clothes.includes('obj-qol-conventions'), '「衣物」应命中 OBJ 约定');
 });
 
 test('新增条目：域与规则量（结构纪律 8 条、主流程 9 条）', () => {

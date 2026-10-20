@@ -87,6 +87,9 @@ ${flowRules.map((rule) => `- ${rule.text}`).join("\n")}
 
 以上三节只给铁律短句；要完整判据（反模式、取证链、目录地图）用 lookup_knowledge 取对应条目：
 interpreter-encoding-discipline / project-structure-discipline / main-flow-pipeline。
+另有按需检索的条目（⛔ 不常驻注入）：obj-qol-conventions（OBJ 数据框架与 O_DATA 键）、
+update-merge-gates（上游内容合并闸门）、kojo-structure-contracts（口上命名与分发）——
+碰到对应场景先用 search_knowledge 按关键词查（如 O_DATA、合并、口上）。
 
 ## 编辑铁律
 - 超过 200KB 的脚本优先用 replace_in_file 做定点替换；这种大小的文件整篇重写极容易丢内容。
