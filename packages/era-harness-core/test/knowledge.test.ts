@@ -16,7 +16,7 @@ import {
 import type { KnowledgeEntry } from '../src/knowledge/types.js';
 
 test('条目登记：数量与唯一 id', () => {
-  assert.equal(KNOWLEDGE_ENTRY_COUNT, 6);
+  assert.equal(KNOWLEDGE_ENTRY_COUNT, 7);
   const ids = KNOWLEDGE_ENTRIES.map((entry) => entry.id);
   assert.equal(new Set(ids).size, ids.length, 'id 必须唯一');
 });
@@ -105,6 +105,31 @@ test('新增条目：域与规则量（结构纪律 8 条、主流程 9 条）',
       assert.doesNotMatch(rule.text, /[Ll]ine\s?\d|#L\d/, `${entry?.id} 铁律含行号证据`);
       assert.doesNotMatch(rule.text, /[A-Za-z]:\\/, `${entry?.id} 铁律含绝对路径`);
     }
+  }
+});
+
+test('searchKnowledge：版本升级与存档迁移条目可命中（T1.2 第一批）', () => {
+  for (const query of ['UPDATE_MAIN', 'modding_version', '存档迁移', 'bump', '静默失声', 'idx0']) {
+    assert.equal(
+      searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
+      'version-up-and-save-migration',
+      `「${query}」首条应为版本升级与存档迁移`,
+    );
+  }
+  const entry = findKnowledge(KNOWLEDGE_ENTRIES, 'version-up-and-save-migration');
+  assert.equal(entry?.domain, 'update');
+  assert.equal(entry?.rules.length, 8);
+  // 与闸门条目共用「更新」语境，但不能互相顶掉对方的主关键词
+  assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, 'RAND')[0]?.entry.id, 'update-merge-gates');
+  assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, 'NOW_VERSION')[0]?.entry.id, 'project-structure-discipline');
+});
+
+test('新增条目：铁律不含行号与绝对路径（与既有条目同口径）', () => {
+  const entry = findKnowledge(KNOWLEDGE_ENTRIES, 'version-up-and-save-migration');
+  for (const rule of entry?.rules ?? []) {
+    assert.doesNotMatch(rule.text, /[Ll]ine\s?\d|#L\d/, '铁律含行号证据');
+    assert.doesNotMatch(rule.text, /[A-Za-z]:\\/, '铁律含绝对路径');
+    assert.doesNotMatch(rule.text, /\.ERB/, '铁律含工程文件名证据');
   }
 });
 
