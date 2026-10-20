@@ -6,6 +6,7 @@
 .agents/**
 .claude/**
 .codex/**
+.trae/**
 CLAUDE.local.md
 out/
 dist-standalone/

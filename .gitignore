@@ -68,7 +68,13 @@ tests/**/cache
 # 本地构建脚手架（Windows 工具链修补）
 /tmp-protoc/bin/
 *.log
+# 核心库 parser 测试 fixture 是真实捕获的脱敏日志，须入 git（见 workspaces/era-harness 开发计划 T7）
+!packages/era-harness-core/test/fixtures/
+!packages/era-harness-core/test/fixtures/*.log
 
 # era harness 减法批次 1：构建工具与本地产物不进库
 tmp-protoc/
 protoc.zip
+
+# 集群知识库挂载（junction，本机本地，勿入 git）
+.trae/
