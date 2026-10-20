@@ -16,7 +16,7 @@ import {
 import type { KnowledgeEntry } from '../src/knowledge/types.js';
 
 test('条目登记：数量与唯一 id', () => {
-  assert.equal(KNOWLEDGE_ENTRY_COUNT, 3);
+  assert.equal(KNOWLEDGE_ENTRY_COUNT, 5);
   const ids = KNOWLEDGE_ENTRIES.map((entry) => entry.id);
   assert.equal(new Set(ids).size, ids.length, 'id 必须唯一');
 });
@@ -55,6 +55,40 @@ test('searchKnowledge：闸门与口上条目各自可命中', () => {
   assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, 'RAND')[0]?.entry.id, 'update-merge-gates');
   assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, '口上')[0]?.entry.id, 'kojo-structure-contracts');
   assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, 'M_KOJO')[0]?.entry.id, 'kojo-structure-contracts');
+});
+
+test('searchKnowledge：工程结构与主流程条目可命中（T3 第二批）', () => {
+  for (const query of ['VariableSize', 'NOW_VERSION', '槽位', 'AutoConst', '衣物']) {
+    assert.equal(
+      searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
+      'project-structure-discipline',
+      `「${query}」首条应为工程结构纪律`,
+    );
+  }
+  for (const query of ['DOTRAIN', 'SOURCE_CHECK', 'TURN_RESET', '时序', 'PREVCOM']) {
+    assert.equal(
+      searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
+      'main-flow-pipeline',
+      `「${query}」首条应为主流程管线`,
+    );
+  }
+});
+
+test('新增条目：域与规则量（结构纪律 8 条、主流程 9 条）', () => {
+  const structure = findKnowledge(KNOWLEDGE_ENTRIES, 'project-structure-discipline');
+  const flow = findKnowledge(KNOWLEDGE_ENTRIES, 'main-flow-pipeline');
+  assert.equal(structure?.domain, 'project');
+  assert.equal(flow?.domain, 'gameflow');
+  assert.equal(structure?.rules.length, 8);
+  assert.equal(flow?.rules.length, 9);
+  assert.ok(knowledgeRulesFor(KNOWLEDGE_ENTRIES, 'main-flow-pipeline').length === 9);
+  // 铁律短句要能直接进系统提示：不能带行号/绝对路径这类工程状态证据
+  for (const entry of [structure, flow]) {
+    for (const rule of entry?.rules ?? []) {
+      assert.doesNotMatch(rule.text, /[Ll]ine\s?\d|#L\d/, `${entry?.id} 铁律含行号证据`);
+      assert.doesNotMatch(rule.text, /[A-Za-z]:\\/, `${entry?.id} 铁律含绝对路径`);
+    }
+  }
 });
 
 test('findKnowledge / knowledgeRulesFor：id 精确查与规则提取', () => {
