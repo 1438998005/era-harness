@@ -27,6 +27,25 @@ export type {
   ReferenceSourceOptions,
   ResolvedReference,
 } from './reference/index.js';
+export {
+  KNOWLEDGE_ENTRIES,
+  KNOWLEDGE_ENTRY_COUNT,
+  KNOWLEDGE_SNAPSHOT_AT,
+  findKnowledge,
+  formatKnowledgeEntry,
+  formatKnowledgeHits,
+  knowledgeRulesFor,
+  listKnowledgeSummaries,
+  searchKnowledge,
+} from './knowledge/index.js';
+export type {
+  KnowledgeDomain,
+  KnowledgeEntry,
+  KnowledgeHit,
+  KnowledgePitfall,
+  KnowledgeRule,
+  KnowledgeSource,
+} from './knowledge/index.js';
 export { profileProject } from './profile/profiler.js';
 export type { ProfileOptions } from './profile/profiler.js';
 export { configGet, configGetBoolean, configGetNumber, parseEmueraConfig } from './profile/config.js';

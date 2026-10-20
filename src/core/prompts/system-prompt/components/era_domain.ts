@@ -1,4 +1,5 @@
 import { type EraProjectProfile, getEraProjectProfile } from "@core/era/project-profile"
+import { KNOWLEDGE_ENTRIES, knowledgeRulesFor } from "@eraharness/knowledge/index"
 import type { SystemPromptContext } from "../types"
 
 /**
@@ -10,11 +11,18 @@ import type { SystemPromptContext } from "../types"
  * 2. **不假设工作区是完整 eraTW**：脚本可能只有几个，目录可能被改名，
  *    所以只写「模型不看代码就会做错」的通用硬事实，不写任何工程的具体统计。
  * 3. 探测不到 Emuera 工程时返回空串，普通项目完全不受影响。
+ *
+ * 编码铁律一节取自内嵌知识条目（`interpreter-encoding-discipline`，正本在
+ * shared-trae `knowledge/lazyloading/encoding-discipline.md`）——提示层与知识库
+ * 不复制正文，只消费 rules 级短句；完整判据经 MCP `lookup_knowledge` 可取。
  */
 
 function formatList(values: string[], empty: string): string {
 	return values.length > 0 ? values.join("、") : empty
 }
+
+/** 编码铁律取自内嵌知识库（正本：shared-trae knowledge/lazyloading/encoding-discipline.md） */
+const encodingRules = knowledgeRulesFor(KNOWLEDGE_ENTRIES, "interpreter-encoding-discipline")
 
 function buildEraDomainSection(profile: EraProjectProfile): string {
 	const rootLines = profile.relativeRoots
@@ -64,9 +72,8 @@ ${rootLines}
 - 标签与变量作用域：@ 开头是全局标签，$ 开头是仅在当前函数内可见的局部标签。
 
 ## 编码铁律
-- Emuera 靠 BOM 判断脚本编码。同目录的现有脚本带 BOM 就必须保持带 BOM，也不要整文件重写把 BOM 抹掉。
-- 不要在终端里用 PowerShell 的 Set-Content / Out-File 改脚本或 CSV，默认编码会写成 ANSI 或 UTF-16。
-- 新建脚本或 CSV 时，BOM 与换行风格要和同目录现有文件一致；没有可参照的兄弟文件时，脚本默认带 BOM、CSV 跟随同目录 CSV 的现状。
+${encodingRules.map((rule) => `- ${rule.text}`).join("\n")}
+- BOM 与换行风格和同目录现有文件一致；没有可参照的兄弟文件时，脚本默认带 BOM、CSV 跟随同目录 CSV 的现状。
 
 ## 编辑铁律
 - 超过 200KB 的脚本优先用 replace_in_file 做定点替换；这种大小的文件整篇重写极容易丢内容。

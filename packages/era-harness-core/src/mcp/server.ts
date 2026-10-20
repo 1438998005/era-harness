@@ -2,12 +2,14 @@
 /**
  * era harness MCP server（stdio 传输）。
  *
- * 暴露五个只读工具（工具表见 `知识库/10-harness选型调研.md` §10.5）：
+ * 暴露七个只读工具：
  *   - parse_emuera_log  日志 → 结构化诊断
  *   - profile_project   工程画像
  *   - read_erb_file     编码安全读取（UTF-8 BOM / CP932 自动探测转 UTF-8）
  *   - lookup_reference  Emuera 指令手册单条查询（在线优先，本地快照兜底）
  *   - search_reference  指令手册关键词检索（永远走内置索引，可离线）
+ *   - lookup_knowledge  内嵌纪律/机制知识单条查询（编码纪律 / 合并闸门 / 口上契约）
+ *   - search_knowledge  内嵌知识关键词检索（可离线）
  *
  * 依赖纪律见 `知识库/06-决策记录.md` D14：核心库（src/index.ts）保持零运行时依赖，
  * @modelcontextprotocol/sdk 只被本入口引用。
@@ -33,6 +35,16 @@ import {
   searchReference,
 } from '../reference/index.js';
 import type { OnlineMode, ReferenceSourceOptions } from '../reference/index.js';
+import {
+  KNOWLEDGE_ENTRIES,
+  KNOWLEDGE_ENTRY_COUNT,
+  KNOWLEDGE_SNAPSHOT_AT,
+  findKnowledge,
+  formatKnowledgeEntry,
+  formatKnowledgeHits,
+  listKnowledgeSummaries,
+  searchKnowledge,
+} from '../knowledge/index.js';
 import { ALLOWED_ROOTS_ENV, assertPathAllowed, parseAllowedRoots } from './guard.js';
 
 const server = new McpServer({ name: 'era-harness', version: '0.1.0' });
@@ -186,6 +198,70 @@ server.registerTool(
         snippet: hit.snippet,
       })),
       markdown: formatReferenceHits(hits, query),
+    });
+  },
+);
+
+server.registerTool(
+  'lookup_knowledge',
+  {
+    title: '查内嵌知识条目',
+    description: `按 id 取一条纪律/机制知识的完整内容：铁律、反模式（症状→根因→修法）与完整说明。内置 ${KNOWLEDGE_ENTRY_COUNT} 条（快照 ${KNOWLEDGE_SNAPSHOT_AT}）：解释器编码纪律、导入合并闸门 G1–G8、口上结构契约。涉及文件编码、更新合并、口上命名/分发的问题先查这里。`,
+    inputSchema: {
+      id: z
+        .string()
+        .describe(
+          '条目 id：interpreter-encoding-discipline / update-merge-gates / kojo-structure-contracts',
+        ),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  async ({ id }) => {
+    const entry = findKnowledge(KNOWLEDGE_ENTRIES, id);
+    if (!entry) {
+      return jsonResult({
+        error: `知识库没有 id 为 ${id} 的条目`,
+        available: listKnowledgeSummaries(KNOWLEDGE_ENTRIES),
+        hint: '用 search_knowledge 按关键词检索',
+      });
+    }
+    return jsonResult({
+      id: entry.id,
+      title: entry.title,
+      snapshotAt: entry.source.snapshotAt,
+      markdown: formatKnowledgeEntry(entry),
+    });
+  },
+);
+
+server.registerTool(
+  'search_knowledge',
+  {
+    title: '检索内嵌知识库',
+    description:
+      '在内嵌纪律/机制知识（铁律、反模式、正文）里关键词检索，返回命中条目与摘要，可离线。省略 query 时返回全部条目的目录。检索只给概要，取完整内容用 lookup_knowledge。',
+    inputSchema: {
+      query: z.string().optional().describe('关键词，如 BOM、乱码、RAND、口上、合并'),
+      limit: z.number().int().min(1).max(20).optional().describe('返回条数，默认 5'),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  async ({ query, limit }) => {
+    const library = { entries: KNOWLEDGE_ENTRY_COUNT, snapshotAt: KNOWLEDGE_SNAPSHOT_AT };
+    if (!query || !query.trim()) {
+      return jsonResult({ library, catalog: listKnowledgeSummaries(KNOWLEDGE_ENTRIES) });
+    }
+    const hits = searchKnowledge(KNOWLEDGE_ENTRIES, query, limit ?? 5);
+    return jsonResult({
+      library,
+      query,
+      hits: hits.map((hit) => ({
+        id: hit.entry.id,
+        title: hit.entry.title,
+        matchedIn: hit.field,
+        summary: hit.entry.summary,
+      })),
+      markdown: formatKnowledgeHits(hits, query),
     });
   },
 );
