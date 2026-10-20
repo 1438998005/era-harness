@@ -1,0 +1,30 @@
+# 环境信息
+Emuera.NET SkiaSharp 1824+v24+EMv18+EEv56+Skiav16
+
+# 变体
+eraThe World【画蛇添足版】 0.00
+
+# 日志
+
+如果出现了错误，请根据目录下的报错指导文件进行报错
+注意：外部插件功能已启用。因该功能引发的问题不在Emuera支持范围内
+已记录 2262 个文件到懒加载索引表中
+警告Lv2:口上・メッセージ関連\個人口上\053 Sample\サンプル口上ver,0.01\M_KOJO_K53_functions.ERB:第196行:无法解析的标识符"兒童人数"
+FOR LOCAL, 1, MIN(CFLAG:53:兒童人数+1,MAXCHILD)
+警告Lv2:口上・メッセージ関連\個人口上\053 Sample\サンプル口上ver,0.01\M_KOJO_K53_functions.ERB:第200行:在REPEAT, FOR, WHILE, DO语法以外使用了"CONTINUE"
+			CONTINUE
+警告Lv2:口上・メッセージ関連\個人口上\053 Sample\サンプル口上ver,0.01\M_KOJO_K53_functions.ERB:第349行:缺少"FOR"对应的"NEXT"
+NEXT
+警告Lv2:口上・メッセージ関連\個人口上\011 Sample\サンプル口上ver,0.01\M_KOJO_K11_イベント.ERB:第92行:无法解析的行
+	DAY:2 != 4 &&
+警告Lv2:口上・メッセージ関連\個人口上\011 Sample\サンプル口上ver,0.01\M_KOJO_K11_イベント.ERB:第93行:以命令开始的行在命令后有半角空格和水平制表符以外的文字
+	GROUPMATCH(CFLAG:[[サンプル]]:現在位置, OMANEKIBEYA(), P512サンプル宅・寝室) &&
+警告Lv2:口上・メッセージ関連\個人口上\011 Sample\サンプル口上ver,0.01\M_KOJO_K11_イベント.ERB:第4361行:角色一维数组变量"CHILD_SEX"的参数过多
+			CALL PRINT_DIALOGUE, @"[dialogue omitted]"
+警告Lv1:口上・メッセージ関連\個人口上\011 Sample\サンプル口上ver,0.01\M_KOJO_K11_イベント.ERB:第41行:#行只能在函数声明后立刻使用
+#LOCALSIZE 1
+警告Lv2:口上・メッセージ関連\個人口上\011 Sample\サンプル口上ver,0.01\M_KOJO_K11_日常系コマンド.ERB:第109行:无法解析的标识符"SEARCH_UNIQUE_COM_サンプル"
+CLIENT_ID = SEARCH_UNIQUE_COM_サンプル()
+已修改的文件：16
+文件读取完成。耗时：1.95 秒
+字典加载完毕 用时35毫秒
