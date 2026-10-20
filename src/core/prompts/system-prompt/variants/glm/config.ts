@@ -58,6 +58,7 @@ export const config = createVariant(ModelFamily.GLM)
 		ClineDefaultTool.LOG_DIAGNOSE,
 		ClineDefaultTool.ERA_SYMBOLS,
 		ClineDefaultTool.ERA_REFERENCE,
+		ClineDefaultTool.ERA_KNOWLEDGE,
 		ClineDefaultTool.RUN_GAME,
 	)
 	.placeholders({

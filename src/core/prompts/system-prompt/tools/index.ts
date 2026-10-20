@@ -4,6 +4,7 @@ export * from "./apply_patch"
 export * from "./ask_followup_question"
 export * from "./attempt_completion"
 
+export * from "./era_knowledge"
 export * from "./era_reference"
 export * from "./era_symbols"
 export * from "./execute_command"
