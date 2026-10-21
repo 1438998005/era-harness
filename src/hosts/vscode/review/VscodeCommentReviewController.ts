@@ -51,15 +51,18 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 		}
 
 		// Register reply command - this is called when user clicks the Reply button
+		// ⚠️ id 必须和 package.json contributes.commands/menus 完全一致：菜单里挂的是
+		// `era-harness.reviewComment.reply`，而这里曾经写成 fork 前的 `cline-chinese.*`，
+		// 结果评论区的按钮点了只会报 command not found（闸门 1g 盯这类不一致）。
 		this.disposables.push(
-			vscode.commands.registerCommand("cline-chinese.reviewComment.reply", async (reply: vscode.CommentReply) => {
+			vscode.commands.registerCommand("era-harness.reviewComment.reply", async (reply: vscode.CommentReply) => {
 				await this.handleReply(reply)
 			}),
 		)
 
 		// Register add to chat command - sends the conversation to Cline's main chat
 		this.disposables.push(
-			vscode.commands.registerCommand("cline-chinese.reviewComment.addToChat", async (thread: vscode.CommentThread) => {
+			vscode.commands.registerCommand("era-harness.reviewComment.addToChat", async (thread: vscode.CommentThread) => {
 				await this.handleAddToChat(thread)
 			}),
 		)
@@ -70,18 +73,6 @@ export class VscodeCommentReviewController extends CommentReviewController imple
 	 */
 	setOnReplyCallback(callback: OnReplyCallback): void {
 		this.onReplyCallback = callback
-	}
-
-	/**
-	 * Ensure the comments.openView setting is set to "never" to prevent
-	 * the Comments panel from auto-opening when comments are added.
-	 */
-	async ensureCommentsViewDisabled(): Promise<void> {
-		const config = vscode.workspace.getConfiguration("comments")
-		const currentValue = config.get<string>("openView")
-		if (currentValue !== "never") {
-			await config.update("openView", "never", vscode.ConfigurationTarget.Global)
-		}
 	}
 
 	/**

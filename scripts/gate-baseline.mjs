@@ -293,6 +293,106 @@ function push(name, detail, status, problems) {
 	)
 }
 
+// 1g) 命令注册一致性：package.json 声明 ⇄ menus 引用 ⇄ registerCommand 注册，三处必须对得上。
+//     实测踩过：reviewComment.reply / addToChat 在 package.json 里声明成 era-harness.*，
+//     代码却还注册着 fork 前的 cline-chinese.*（改名没改全）——评论区按钮点了只报
+//     "command not found"，而 tsc / lint / 测试全绿（没有一处检查字符串 id）。
+{
+	const problems = []
+	const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
+	const declared = new Set((pkg.contributes?.commands ?? []).map((command) => command.command))
+	const registrySrc = fs.readFileSync(path.join(ROOT, "src/registry.ts"), "utf8")
+	const constToId = new Map()
+	for (const match of registrySrc.matchAll(/(\w+):\s*prefix\s*\+\s*"\.([\w.-]+)"/g)) {
+		constToId.set(match[1], `${pkg.name}.${match[2]}`)
+	}
+	// 内部命令：只由代码 / 编辑器 CodeAction / 菜单调用，不需要命令面板条目
+	const INTERNAL_ONLY = new Set([`${pkg.name}.worktreesButtonClicked`, `${pkg.name}.fixWithCline`])
+
+	const files = []
+	const walk = (dir) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			if (entry.isDirectory()) {
+				if (["node_modules", "dist", "generated"].includes(entry.name)) continue
+				walk(path.join(dir, entry.name))
+			} else if (entry.name.endsWith(".ts")) {
+				files.push(path.join(dir, entry.name))
+			}
+		}
+	}
+	walk(path.join(ROOT, "src"))
+
+	const registered = new Map()
+	for (const file of files) {
+		const text = fs.readFileSync(file, "utf8")
+		for (const match of text.matchAll(/registerCommand\(\s*"([\w.-]+)"/g)) {
+			registered.set(match[1], file)
+		}
+		for (const match of text.matchAll(/registerCommand\(\s*commands\.(\w+)/g)) {
+			const id = constToId.get(match[1])
+			if (id) registered.set(id, file)
+		}
+	}
+
+	for (const id of declared) {
+		if (!registered.has(id)) {
+			problems.push(`package.json 声明了但全仓没有 registerCommand：${id}`)
+		}
+	}
+	for (const [id, file] of registered) {
+		if (!id.startsWith(`${pkg.name}.`) || declared.has(id) || INTERNAL_ONLY.has(id)) {
+			continue
+		}
+		problems.push(`registerCommand 注册了但 package.json 没声明：${id}（${path.relative(ROOT, file)}）`)
+	}
+
+	push(
+		"命令注册一致性",
+		problems.length === 0 ? `${declared.size} 条声明全部有注册` : `${problems.length} 处不一致`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
+// 1h) 分发边界：`.vscodeignore` 是**显式黑名单**，漏一个文件名就等于把开发资料发给用户。
+//     实证：AGENTS.md（仓库协作说明）从 3.86 一路被打进 vsix 到 3.89.1 才被发现；
+//     本地审计日志 `*-out.txt` 也差点跟着进去（`*.log` 已排，txt 没有）。
+{
+	const problems = []
+	const ignoreRaw = fs.readFileSync(path.join(ROOT, ".vscodeignore"), "utf8")
+	const patterns = ignoreRaw
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && !line.startsWith("#") && !line.startsWith("!"))
+	const isIgnored = (name) =>
+		patterns.some((pattern) => {
+			if (pattern === name) return true
+			const star = pattern.indexOf("*")
+			if (star < 0) return false
+			const before = pattern.slice(0, star)
+			const after = pattern.slice(star + 1)
+			return name.startsWith(before) && name.endsWith(after)
+		})
+
+	for (const mustIgnore of ["AGENTS.md"]) {
+		if (!isIgnored(mustIgnore)) {
+			problems.push(`${mustIgnore} 没被 .vscodeignore 排除：会随 vsix 发给用户`)
+		}
+	}
+	// 根目录的零散文本文件：排除 LICENSE.txt（vsce 自动生成）与忽略规则已覆盖的
+	for (const name of fs.readdirSync(ROOT)) {
+		if (!name.endsWith(".txt") || name === "LICENSE.txt") continue
+		if (!isIgnored(name)) problems.push(`根目录 ${name} 会进 vsix（删掉或写进 .vscodeignore）`)
+	}
+
+	push(
+		"分发边界",
+		problems.length === 0 ? "AGENTS.md 与本地日志不随包分发" : `${problems.length} 个文件会混进 vsix`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
 // 2) 核心库测试（用例数会随批次变，这就是它不该手抄的原因）
 {
 	const result = run(NPM, ["test"], CORE)

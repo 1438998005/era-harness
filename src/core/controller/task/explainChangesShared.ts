@@ -76,8 +76,8 @@ export async function setupCommentController(
 	const commentController = HostProvider.get().createCommentReviewController()
 	commentController.clearAllComments()
 
-	// Ensure the Comments panel won't auto-open when we add comments
-	await commentController.ensureCommentsViewDisabled()
+	// 注：这里以前会调 ensureCommentsViewDisabled() 把用户全局的 comments.openView 改成 "never"，
+	// 卸载后残留、而且影响用户所有项目——和曾经自动写 files.associations 是同一类问题，已删除。
 
 	// Set up reply handler for conversations
 	commentController.setOnReplyCallback(async (filePath, startLine, endLine, replyText, existingComments, onChunk) => {

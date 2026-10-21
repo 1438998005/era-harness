@@ -3,6 +3,26 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.89.2 — 2026-10-21
+
+「举一反三」审计：把 3.89.1 修的三类问题（读错 API 层级／中央映射漏登记／能力未自述）在整仓扫了一遍，又抓到三处同类。
+
+### 修复
+
+- **评论区按钮点了没反应**：`reviewComment.reply` / `reviewComment.addToChat` 在 package.json 和菜单里声明为 `era-harness.*`，代码却还注册着 fork 前的 `cline-chinese.*`（改名没改全）。VS Code 按声明的 id 派发，点按钮只会报 command not found；tsc / lint / 测试全绿，因为没有任何一处检查字符串 id。现已对齐。
+- **扩展会悄悄改你的全局设置**：`explainChanges` 建评论前会调 `ensureCommentsViewDisabled()`，把用户级 `comments.openView` 改成 `"never"`——影响你的所有项目、禁用卸载后也不会还原。与 3.89.0 修的 `files.associations` 是同一类问题，已整段删除（含抽象方法），不再写任何编辑器设置。
+- **自动批准设置在多窗口下静默丢失**：`updateAutoApprovalSettings` 只接受版本号更高的请求，旧版本直接丢弃且不回推状态——界面勾上了、后端其实没变。现在丢弃时打一行 warn，并把真实状态推回界面（勾选框会回弹，不再骗人）。
+
+### 新增
+
+- **第十一道闸门「命令注册一致性」**：`contributes.commands` 声明 ⇄ `registerCommand` 注册（直写 + `commands.X` 常量两种写法）必须一一对上；反向也查「注册了却没声明」（CodeAction／内部命令走白名单）。负向验证：把 reply 改回 `cline-chinese.*` → 立刻红灯并点名缺失的命令。
+- **第十二道闸门「分发边界」**：`.vscodeignore` 是显式黑名单，漏一个名字就会把开发资料发给用户——实测 `AGENTS.md` 从 3.86 一路被打进 vsix 到 3.89.1 才被发现；本地审计日志 `*-out.txt` 也差点跟着进去。现在 `AGENTS.md` / `*-out.txt` / `gate-*.txt` 均不进包，根目录零散文本文件未覆盖就红灯。
+
+### 验证
+
+- `npm run gate`：十二道全绿（23 条命令声明全部有注册；AGENTS.md 与本地日志不随包分发）
+- `tsc --noEmit` 0 错；biome 通过；`test/update` 240/240；核心库 126 例
+
 ## 3.89.1 — 2026-10-21
 
 3.89.0 装上后的三处实测反馈修复。
