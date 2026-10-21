@@ -497,7 +497,8 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 						<ActionRow
 							description="检查上游 → 扫本地改动 → 生成计划 → 弹窗确认后才写入；被覆盖或删除的原文件进 _备份/update_backup_*，可一键撤销。"
 							title="更新 eraTW（跟社区最新版）">
-							<Button onClick={() => void runEraCommand("era-harness.updateGame")} size="sm" variant="secondary">
+							<Button onClick={() => void runEraCommand("era-harness.updateGame")} variant="default">
+								<i className="codicon codicon-cloud-download text-sm" />
 								检查并更新
 							</Button>
 						</ActionRow>
@@ -505,15 +506,16 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 							description="同时装了 sasami.erabasic？可把 .erb/.erh 的语法高亮交给它（会写入用户级 files.associations，可随时收回）。未安装时点「让 sasami 接管」会提示。"
 							title="EraBasic 语法归属">
 							<Button
+								className="font-medium"
 								onClick={() => void runEraCommand("eraHarness.erabasic.yieldToSasami")}
-								size="sm"
-								variant="secondary">
-								让 sasami 接管
+								variant="default">
+								<i className="codicon codicon-arrow-swap text-sm" />让 sasami 接管
 							</Button>
 							<Button
+								className="text-description"
 								onClick={() => void runEraCommand("eraHarness.erabasic.reclaimFiles")}
-								size="sm"
-								variant="outline-primary">
+								variant="ghost">
+								<i className="codicon codicon-history text-sm" />
 								收回给我
 							</Button>
 						</ActionRow>
