@@ -81,10 +81,16 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 
 	/** sasami.erabasic 声明的第一个语言 id（让位时写到它的语言上，不猜） */
 	function erabasicLanguageId(): string | undefined {
+		// ⚠️ `Extension.packageJSON` 是整份 package.json，语言声明在 `contributes.languages` 下；
+		// 顶层 `languages` 只是旧写法的兼容分支。早期只读顶层 → 永远拿不到 id，让位命令必定失败。
 		const pkg = vscode.extensions.getExtension(ERABASIC_EXTENSION_ID)?.packageJSON as
-			| { languages?: Array<{ id?: string }> }
+			| {
+					languages?: Array<{ id?: string }>
+					contributes?: { languages?: Array<{ id?: string }> }
+			  }
 			| undefined
-		return pkg?.languages?.find((entry) => typeof entry.id === "string")?.id
+		const languages = pkg?.contributes?.languages ?? pkg?.languages
+		return languages?.find((entry) => typeof entry.id === "string")?.id
 	}
 
 	/**

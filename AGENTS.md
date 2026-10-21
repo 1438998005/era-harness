@@ -38,7 +38,7 @@
 **一条命令现算，⛔ 在文档里手抄用例数**（2026-10-21 实证：209 与 229 差了 20 例没人发现）：
 
 ```
-npm run gate          # 九道快闸门（用例登记／知识候选池／设置目录完整性／生成物新鲜度／工具登记／语言归属声明／核心库测试／typecheck／更新回归）
+npm run gate          # 十道快闸门（用例登记／知识候选池／设置目录完整性／生成物新鲜度／工具登记／语言归属声明／自动批准映射／核心库测试／typecheck／更新回归）
 npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 ```
 
@@ -69,7 +69,8 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 | `src/knowledge/data/<新条目>.ts` | `knowledge-candidates.json` 立候选（面／稳定性／裁定）→ `data/index.ts`（import＋数组登记＋必要时 `KNOWLEDGE_SNAPSHOT_AT`）→ `test/knowledge.test.ts` 条目数期望＋**检索排序锁** → `NOTICE-knowledge-sources.md` 来源行；要进提示层再加 `era_domain.ts` 的 `injectedKnowledgeIds` **并同步改候选池 `consumption.resident`**（两处不一致由 `npm run gate` 的候选池核对报出）。**条目目录一律从 `KNOWLEDGE_ENTRIES` 现算**，⛔ 手写清单 |
 | `src/core/update/` 任一闸门 | `plan.ts` 接线 → `describe.ts` 人话文案 → `test/update/*.spec`（**新 spec 必须登记进 `run.mjs` 的 SPECS**）；新 `UpdateStage` 阶段要补 `src/hosts/vscode/updateGame.ts` 的 exhaustive switch（漏了编译直接报错，别绕过）。⚠️ `describePlan` 的确认弹窗只渲染 `lines`，只挂 `text`/`gateNotes` 用户看不见 |
 | 更新流程的新判据（非 G1–G8） | 放 `src/core/update/version.ts` 一类的**纯函数模块**（无 IO、读不到就如实不报），由 `plan.ts` 装配进 `UpdatePlan`；IO（读 `DIM.ERH` 等）留在 `service.ts` |
-| 新增扩展原生工具（`era_knowledge` 是样板） | 七处成套：`src/shared/tools.ts` 枚举＋`READ_ONLY_TOOLS`；`system-prompt/tools/<名>.ts` spec；`tools/index.ts` export；`tools/init.ts` spread；**12 个** `variants/*/config.ts` 放行；`task/tools/handlers/<驼峰>ToolHandler.ts`；`ToolExecutorCoordinator.ts` 注册。参数名若不在 `src/core/assistant-message/index.ts` 的 `toolParamNames` 里 ⇒ 加它（⛔ 复用泛化的 `id`） |
+| 新增扩展原生工具（`era_knowledge` 是样板） | 八处成套：`src/shared/tools.ts` 枚举＋`READ_ONLY_TOOLS`；`system-prompt/tools/<名>.ts` spec；`tools/index.ts` export；`tools/init.ts` spread；**12 个** `variants/*/config.ts` 放行；`task/tools/handlers/<驼峰>ToolHandler.ts`；`ToolExecutorCoordinator.ts` 注册；**`task/tools/autoApprove.ts` 映射**（只读工具进 `ERA_READ_ONLY_TOOLS`，否则 switch 落到 `return false`，用户勾满自动批准也照样弹确认，gate「自动批准映射」会红）。参数名若不在 `src/core/assistant-message/index.ts` 的 `toolParamNames` 里 ⇒ 加它（⛔ 复用泛化的 `id`） |
+| 新增**用户可见的命令 / 按钮 / 一键流程**（如 `era-harness.updateGame`） | 在 `src/core/prompts/system-prompt/components/era_domain.ts` 的「本扩展自带的能力」里加一行，写清入口位置与它**代劳**了哪些步骤。不写的话，模型会认真背手册、从头教用户手工做一遍，**完全不知道插件自己就能干**（3.89.1 实测：用户问怎么更新，模型回了下载 zip + 算 hash 的手工流程） |
 | 核心库任何导出 | `packages/era-harness-core/src/index.ts` barrel＋`npm test`＋根 `npm run compile` |
 | 新增核心库**测试文件** | ⚠️ `package.json` 的 `test` 脚本是**显式文件清单不是 glob** ⇒ 不登记则用例根本不会被跑 |
 | 设置页的开关文案（`webview-ui/.../FeatureSettingsSection.tsx` 的 `FeatureToggle[]`、`locales/zh-CN/settings.json`）、`src/shared/AutoApprovalSettings.ts`（自动批准子开关）或 `package.json` 的 `contributes.configuration` | 跑 `cd packages/era-harness-core && npm run build:settings` 重生成 `src/settings/data/*.generated.ts`（**⛔ 手改生成物**），并到 `data/overrides.ts` / `UNCOVERED_SETTINGS` 补「关掉会怎样」。`npm run gate` 的「生成物新鲜度」「设置目录完整性」两道会红 |

@@ -10,6 +10,21 @@ import { getCwd, getDesktopDir, isLocatedInPath, isLocatedInWorkspace } from "@/
 /** 会落盘的工具，只有这些受身份范围约束 */
 const EDIT_TOOLS: ClineDefaultTool[] = [ClineDefaultTool.FILE_NEW, ClineDefaultTool.FILE_EDIT, ClineDefaultTool.APPLY_PATCH]
 
+/**
+ * 只读的 era 原生工具：语义等同 read_file，归入「读取项目文件 / 读取所有文件」。
+ *
+ * ⚠️ 这五个工具都调 `shouldAutoApproveToolWithPath`，但下面那个 switch 没有它们的 case 时
+ * 会落到 `return false`——于是**永远弹人工确认**，用户在界面上勾得再满也没用。
+ * 新增原生工具时必须同步往这里加（或给 switch 补 case）。
+ */
+const ERA_READ_ONLY_TOOLS: ClineDefaultTool[] = [
+	ClineDefaultTool.ERA_KNOWLEDGE,
+	ClineDefaultTool.ERA_REFERENCE,
+	ClineDefaultTool.ERA_SYMBOLS,
+	ClineDefaultTool.SETTING_HELP,
+	ClineDefaultTool.LOG_DIAGNOSE,
+]
+
 export class AutoApprove {
 	private stateManager: StateManager
 	// Cache for workspace paths - populated on first access and reused for the task lifetime
@@ -45,7 +60,11 @@ export class AutoApprove {
 	// Check if the tool should be auto-approved based on the settings
 	// Returns bool for most tools, and tuple for tools with nested settings
 	shouldAutoApproveTool(toolName: ClineDefaultTool): boolean | [boolean, boolean] {
+		const isEraReadOnly = ERA_READ_ONLY_TOOLS.includes(toolName)
 		if (this.stateManager.getGlobalSettingsKey("yoloModeToggled")) {
+			if (isEraReadOnly) {
+				return [true, true]
+			}
 			switch (toolName) {
 				case ClineDefaultTool.FILE_READ:
 				case ClineDefaultTool.LIST_FILES:
@@ -68,6 +87,9 @@ export class AutoApprove {
 		}
 
 		if (this.stateManager.getGlobalSettingsKey("autoApproveAllToggled")) {
+			if (isEraReadOnly) {
+				return [true, true]
+			}
 			switch (toolName) {
 				case ClineDefaultTool.FILE_READ:
 				case ClineDefaultTool.LIST_FILES:
@@ -89,6 +111,10 @@ export class AutoApprove {
 		}
 
 		const autoApprovalSettings = this.stateManager.getGlobalSettingsKey("autoApprovalSettings")
+
+		if (isEraReadOnly) {
+			return [autoApprovalSettings.actions.readFiles, autoApprovalSettings.actions.readFilesExternally ?? false]
+		}
 
 		switch (toolName) {
 			case ClineDefaultTool.FILE_READ:

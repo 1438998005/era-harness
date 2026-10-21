@@ -260,6 +260,39 @@ function push(name, detail, status, problems) {
 	)
 }
 
+// 1f) 自动批准映射：调了 shouldAutoApproveToolWithPath 的原生工具，必须在 autoApprove.ts 里映射。
+//     不映射 → switch 落到 return false → 用户把「自动批准」的选项勾满也仍然每次弹人工确认。
+//     （2026-10-21 实测：era_knowledge 就是这个问题，用户以为权限全开就什么都不用点。）
+{
+	const problems = []
+	const handlersDir = path.join(ROOT, "src/core/task/tools/handlers")
+	const autoSrc = fs.readFileSync(path.join(ROOT, "src/core/task/tools/autoApprove.ts"), "utf8")
+	// 有意保持人工确认的工具：会弹游戏窗口、让引擎重写自己的文件
+	const INTENTIONALLY_MANUAL = new Set(["RUN_GAME"])
+	const checked = []
+	for (const file of fs.readdirSync(handlersDir)) {
+		if (!file.endsWith(".ts")) continue
+		const text = fs.readFileSync(path.join(handlersDir, file), "utf8")
+		if (!text.includes("shouldAutoApproveToolWithPath")) continue
+		// 显式传了别的工具名（如 summarize_task 借 FILE_READ）就不归本文件管
+		if (text.includes("shouldAutoApproveToolWithPath(ClineDefaultTool.")) continue
+		const nameMatch = /readonly name = ClineDefaultTool\.(\w+)/.exec(text)
+		if (!nameMatch) continue
+		const tool = nameMatch[1]
+		if (INTENTIONALLY_MANUAL.has(tool)) continue
+		checked.push(tool)
+		if (!autoSrc.includes(`ClineDefaultTool.${tool}`)) {
+			problems.push(`${file} 的 ${tool} 在 autoApprove.ts 没有映射（勾满自动批准也会弹确认）`)
+		}
+	}
+	push(
+		"自动批准映射",
+		problems.length === 0 ? `${checked.length} 个工具都有映射` : `${problems.length} 个未映射`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
 // 2) 核心库测试（用例数会随批次变，这就是它不该手抄的原因）
 {
 	const result = run(NPM, ["test"], CORE)
