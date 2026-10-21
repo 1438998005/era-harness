@@ -3,6 +3,37 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.89.1 — 2026-10-21
+
+3.89.0 装上后的三处实测反馈修复。
+
+### 修复
+
+- **「让位给 sasami.erabasic」必定失败**：弹「没有找到 sasami.erabasic，或它没有声明语言 id」。
+  根因是读错了层级——`Extension.packageJSON` 是**整份** package.json，语言声明在
+  `contributes.languages` 下，而代码只读了顶层 `languages`，所以永远拿到 `undefined`。
+  实测 `sasami.erabasic@0.4.0`：修复前 `undefined`，修复后 `erabasic`（它的 `.erb/.erh` 就绑在这个 id 上）。
+- **自动批准对 era 原生只读工具不生效**：用户把「读取全部 / 编辑全部 / 所有命令 / MCP / 身份」全勾了，
+  查内置知识库（`era_knowledge`）时**仍然弹批准**。根因：`AutoApprove.shouldAutoApproveTool`
+  的 switch 没有这些工具的 case，直接落到 `return false`。受影响的还有 `era_reference` /
+  `era_symbols` / `setting_help` / `log_diagnose`。现在按「读取项目文件 / 读取所有文件」同档处理；
+  `run_game` **仍保持人工确认**（它会弹游戏窗口、让引擎重写自己的文件），这是有意为之。
+- **模型不知道自己有「更新 eraTW」按钮**：用户问怎么更新，模型只能背手册（下 zip、算 hash、分类覆盖），
+  完全不提扩展自带的一键更新。现在领域提示词常驻一节「本扩展自带的能力」，要求先给按钮入口
+  （侧边栏标题栏下载图标 / 命令 `era harness: 更新 eraTW（跟社区最新版）`）及其覆盖的步骤，
+  再讲手工兜底；并明确模型不能代替用户点、也不能声称已代劳。
+
+### 新增
+
+- **第十道验收闸门「自动批准映射」**：凡是调 `shouldAutoApproveToolWithPath` 的处理器，
+  其工具名必须在 `autoApprove.ts` 里有映射，否则即红——不映射的后果是「勾满了也没用」，
+  而这种 bug 不会让测试变红。`RUN_GAME` 在白名单里（有意保留人工确认）现为显式记录。
+
+### 验证
+
+- `npm run gate`：十道全绿（新增「自动批准映射 11 个工具都有映射」）
+- 插件 `tsc --noEmit` 0 错；biome 通过；`test/update` 240/240
+
 ## 3.89.0 — 2026-10-21
 
 插件开始「解释自己」：新增内置设置目录与 `setting_help` 工具，使用者问「这个开关有什么用」时
