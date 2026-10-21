@@ -58,7 +58,7 @@ export async function orchestrateCommandExecution(
 	const {
 		timeoutSeconds,
 		onOutputLine,
-		showShellIntegrationSuggestion,
+		getShellIntegrationNotice,
 		onProceedWhileRunning,
 		terminalType = "vscode",
 		suppressUserInteraction = false,
@@ -464,7 +464,11 @@ export async function orchestrateCommandExecution(
 	})
 
 	process.once("no_shell_integration", async () => {
-		if (showShellIntegrationSuggestion) {
+		const noticeMode = getShellIntegrationNotice?.() ?? "warn"
+		if (noticeMode === "silent") {
+			return
+		}
+		if (noticeMode === "suggest") {
 			await say("shell_integration_warning_with_suggestion")
 		} else {
 			await say("shell_integration_warning")

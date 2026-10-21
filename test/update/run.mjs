@@ -40,6 +40,10 @@ const SPECS = [
 	"describe.spec.ts",
 	"reference.spec.ts",
 	"game-runner.spec.ts",
+	"shell-notice.spec.ts",
+	"reasoning-support.spec.ts",
+	"global-memory.spec.ts",
+	"version-check.spec.ts",
 ]
 
 const aliasResolverPlugin = {

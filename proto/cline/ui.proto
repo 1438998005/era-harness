@@ -284,4 +284,10 @@ service UiService {
 
   // 读取 EraBasic 语言归属（设置页二选一高亮用）
   rpc getEraBasicLanguageOwner(EmptyRequest) returns (String);
+
+  // 读取全局记忆（JSON 文档）
+  rpc getGlobalMemory(EmptyRequest) returns (String);
+
+  // 写入/清空全局记忆（JSON 文档；entries 为空即清空）
+  rpc updateGlobalMemory(StringRequest) returns (Empty);
 }

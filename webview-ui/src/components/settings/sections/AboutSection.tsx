@@ -1,7 +1,7 @@
 import { VSCodeButton, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 import { useTranslation } from "react-i18next"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { StateServiceClient } from "@/services/grpc-client"
+import { StateServiceClient, UiServiceClient } from "@/services/grpc-client"
 import Section from "../Section"
 
 interface AboutSectionProps {
@@ -22,13 +22,34 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 		}
 	}
 
+	const checkForUpdates = async () => {
+		try {
+			await UiServiceClient.runCommand({ value: "era-harness.checkForUpdates" })
+		} catch (error) {
+			console.error("Failed to check for updates:", error)
+		}
+	}
+
 	return (
 		<div>
 			{renderSectionHeader("about")}
 			<Section>
 				<div className="flex px-4 flex-col gap-2">
 					<h2 className="text-lg font-semibold">era harness v{version}</h2>
-					<p className="m-0">eraTW 画蛇添足版（R18）开发助手。仅本地 sideload 使用，不进入任何在线分发渠道。</p>
+					<p className="m-0">
+						eraTW 画蛇添足版（R18）开发助手。不发布到插件市场，仅通过本仓库 Release 分发；也可以直接 sideload 本地
+						vsix。
+					</p>
+
+					<div className="flex items-center gap-2">
+						<VSCodeButton appearance="secondary" onClick={checkForUpdates}>
+							检查更新
+						</VSCodeButton>
+						<VSCodeLink href="https://github.com/1438998005/era-harness/releases/latest">Release 页面</VSCodeLink>
+					</div>
+					<p className="m-0 text-xs text-description">
+						只有你点「检查更新」才会联网检查；发现有新版本后，还要再点「下一步：下载并安装」才会下载安装，装完需重载窗口生效。启动时不会自动检查。
+					</p>
 
 					<h3 className="text-md font-semibold mt-2">本地版说明</h3>
 					<p className="m-0">

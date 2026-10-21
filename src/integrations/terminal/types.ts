@@ -6,6 +6,7 @@
 
 import type { ClineToolResponseContent } from "@shared/messages"
 import type { EventEmitter } from "events"
+import type { ShellNoticeMode } from "./shellNotice"
 
 // =============================================================================
 // Terminal Process Types
@@ -282,17 +283,6 @@ export interface BackgroundCommand {
 // =============================================================================
 
 /**
- * Tracker for shell integration warnings to determine when to show background terminal suggestion.
- * Used internally by CommandExecutor to track warning frequency.
- */
-export interface ShellIntegrationWarningTracker {
-	/** Timestamps of recent shell integration warnings */
-	timestamps: number[]
-	/** Timestamp when the suggestion was last shown */
-	lastSuggestionShown?: number
-}
-
-/**
  * Represents an active background command that can be cancelled
  * @deprecated Use BackgroundCommand instead
  */
@@ -392,8 +382,12 @@ export interface OrchestrationOptions {
 	timeoutSeconds?: number
 	/** Callback to track output lines for background command tracking */
 	onOutputLine?: (line: string) => void
-	/** Whether to show shell integration warning with suggestion */
-	showShellIntegrationSuggestion?: boolean
+	/**
+	 * 收到 no_shell_integration 时调用，决定这次提示的强度：
+	 * silent（冷却期内不打扰）/ warn（普通提示）/ suggest（建议切后台终端）。
+	 * 只有真实发生降级才调用，命令开始时不计账。
+	 */
+	getShellIntegrationNotice?: () => ShellNoticeMode
 	/**
 	 * Callback invoked when user clicks "Proceed While Running".
 	 * Used to start background command tracking in the terminal manager.

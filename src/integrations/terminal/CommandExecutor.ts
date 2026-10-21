@@ -17,13 +17,13 @@ import { findLastIndex } from "@shared/array"
 import { ClineToolResponseContent } from "@shared/messages"
 import { Logger } from "@/shared/services/Logger"
 import { orchestrateCommandExecution } from "./CommandOrchestrator"
+import { createShellNoticeState, resolveShellNoticeMode, type ShellNoticeMode, type ShellNoticeState } from "./shellNotice"
 import { StandaloneTerminalManager } from "./standalone/StandaloneTerminalManager"
 import type {
 	CommandExecutionOptions,
 	CommandExecutorCallbacks,
 	CommandExecutorConfig,
 	ITerminalManager,
-	ShellIntegrationWarningTracker,
 	TerminalProcessResultPromise,
 } from "./types"
 
@@ -49,10 +49,7 @@ export class CommandExecutor {
 	private wasCancelledExternally = false
 
 	// Track shell integration warnings to determine when to show background terminal suggestion
-	private shellIntegrationWarningTracker: ShellIntegrationWarningTracker = {
-		timestamps: [],
-		lastSuggestionShown: undefined,
-	}
+	private shellIntegrationWarningTracker: ShellNoticeState = createShellNoticeState()
 
 	constructor(config: CommandExecutorConfig, callbacks: CommandExecutorCallbacks) {
 		this.cwd = config.cwd
@@ -140,7 +137,7 @@ export class CommandExecutor {
 						return { logFilePath: backgroundCmd.logFilePath }
 					}
 				: undefined,
-			showShellIntegrationSuggestion: this.shouldShowBackgroundTerminalSuggestion(),
+			getShellIntegrationNotice: () => this.resolveShellIntegrationNotice(),
 			terminalType: useStandalone ? "standalone" : "vscode",
 		})
 
@@ -232,37 +229,14 @@ export class CommandExecutor {
 	}
 
 	/**
-	 * Determines whether to show the background terminal suggestion.
-	 * Shows suggestion if there have been 3+ shell integration warnings in the last hour,
-	 * and we haven't shown the suggestion in the last hour.
+	 * 决定这次 shell 集成降级提示的强度。
 	 *
-	 * @returns true if the suggestion should be shown, false otherwise
+	 * 只会在真正收到 no_shell_integration 时调用（不是命令开始），所以
+	 * 「用户勾满自动批准、连跑三条正常命令」不会误触发「建议切后台」。
 	 */
-	private shouldShowBackgroundTerminalSuggestion(): boolean {
-		const oneHourAgo = Date.now() - 60 * 60 * 1000
-
-		// Clean old timestamps (older than 1 hour)
-		this.shellIntegrationWarningTracker.timestamps = this.shellIntegrationWarningTracker.timestamps.filter(
-			(ts) => ts > oneHourAgo,
-		)
-
-		// Add current warning
-		this.shellIntegrationWarningTracker.timestamps.push(Date.now())
-
-		// Check if we've shown suggestion recently (within last hour)
-		if (
-			this.shellIntegrationWarningTracker.lastSuggestionShown &&
-			Date.now() - this.shellIntegrationWarningTracker.lastSuggestionShown < 60 * 60 * 1000
-		) {
-			return false
-		}
-
-		// Show suggestion if 3+ warnings in last hour
-		if (this.shellIntegrationWarningTracker.timestamps.length >= 3) {
-			this.shellIntegrationWarningTracker.lastSuggestionShown = Date.now()
-			return true
-		}
-
-		return false
+	private resolveShellIntegrationNotice(): ShellNoticeMode {
+		const resolved = resolveShellNoticeMode(Date.now(), this.shellIntegrationWarningTracker)
+		this.shellIntegrationWarningTracker = resolved.state
+		return resolved.mode
 	}
 }

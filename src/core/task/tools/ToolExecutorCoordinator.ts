@@ -13,6 +13,7 @@ import { EraReferenceToolHandler } from "./handlers/EraReferenceToolHandler"
 import { EraSymbolsToolHandler } from "./handlers/EraSymbolsToolHandler"
 import { ExecuteCommandToolHandler } from "./handlers/ExecuteCommandToolHandler"
 import { GenerateExplanationToolHandler } from "./handlers/GenerateExplanationToolHandler"
+import { GlobalMemoryToolHandler } from "./handlers/GlobalMemoryToolHandler"
 import { ListCodeDefinitionNamesToolHandler } from "./handlers/ListCodeDefinitionNamesToolHandler"
 import { ListFilesToolHandler } from "./handlers/ListFilesToolHandler"
 import { LoadMcpDocumentationHandler } from "./handlers/LoadMcpDocumentationHandler"
@@ -116,6 +117,7 @@ export class ToolExecutorCoordinator {
 		[ClineDefaultTool.ERA_KNOWLEDGE]: (v: ToolValidator) => new EraKnowledgeToolHandler(v),
 		[ClineDefaultTool.SETTING_HELP]: (v: ToolValidator) => new SettingHelpToolHandler(v),
 		[ClineDefaultTool.RUN_GAME]: (v: ToolValidator) => new RunGameToolHandler(v),
+		[ClineDefaultTool.GLOBAL_MEMORY]: (v: ToolValidator) => new GlobalMemoryToolHandler(v),
 	}
 
 	/**

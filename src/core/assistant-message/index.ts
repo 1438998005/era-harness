@@ -66,6 +66,7 @@ export const toolParamNames = [
 	"keep_alive",
 	"entry_id",
 	"key",
+	"tags",
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]

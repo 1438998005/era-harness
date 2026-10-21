@@ -38,6 +38,7 @@ import {
 	getSavedApiConversationHistory,
 	getSavedClineMessages,
 } from "@core/storage/disk"
+import { ensureGlobalMemorySeeds } from "@core/storage/globalMemory"
 import { releaseTaskLock } from "@core/task/TaskLockUtils"
 import { isMultiRootEnabled } from "@core/workspace/multi-root-utils"
 import { WorkspaceRootManager } from "@core/workspace/WorkspaceRootManager"
@@ -58,8 +59,9 @@ import { findLast, findLastIndex } from "@shared/array"
 import { combineApiRequests } from "@shared/combineApiRequests"
 import { combineCommandSequences } from "@shared/combineCommandSequences"
 import { ClineApiReqCancelReason, ClineApiReqInfo, ClineAsk, ClineMessage, ClineSay } from "@shared/ExtensionMessage"
+import { formatGlobalMemoryForPrompt } from "@shared/global-memory"
 import { HistoryItem } from "@shared/HistoryItem"
-import { getLanguageKey, LanguageDisplay } from "@shared/Languages"
+import { getLanguageDisplayName, getLanguageKey, LanguageDisplay } from "@shared/Languages"
 import { USER_CONTENT_TAGS } from "@shared/messages/constants"
 import { convertClineMessageToProto } from "@shared/proto-conversions/cline-message"
 import { ClineDefaultTool, READ_ONLY_TOOLS } from "@shared/tools"
@@ -1967,6 +1969,13 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			visible: visibleTabPaths.slice(0, cap),
 		}
 
+		// 全局记忆：先补确定性种子（回答语言/称呼），再读取整份文档。
+		// 关闭记忆时 ensureGlobalMemorySeeds 直接返回，不写盘；段落与工具都不可见。
+		const globalMemoryDocument = await ensureGlobalMemorySeeds({
+			preferredLanguage: getLanguageDisplayName(preferredLanguage),
+			displayName: this.stateManager.getGlobalStateKey("userInfo")?.displayName,
+		})
+
 		const promptContext: SystemPromptContext = {
 			cwd: this.cwd,
 			ide,
@@ -1983,6 +1992,8 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			localAgentsRulesFileInstructions,
 			clineIgnoreInstructions,
 			preferredLanguageInstructions,
+			globalMemory: formatGlobalMemoryForPrompt(globalMemoryDocument),
+			globalMemoryEnabled: globalMemoryDocument.enabled,
 			yoloModeToggled: this.stateManager.getGlobalSettingsKey("yoloModeToggled"),
 			subagentsEnabled: this.stateManager.getGlobalSettingsKey("subagentsEnabled"),
 			clineWebToolsEnabled:

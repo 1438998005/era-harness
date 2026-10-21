@@ -60,6 +60,11 @@ export class AutoApprove {
 	// Check if the tool should be auto-approved based on the settings
 	// Returns bool for most tools, and tuple for tools with nested settings
 	shouldAutoApproveTool(toolName: ClineDefaultTool): boolean | [boolean, boolean] {
+		// 全局记忆可逆（可逐条删除/一键清空）、写入在聊天里留 info 行，不打断对话
+		if (toolName === ClineDefaultTool.GLOBAL_MEMORY) {
+			return [true, true]
+		}
+
 		const isEraReadOnly = ERA_READ_ONLY_TOOLS.includes(toolName)
 		if (this.stateManager.getGlobalSettingsKey("yoloModeToggled")) {
 			if (isEraReadOnly) {
