@@ -13,6 +13,8 @@ interface ReasoningEffortSelectorProps {
 	description?: string
 	allowedEfforts?: readonly OpenaiReasoningEffort[]
 	defaultEffort?: OpenaiReasoningEffort
+	/** 档位显示名（不传时用首字母大写）；DeepSeek 这类官方档位名不同的 provider 用 */
+	labels?: Partial<Record<OpenaiReasoningEffort, string>>
 }
 
 const ReasoningEffortSelector = ({
@@ -21,6 +23,7 @@ const ReasoningEffortSelector = ({
 	description,
 	allowedEfforts = OPENAI_REASONING_EFFORT_OPTIONS,
 	defaultEffort = "medium",
+	labels,
 }: ReasoningEffortSelectorProps) => {
 	const { t } = useTranslation("settings")
 	const resolvedLabel = label ?? t("settings.reasoningEffort")
@@ -47,7 +50,7 @@ const ReasoningEffortSelector = ({
 				<SelectContent>
 					{allowedEfforts.map((effort) => (
 						<SelectItem key={effort} value={effort}>
-							{effort.charAt(0).toUpperCase() + effort.slice(1)}
+							{labels?.[effort] ?? effort.charAt(0).toUpperCase() + effort.slice(1)}
 						</SelectItem>
 					))}
 				</SelectContent>

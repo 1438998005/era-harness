@@ -2,7 +2,7 @@
 	"name": "era-harness",
 	"displayName": "era harness",
 	"description": "eraTW / Emuera 脚本工程的 AI 开发助手：CP932/UTF-8 安全读写、引擎日志诊断、312 页指令手册（可在线同步）、真实启动引擎验证加载。改动先出 diff，审批后才落盘；无账号、无遥测，仅本地安装。",
-	"version": "3.89.2",
+	"version": "3.89.3",
 	"icon": "assets/icons/icon.png",
 	"workspaces": [
 		"."
@@ -187,7 +187,8 @@
 			{
 				"command": "eraHarness.erabasic.yieldToSasami",
 				"title": "让位给 sasami.erabasic（把 .erb/.erh 交给它高亮）",
-				"category": "era harness"
+				"category": "era harness",
+				"icon": "$(arrow-swap)"
 			},
 			{
 				"command": "eraHarness.erabasic.reclaimFiles",
@@ -343,10 +344,24 @@
 		"configuration": {
 			"title": "era harness",
 			"properties": {
+				"eraHarness.erabasic.languageOwner": {
+					"type": "string",
+					"enum": [
+						"era",
+						"sasami"
+					],
+					"enumDescriptions": [
+						"era harness 提供 .erb/.erh 的语法高亮（默认；禁用或卸载即自动归还 Ruby）",
+						"把 .erb/.erh 交给 sasami.erabasic（会写入用户级 files.associations；它被卸载前请切回）"
+					],
+					"default": "era",
+					"description": "`.erb/.erh` 的语法归属。era：由 era harness 的语言声明提供，禁用/卸载即归还 Ruby；sasami：交给 sasami.erabasic（会写入用户级 files.associations）。如果同时装了 sasami.erabasic、想让它的高亮生效，就选 sasami；不确定时保持 era。",
+					"markdownDescription": "`.erb/.erh` 的语法归属。**era**：由 era harness 的语言声明提供，禁用/卸载即自动归还 Ruby；**sasami**：交给 sasami.erabasic（会写入用户级 `files.associations`）。如果同时装了 sasami.erabasic、想让它的高亮生效，就选 sasami；不确定时保持 era。"
+				},
 				"eraHarness.erabasic.autoTakeover": {
 					"type": "boolean",
 					"default": true,
-					"description": "是否由 era harness 提供 .erb/.erh 的 EraBasic 补全/跳转/符号（语法高亮由本扩展的语言声明提供，禁用扩展即自动归还 Ruby，不写你的设置）。关闭后只保留内置方法数据。「让位给 sasami.erabasic」是一条单独的命令，不在这里控制。"
+					"description": "是否由 era harness 提供 .erb/.erh 的 EraBasic 补全/跳转/符号。关闭后只保留内置方法数据。语法高亮由「EraBasic 语言归属」（eraHarness.erabasic.languageOwner）控制，不在这里。"
 				}
 			}
 		}

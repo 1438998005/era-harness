@@ -135,12 +135,19 @@ export const SETTING_OVERRIDES: Record<string, SettingOverride> = {
   },
 
   // ── erabasic（VS Code 配置项）───────────────────────────────────────
+  'eraHarness.erabasic.languageOwner': {
+    title: 'erabasic 语法归属',
+    summary:
+      '`.erb/.erh` 由谁提供语法高亮：era = era harness 的语言声明（默认，禁用/卸载即归还 Ruby）；sasami = 交给 sasami.erabasic（会写入用户级 `files.associations`）。同时装了 sasami 且想让它的高亮生效时选 sasami；不确定就保持 era。',
+    whenOff: '选 sasami 但它未安装/被禁用时，`.erb/.erh` 可能失去语法；状态栏会提示收回，或把本项切回 era。',
+    related: ['erabasic 补全/跳转'],
+  },
   'eraHarness.erabasic.autoTakeover': {
     title: 'erabasic 补全/跳转',
     summary:
       '是否由 era harness 提供 .erb/.erh 的补全、跳转、符号与内置方法数据。语法高亮不靠这个开关：它由本扩展的语言声明（`contributes.languages.extensions`）提供，禁用/卸载扩展即自动归还 Ruby。',
     whenOff: '只保留内置方法数据，不再注册补全/跳转/符号 provider；语法高亮仍由语言声明提供（它无法运行时撤销）。',
-    related: ['让位给 sasami.erabasic'],
+    related: ['EraBasic 语言归属（languageOwner）'],
   },
 };
 

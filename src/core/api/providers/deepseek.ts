@@ -16,6 +16,25 @@ interface DeepSeekHandlerOptions extends CommonApiHandlerOptions {
 	deepSeekApiKey?: string
 	apiModelId?: string
 	deepSeekModelInfo?: ModelInfo
+	reasoningEffort?: string
+}
+
+/**
+ * 把界面上的 OpenAI 档位翻译成 DeepSeek 官方档位。
+ * DeepSeek V4 只认 low / high / max（默认 high）：medium → high、xhigh → max、none/未设 → 不传（用官方默认）。
+ */
+function deepSeekReasoningEffort(effort?: string): "low" | "high" | "max" | undefined {
+	switch (effort) {
+		case "low":
+			return "low"
+		case "high":
+			return "high"
+		case "xhigh":
+		case "max":
+			return "max"
+		default:
+			return undefined
+	}
 }
 
 export class DeepSeekHandler implements ApiHandler {
@@ -88,12 +107,17 @@ export class DeepSeekHandler implements ApiHandler {
 		const isDeepSeekThinkingModel =
 			model.id.includes("deepseek-flash") || model.id.includes("deepseek-v4") || model.id.includes("deepseek-reasoner")
 
+		// 思维强度：只在思考模型上传；未设置时交给官方默认（high）
+		const reasoningEffort = isDeepSeekThinkingModel ? deepSeekReasoningEffort(this.options.reasoningEffort) : undefined
+
 		const convertedMessages = convertToOpenAiMessages(messages)
 		const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = isDeepSeekThinkingModel
 			? [{ role: "system", content: systemPrompt }, ...addReasoningContent(convertedMessages, messages)]
 			: [{ role: "system", content: systemPrompt }, ...convertedMessages]
 
-		const stream = await client.chat.completions.create({
+		// DeepSeek 的档位 max 不在 OpenAI SDK 的 ReasoningEffort 类型里（SDK 只有 low/medium/high），
+		// 但 DeepSeek API 确实接受 max —— 在请求边界断言，不去改 SDK 类型。
+		const streamParams = {
 			model: model.id,
 			max_completion_tokens: model.info.maxTokens,
 			messages: openAiMessages,
@@ -101,8 +125,10 @@ export class DeepSeekHandler implements ApiHandler {
 			stream_options: { include_usage: true },
 			// Only set temperature for non-thinking models
 			...(isDeepSeekThinkingModel ? {} : { temperature: 0 }),
+			...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 			...getOpenAIToolParams(tools),
-		})
+		} as OpenAI.Chat.ChatCompletionCreateParamsStreaming
+		const stream = await client.chat.completions.create(streamParams)
 
 		const toolCallProcessor = new ToolCallProcessor()
 

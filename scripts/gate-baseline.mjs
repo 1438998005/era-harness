@@ -346,6 +346,15 @@ function push(name, detail, status, problems) {
 		problems.push(`registerCommand 注册了但 package.json 没声明：${id}（${path.relative(ROOT, file)}）`)
 	}
 
+	// 设置页按钮 → runCommand 的白名单：写错一个 id 就变成点了没反应，且不报错
+	const runCmdSrc = fs.readFileSync(path.join(ROOT, "src/core/controller/ui/runCommand.ts"), "utf8")
+	const allowBlock = /ALLOWED_COMMANDS\s*=\s*new Set<string>\(\[([\s\S]*?)\]\)/.exec(runCmdSrc)?.[1] ?? ""
+	for (const match of allowBlock.matchAll(/"([\w.-]+)"/g)) {
+		if (!declared.has(match[1])) {
+			problems.push(`runCommand 白名单引用了未声明的命令：${match[1]}`)
+		}
+	}
+
 	push(
 		"命令注册一致性",
 		problems.length === 0 ? `${declared.size} 条声明全部有注册` : `${problems.length} 处不一致`,
