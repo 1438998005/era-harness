@@ -38,6 +38,7 @@ export enum ClineDefaultTool {
 	ERA_KNOWLEDGE = "era_knowledge",
 	SETTING_HELP = "setting_help",
 	RUN_GAME = "run_game",
+	GLOBAL_MEMORY = "global_memory",
 }
 
 // Array of all tool names for compatibility

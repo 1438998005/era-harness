@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
 }))
 
 // 受控的 apiConfiguration / remoteConfigSettings：用可变对象，方便两个用例切换。
-const state = vi.hoisted(() => ({ apiConfiguration: {} as any, remoteConfigSettings: undefined as any }))
+const state = vi.hoisted(() => ({
+	apiConfiguration: {} as any,
+	remoteConfigSettings: undefined as any,
+	selectedModelId: "",
+}))
 
 vi.mock("@vscode/webview-ui-toolkit/react", () => ({
 	// 把 web component 换成原生 <input>，转发 onInput/value/placeholder/disabled，使 testing-library 可查询。
@@ -48,9 +52,8 @@ vi.mock("../utils/useApiConfigurationHandlers", () => ({
 
 // providerUtils 里三个渲染期即调用的纯函数：给最小合法值，绕开对完整配置形态的依赖。
 vi.mock("../utils/providerUtils", () => ({
-	normalizeApiConfiguration: () => ({ selectedModelId: "", selectedModelInfo: {} }),
+	normalizeApiConfiguration: () => ({ selectedModelId: state.selectedModelId, selectedModelInfo: {} }),
 	getModeSpecificFields: () => ({ openAiModelInfo: undefined }),
-	supportsReasoningEffortForModelId: () => false,
 }))
 
 vi.mock("react-i18next", () => ({
@@ -77,7 +80,7 @@ vi.mock("@/utils/vscStyles", () => ({
 
 // 折叠区/底部区才用到的重组件，showModelOptions=false 时不渲染，mock 仅为满足顶层 import。
 vi.mock("../common/ModelInfoView", () => ({ ModelInfoView: () => null }))
-vi.mock("../ReasoningEffortSelector", () => ({ default: () => null }))
+vi.mock("../ReasoningEffortSelector", () => ({ default: () => <div data-testid="reasoning-effort-selector" /> }))
 
 import { OpenAICompatibleProvider } from "./OpenAICompatible"
 
@@ -87,6 +90,7 @@ describe("OpenAI Compatible 设置 UI（#27 实测）", () => {
 		mocks.handleFieldChange.mockClear()
 		state.apiConfiguration = {}
 		state.remoteConfigSettings = undefined
+		state.selectedModelId = ""
 	})
 
 	afterEach(() => {
@@ -123,5 +127,18 @@ describe("OpenAI Compatible 设置 UI（#27 实测）", () => {
 
 		const input = screen.getByPlaceholderText("commonFields.enterBaseUrl") as HTMLInputElement
 		expect(input.disabled).toBe(true)
+	})
+
+	it("有模型 id 时始终渲染思维强度选择器（不再按模型名猜测）", () => {
+		state.selectedModelId = "my-gateway/some-model"
+		render(<OpenAICompatibleProvider currentMode={"plan" as any} isPopup={false} showModelOptions={true} />)
+
+		expect(screen.getByTestId("reasoning-effort-selector")).toBeTruthy()
+	})
+
+	it("没有模型 id 时不渲染思维强度选择器", () => {
+		render(<OpenAICompatibleProvider currentMode={"plan" as any} isPopup={false} showModelOptions={true} />)
+
+		expect(screen.queryByTestId("reasoning-effort-selector")).toBeNull()
 	})
 })

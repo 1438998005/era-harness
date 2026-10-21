@@ -14,6 +14,7 @@ const ALLOWED_COMMANDS = new Set<string>([
 	"eraHarness.erabasic.yieldToSasami",
 	"eraHarness.erabasic.reclaimFiles",
 	"era-harness.updateGame",
+	"era-harness.checkForUpdates",
 ])
 
 /**

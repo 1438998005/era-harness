@@ -57,6 +57,7 @@ export const config = createVariant(ModelFamily.DEVSTRAL)
 		ClineDefaultTool.ERA_SYMBOLS,
 		ClineDefaultTool.ERA_REFERENCE,
 		ClineDefaultTool.ERA_KNOWLEDGE,
+		ClineDefaultTool.GLOBAL_MEMORY,
 		ClineDefaultTool.SETTING_HELP,
 		ClineDefaultTool.RUN_GAME,
 	)

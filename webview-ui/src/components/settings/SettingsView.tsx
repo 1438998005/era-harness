@@ -1,6 +1,6 @@
 import type { ExtensionMessage } from "@shared/ExtensionMessage"
 import { ResetStateRequest } from "@shared/proto/cline/state"
-import { CheckCheck, FlaskConical, Info, type LucideIcon, SlidersHorizontal, SquareTerminal, Wrench } from "lucide-react"
+import { Brain, CheckCheck, FlaskConical, Info, type LucideIcon, SlidersHorizontal, SquareTerminal, Wrench } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useEvent } from "react-use"
@@ -16,12 +16,13 @@ import ApiConfigurationSection from "./sections/ApiConfigurationSection"
 import DebugSection from "./sections/DebugSection"
 import FeatureSettingsSection from "./sections/FeatureSettingsSection"
 import GeneralSettingsSection from "./sections/GeneralSettingsSection"
+import MemorySettingsSection from "./sections/MemorySettingsSection"
 import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "about" | "debug"
+type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "memory" | "about" | "debug"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -59,6 +60,13 @@ export const SETTINGS_TABS: SettingsTab[] = [
 		tooltipText: "General Settings",
 		headerText: "General Settings",
 		icon: Wrench,
+	},
+	{
+		id: "memory",
+		name: "Memory",
+		tooltipText: "Global memory",
+		headerText: "Global memory",
+		icon: Brain,
 	},
 	{
 		id: "about",
@@ -113,6 +121,7 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			general: GeneralSettingsSection,
 			features: FeatureSettingsSection,
 			terminal: TerminalSettingsSection,
+			memory: MemorySettingsSection,
 			about: AboutSection,
 			debug: DebugSection,
 		}),

@@ -1,7 +1,8 @@
 import { TooltipContent, TooltipTrigger } from "@radix-ui/react-tooltip"
 import { openAiModelInfoSaneDefaults } from "@shared/api"
 import { OpenAiModelsRequest } from "@shared/proto/cline/models"
-import { Mode } from "@shared/storage/types"
+import { Mode, OPENAI_REASONING_EFFORT_OPTIONS } from "@shared/storage/types"
+import { isKnownReasoningModelFamily } from "@shared/utils/reasoning-support"
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -14,7 +15,7 @@ import { DebouncedTextField } from "../common/DebouncedTextField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
 import { parsePrice } from "../utils/pricingUtils"
-import { getModeSpecificFields, normalizeApiConfiguration, supportsReasoningEffortForModelId } from "../utils/providerUtils"
+import { getModeSpecificFields, normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 /**
@@ -38,7 +39,6 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 
 	// Get the normalized configuration
 	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
-	const showReasoningEffort = supportsReasoningEffortForModelId(selectedModelId, true)
 
 	// Get mode-specific fields
 	const { openAiModelInfo } = getModeSpecificFields(apiConfiguration, currentMode)
@@ -286,7 +286,26 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 
 			{showModelOptions && (
 				<>
-					{showReasoningEffort && <ReasoningEffortSelector currentMode={currentMode} />}
+					{!!selectedModelId && (
+						<ReasoningEffortSelector
+							allowedEfforts={OPENAI_REASONING_EFFORT_OPTIONS}
+							currentMode={currentMode}
+							defaultEffort={isKnownReasoningModelFamily(selectedModelId) ? "medium" : "none"}
+							description={
+								isKnownReasoningModelFamily(selectedModelId)
+									? "该模型属于已知思维家族：不选择时按官方默认「中（medium）」发送，并会丢弃自定义 temperature；选择「不发送」可完全去掉该参数。"
+									: "不同端点的支持不一致：未知模型默认不发送。选择后若端点拒绝，会自动去掉该参数重试一次；仍失败请改回「不发送」。"
+							}
+							label="思维强度（reasoning_effort）"
+							labels={{
+								none: isKnownReasoningModelFamily(selectedModelId) ? "不发送（覆盖默认）" : "不发送（默认）",
+								low: "低（low）",
+								medium: "中（medium）",
+								high: "高（high）",
+								xhigh: "最高（xhigh）",
+							}}
+						/>
+					)}
 					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
 				</>
 			)}

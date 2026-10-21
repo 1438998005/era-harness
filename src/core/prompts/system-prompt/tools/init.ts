@@ -11,6 +11,7 @@ import { era_symbols_variants } from "./era_symbols"
 import { execute_command_variants } from "./execute_command"
 import { focus_chain_variants } from "./focus_chain"
 import { generate_explanation_variants } from "./generate_explanation"
+import { global_memory_variants } from "./global_memory"
 import { list_code_definition_names_variants } from "./list_code_definition_names"
 import { list_files_variants } from "./list_files"
 import { load_mcp_documentation_variants } from "./load_mcp_documentation"
@@ -47,6 +48,7 @@ export function registerClineToolSets(): void {
 		...era_symbols_variants,
 		...focus_chain_variants,
 		...generate_explanation_variants,
+		...global_memory_variants,
 		...list_code_definition_names_variants,
 		...list_files_variants,
 		...load_mcp_documentation_variants,

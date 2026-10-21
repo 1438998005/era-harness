@@ -6,7 +6,9 @@ import { discoverAvailableSkills } from "@core/context/instructions/user-instruc
 import { formatResponse } from "@core/prompts/responses"
 import { PromptRegistry } from "@core/prompts/system-prompt"
 import type { SystemPromptContext } from "@core/prompts/system-prompt/types"
+import { readGlobalMemoryDocument } from "@core/storage/globalMemory"
 import { StreamResponseHandler } from "@core/task/StreamResponseHandler"
+import { formatGlobalMemoryForPrompt } from "@shared/global-memory"
 import { ClineAssistantToolUseBlock, ClineStorageMessage, ClineTextContentBlock, ClineUserContent } from "@shared/messages"
 import { Logger } from "@shared/services/Logger"
 import { ClineDefaultTool, ClineTool } from "@shared/tools"
@@ -357,6 +359,9 @@ export class SubagentRunner {
 							.filter((skill): skill is (typeof availableSkills)[number] => Boolean(skill))
 					: availableSkills
 
+			// 子代理也要知道用户偏好（称呼/语言），但不暴露写入工具（tool 的 contextRequirements 已排除子代理）
+			const subagentMemoryDocument = await readGlobalMemoryDocument()
+
 			const context: SystemPromptContext = {
 				providerInfo,
 				cwd: this.baseConfig.cwd,
@@ -367,6 +372,8 @@ export class SubagentRunner {
 				enableNativeToolCalls: nativeToolCallsRequested,
 				enableParallelToolCalling: false,
 				isSubagentRun: true,
+				globalMemory: formatGlobalMemoryForPrompt(subagentMemoryDocument),
+				globalMemoryEnabled: subagentMemoryDocument.enabled,
 			}
 
 			const promptRegistry = PromptRegistry.getInstance()

@@ -1045,29 +1045,61 @@ export const ChatRowContent = memo(
 								text={text || ""}
 							/>
 						)
-					case "shell_integration_warning":
+					case "shell_integration_warning": {
+						const isBackgroundModeEnabled = vscodeTerminalExecutionMode === "backgroundExec"
 						return (
-							<div className="flex flex-col bg-warning/20 p-2 rounded-xs border border-error">
-								<div className="flex items-center mb-1">
-									<TriangleAlertIcon className="mr-2 size-2 stroke-3 text-error" />
+							<div className="flex flex-col gap-2 rounded-xs border border-warning/40 bg-warning/10 p-2">
+								<div className="flex items-center">
+									<TriangleAlertIcon className="mr-2 size-2 stroke-3 text-warning" />
 									<span className="font-medium text-foreground">
 										{t("chatRow.shellIntegrationUnavailable")}
 									</span>
 								</div>
-								<div className="text-foreground opacity-80">
-									{t("chatRow.shellIntegrationMessage")}
-									<code>CMD/CTRL + Shift + P</code> → {t("chatRow.shellIntegrationUpdate")}) and make sure
-									you're using a supported shell: zsh, bash, fish, or PowerShell (
-									<code>CMD/CTRL + Shift + P</code> → {t("chatRow.shellIntegrationProfile")}
-									).
-									<a
-										className="px-1"
-										href="https://github.com/cline/cline/wiki/Troubleshooting-%E2%80%90-Shell-Integration-Unavailable">
-										{t("chatRow.shellIntegrationStillTrouble")}
-									</a>
+								<div className="text-foreground opacity-80">{t("chatRow.shellIntegrationMessage")}</div>
+								<ul className="m-0 list-disc pl-5 text-foreground opacity-80">
+									<li>{t("chatRow.shellIntegrationCheck1")}</li>
+									<li>{t("chatRow.shellIntegrationCheck2")}</li>
+									<li>{t("chatRow.shellIntegrationCheck3")}</li>
+								</ul>
+								<div className="flex flex-wrap items-center gap-2">
+									<button
+										className={cn(
+											"bg-button-background text-button-foreground border-0 rounded-xs py-1.5 px-3 text-[12px] flex items-center gap-1.5 cursor-pointer hover:bg-button-hover",
+											{
+												"cursor-default opacity-80 bg-success": isBackgroundModeEnabled,
+											},
+										)}
+										disabled={isBackgroundModeEnabled}
+										onClick={async () => {
+											try {
+												await UiServiceClient.setTerminalExecutionMode(
+													BooleanRequest.create({ value: true }),
+												)
+											} catch (error) {
+												console.error("Failed to enable background terminal:", error)
+											}
+										}}
+										type="button">
+										<SettingsIcon className="size-2" />
+										{isBackgroundModeEnabled
+											? t("chatRow.shellIntegrationBackgroundEnabled")
+											: t("chatRow.shellIntegrationEnableBackground")}
+									</button>
+									<button
+										className="text-xs underline bg-transparent border-none cursor-pointer p-0"
+										onClick={() =>
+											void UiServiceClient.openUrl({
+												value: "https://code.visualstudio.com/docs/terminal/shell-integration",
+											}).catch(console.error)
+										}
+										style={{ color: "var(--vscode-textLink-foreground)" }}
+										type="button">
+										{t("chatRow.shellIntegrationDocs")}
+									</button>
 								</div>
 							</div>
 						)
+					}
 					case "error_retry":
 						try {
 							const retryInfo = JSON.parse(message.text || "{}")

@@ -125,6 +125,10 @@ export interface SystemPromptContext {
 	readonly enableParallelToolCalling?: boolean
 	readonly terminalExecutionMode?: "vscodeTerminal" | "backgroundExec"
 	readonly locale?: string
+	/** 全局记忆段落（已格式化，含警示头）；关闭或无条目时为 undefined */
+	readonly globalMemory?: string
+	/** 全局记忆开关：false 时不注入段落，也不向模型暴露 global_memory 工具 */
+	readonly globalMemoryEnabled?: boolean
 }
 
 /**

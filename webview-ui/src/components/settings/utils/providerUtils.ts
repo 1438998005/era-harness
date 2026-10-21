@@ -9,11 +9,6 @@ import {
 } from "@shared/api"
 import { FREE_POOL } from "@shared/free-pools"
 import { Mode } from "@shared/storage/types"
-import * as reasoningSupport from "@shared/utils/reasoning-support"
-
-export function supportsReasoningEffortForModelId(modelId?: string, _allowShortOpenAiIds = false): boolean {
-	return reasoningSupport.supportsReasoningEffortForModel(modelId)
-}
 
 /**
  * Interface for normalized API configuration

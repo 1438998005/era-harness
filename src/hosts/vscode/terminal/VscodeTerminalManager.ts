@@ -103,9 +103,44 @@ export class VscodeTerminalManager implements ITerminalManager {
 	private disposables: vscode.Disposable[] = []
 	private shellIntegrationTimeout = 4000
 	private shellIntegrationStreamTimeout = SHELL_INTEGRATION_STREAM_TIMEOUT_MS
+	/**
+	 * Shell 集成已知不可用时的重试时间点。
+	 *
+	 * 故意是静态字段：每个 Task 都会 new 一个 TerminalManager，任务结束就 disposeAll，
+	 * 放在实例上等于“冷却只在单个任务内生效”，新任务又要白等一轮超时。
+	 */
+	private static shellIntegrationRetryAt = 0
+	private static shellIntegrationRecoveryListener: vscode.Disposable | undefined
+	private static readonly SHELL_INTEGRATION_RETRY_COOLDOWN_MS = 10 * 60 * 1000
 	private terminalReuseEnabled = true
 	private terminalOutputLineLimit = 500
 	private defaultTerminalProfile = "default"
+
+	/**
+	 * 只注册一次的 window 级恢复监听：不能放进实例 disposables，
+	 * 否则任务结束时的 disposeAll 会把恢复入口一并拆掉。
+	 */
+	private static ensureShellIntegrationRecoveryListener(): void {
+		if (VscodeTerminalManager.shellIntegrationRecoveryListener) {
+			return
+		}
+
+		try {
+			const disposable = (vscode.window as unknown as Record<string, any>).onDidChangeTerminalShellIntegration?.(
+				(event: { shellIntegration?: unknown }) => {
+					// 只要有终端拿到过集成，就说明这个 shell 本身是支持的，立即重试
+					if (event?.shellIntegration) {
+						VscodeTerminalManager.shellIntegrationRetryAt = 0
+					}
+				},
+			)
+			if (disposable) {
+				VscodeTerminalManager.shellIntegrationRecoveryListener = disposable
+			}
+		} catch (_error) {
+			// 旧版 VS Code 没有该事件，忽略
+		}
+	}
 
 	constructor() {
 		let disposable: vscode.Disposable | undefined
@@ -120,6 +155,10 @@ export class VscodeTerminalManager implements ITerminalManager {
 		if (disposable) {
 			this.disposables.push(disposable)
 		}
+
+		// 任何终端重新获得 shell 集成（用户改了 profile / 重开终端等）→ 立即解除冷却。
+		// 没有这个恢复入口，一次瞬时失败就只能靠重载窗口才能再用上 shell 集成。
+		VscodeTerminalManager.ensureShellIntegrationRecoveryListener()
 
 		// Add a listener for terminal state changes to detect CWD updates
 		try {
@@ -187,6 +226,13 @@ export class VscodeTerminalManager implements ITerminalManager {
 		// if shell integration is not available, remove terminal so it does not get reused as it may be running a long-running process
 		process.once("no_shell_integration", () => {
 			Logger.log(`no_shell_integration received for terminal ${vscodeTerminalInfo.id}`)
+			// 只在冷却已过期时开启新一轮冷却：
+			// 冷却期内的每条命令都会走兜底并再次发这个事件，若无条件续期，
+			// 一次瞬时失败就会把整个会话永久降级。
+			const now = Date.now()
+			if (now >= VscodeTerminalManager.shellIntegrationRetryAt) {
+				VscodeTerminalManager.shellIntegrationRetryAt = now + VscodeTerminalManager.SHELL_INTEGRATION_RETRY_COOLDOWN_MS
+			}
 			// Remove the terminal so we can't reuse it (in case it's running a long-running process)
 			TerminalRegistry.removeTerminal(vscodeTerminalInfo.id)
 			this.terminalIds.delete(vscodeTerminalInfo.id)
@@ -207,6 +253,15 @@ export class VscodeTerminalManager implements ITerminalManager {
 		if (vscodeTerminalInfo.terminal.shellIntegration) {
 			process.waitForShellIntegration = false
 			process.run(vscodeTerminalInfo.terminal, command, this.shellIntegrationStreamTimeout)
+		} else if (Date.now() < VscodeTerminalManager.shellIntegrationRetryAt) {
+			// 刚失败过：直接走 sendText + 快照兜底，不再白等一轮超时
+			Logger.warn(
+				`[TerminalManager] Shell integration 已知不可用（${Math.ceil(
+					(VscodeTerminalManager.shellIntegrationRetryAt - Date.now()) / 1000,
+				)}s 后重试），直接走兜底`,
+			)
+			process.waitForShellIntegration = false
+			process.run(vscodeTerminalInfo.terminal, command, this.shellIntegrationStreamTimeout)
 		} else {
 			// docs recommend waiting 3s for shell integration to activate
 			Logger.log(
@@ -216,6 +271,7 @@ export class VscodeTerminalManager implements ITerminalManager {
 				timeout: this.shellIntegrationTimeout,
 			})
 				.then(() => {
+					VscodeTerminalManager.shellIntegrationRetryAt = 0
 					Logger.log(
 						`[TerminalManager Test] Shell integration activated for terminal ${vscodeTerminalInfo.id} within timeout.`,
 					)
@@ -391,6 +447,8 @@ export class VscodeTerminalManager implements ITerminalManager {
 
 		const _oldProfileId = this.defaultTerminalProfile
 		this.defaultTerminalProfile = profileId
+		// 用户改了 profile 应立刻重试 shell 集成，不要被上一次失败的冷却期挡住
+		VscodeTerminalManager.shellIntegrationRetryAt = 0
 
 		// Get the shell path for the new profile
 		const newShellPath = profileId !== "default" ? getShellForProfile(profileId) : undefined

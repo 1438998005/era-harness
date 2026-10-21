@@ -522,6 +522,14 @@ ${ctx.cellJson || "{}"}
 		}),
 	)
 
+	// 检查插件自更新（只检查；安装需用户再点「下一步」；启动时不联网检查）
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.CheckForUpdates, async () => {
+			const { checkForUpdates } = await import("./hosts/vscode/updateChecker")
+			await checkForUpdates(context)
+		}),
+	)
+
 	// EraBasic 语言支持：独立语言 id + 运行时自动检测路由（装了 erabasic 则让位，否则接管 .erb/.erh）
 	registerEraBasicLanguageSupport(context)
 

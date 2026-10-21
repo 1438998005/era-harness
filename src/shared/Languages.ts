@@ -71,3 +71,17 @@ export function getLanguageKey(display: LanguageDisplay | undefined): LanguageKe
 	}
 	return DEFAULT_LANGUAGE_SETTINGS
 }
+
+/**
+ * 把语言 key 转成可读名（`zh-CN` → `简体中文`），用于全局记忆种子。
+ * 直接存 locale code 会让用户和模型都看不懂。
+ */
+export function getLanguageDisplayName(key: LanguageKey): string {
+	const option = languageOptions.find((item) => item.key === key)
+	if (!option) {
+		return key
+	}
+
+	const separator = option.display.lastIndexOf(" - ")
+	return separator === -1 ? option.display : option.display.slice(separator + 3)
+}
