@@ -3,6 +3,12 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.89.6 — 2026-10-21
+
+### 修复
+
+- **卸载 sasami.erabasic 后「收回」清不掉残留关联**：让位时写入的 `*.erb/*.erh = erabasic`，在 sasami 被卸载后 `getExtension` 读不到语言 id，原实现只删 `era-erb`，导致「收回」无效、`.erb` 仍是纯文本。现在用 sasami 的稳定语言 id 兜底清理，卸载后点一次「收回」即可恢复。
+
 ## 3.89.5 — 2026-10-21
 
 ### 样式

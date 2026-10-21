@@ -18,6 +18,12 @@ import { DefinitionRepository } from "./definitionProvider"
 import { readSymbolInformations, SymbolInformationRepository } from "./symbolProvider"
 
 const ERABASIC_EXTENSION_ID = "sasami.erabasic"
+/**
+ * sasami.erabasic 的语言 id。
+ * 正常让位时从它的 package.json 读；但它被卸载/禁用后 `getExtension` 返回 undefined，
+ * 只能靠这个稳定值兜底清理残留的 files.associations，否则「收回」会清不掉、.erb 变纯文本。
+ */
+const SASAMI_LANGUAGE_ID = "erabasic"
 const LANGUAGE_ID = "era-erb"
 const MANAGED_ASSOCIATIONS = ["*.erb", "*.erh"]
 const OWNER_SECTION = "eraHarness.erabasic"
@@ -148,7 +154,12 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 					assoc[key] = target
 					changed.push(key)
 				}
-			} else if (value === LANGUAGE_ID || (target !== undefined && value === target)) {
+			} else if (
+				value === LANGUAGE_ID ||
+				(target !== undefined && value === target) ||
+				// sasami 已被卸载时 target 读不到，用稳定语言 id 兜底（让位过的用户点「收回」能清干净）
+				value === SASAMI_LANGUAGE_ID
+			) {
 				delete assoc[key]
 				changed.push(key)
 			}
