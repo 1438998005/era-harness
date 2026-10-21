@@ -60,7 +60,7 @@ era harness 针对每一条都给了具体机制，而不是提示词劝告。
 本插件**不进入任何在线分发渠道**，只做本地 sideload：
 
 ```bash
-code --install-extension era-harness-3.89.0.vsix
+code --install-extension era-harness-3.89.6.vsix
 ```
 
 或在编辑器里 `Ctrl+Shift+P` → `Extensions: Install from VSIX...`。装完重载窗口。
