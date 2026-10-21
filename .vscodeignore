@@ -36,6 +36,12 @@ sdk/**
 README.marketplace.md
 .README.github.bak
 
+# 仓库协作说明与本地审计日志：只给开发者看，不进 vsix
+# （实证：AGENTS.md 从 3.86 一路被打进 vsix 到 3.89.1 才发现；*.log 已排除，但这些 *.txt 没有）
+AGENTS.md
+*-out.txt
+gate-*.txt
+
 # Custom
 **/demo.gif
 .nvmrc

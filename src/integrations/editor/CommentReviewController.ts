@@ -49,11 +49,6 @@ export abstract class CommentReviewController {
 	abstract setOnReplyCallback(callback: OnReplyCallback): void
 
 	/**
-	 * Ensure the comments view won't auto-open when comments are added
-	 */
-	abstract ensureCommentsViewDisabled(): Promise<void>
-
-	/**
 	 * Add a review comment to a file
 	 */
 	abstract addReviewComment(comment: ReviewComment): void
