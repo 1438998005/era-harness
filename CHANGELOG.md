@@ -3,6 +3,29 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.89.3 — 2026-10-21
+
+按用户反馈，把「让位 / 更新」这类操作从隐蔽入口搬进设置页，并补齐 DeepSeek 的两个缺口。
+
+### 新增
+
+- **功能设置 →「eraTW 工具」**：两个真实按钮——「检查并更新」（走 `era-harness.updateGame`，仍会弹窗列改动等确认）与「EraBasic 语法归属」（「让 sasami 接管」/「收回给我」）。
+- **`eraHarness.erabasic.languageOwner` 设置**（`era` / `sasami`）：把「让位」从一次性命令变成可持久、可撤销的状态；切换时自动落实到 `files.associations`（只动本扩展管理的 `*.erb` / `*.erh`）。
+- **DeepSeek API 设置**：新增「打开 DeepSeek 开放平台」按钮（https://platform.deepseek.com/），以及「思维强度（reasoning_effort）」选项：低（low）/ 高（high，默认）/ 最大（max）。
+
+### 变更
+
+- 设置页按钮统一通过新增的 `UiService.runCommand` 调用；宿主侧维护命令白名单（不做通用 `executeCommand`），gate「命令注册一致性」会检查白名单里的 id 都在 `package.json` 里声明过。
+- 按用户要求，撤掉侧边栏标题栏的让位按钮与首启弹窗：操作入口统一收进「功能设置」，状态栏仅保留状态与快捷入口。
+
+### 修复
+
+- `deepseek.ts` 之前完全不读 `reasoningEffort`。现在会映射成 DeepSeek 官方档位（`medium → high`、`xhigh → max`，未设置则不传、用官方默认 high），且只对思考模型发送。
+
+### 验证
+
+- 根/webview `tsc` 0 错；biome 0；`npm run gate` 十二道全绿（含命令白名单核对）；`test/update` 240/240。
+
 ## 3.89.2 — 2026-10-21
 
 「举一反三」审计：把 3.89.1 修的三类问题（读错 API 层级／中央映射漏登记／能力未自述）在整仓扫了一遍，又抓到三处同类。

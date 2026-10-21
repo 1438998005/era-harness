@@ -278,4 +278,7 @@ service UiService {
 
   // Opens the Cline walkthrough
   rpc openWalkthrough(EmptyRequest) returns (Empty);
+
+  // Runs an extension command from the webview (allowlisted host-side; used by settings buttons)
+  rpc runCommand(StringRequest) returns (Empty);
 }

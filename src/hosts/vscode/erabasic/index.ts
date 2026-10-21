@@ -20,6 +20,10 @@ import { readSymbolInformations, SymbolInformationRepository } from "./symbolPro
 const ERABASIC_EXTENSION_ID = "sasami.erabasic"
 const LANGUAGE_ID = "era-erb"
 const MANAGED_ASSOCIATIONS = ["*.erb", "*.erh"]
+const OWNER_SECTION = "eraHarness.erabasic"
+const OWNER_KEY = "languageOwner"
+
+type LanguageOwner = "era" | "sasami"
 
 export function registerEraBasicLanguageSupport(context: ExtensionContext): void {
 	let declarationProvider: DeclarationProvider | undefined
@@ -112,7 +116,50 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		}
 	}
 
-	/** 让位：把 .erb/.erh 显式交给 sasami.erabasic（用户主动执行） */
+	/** 设置里的「EraBasic 语言归属」 */
+	function readOwner(): LanguageOwner {
+		const value = vscode.workspace.getConfiguration(OWNER_SECTION).get<string>(OWNER_KEY, "era")
+		return value === "sasami" ? "sasami" : "era"
+	}
+
+	async function setOwner(owner: LanguageOwner): Promise<void> {
+		await vscode.workspace.getConfiguration(OWNER_SECTION).update(OWNER_KEY, owner, vscode.ConfigurationTarget.Global)
+	}
+
+	/**
+	 * 把「语言归属」落到 files.associations。
+	 * 只动本扩展管理的两个键，且只认 era-erb / sasami 的语言 id —— 用户自己写的映射不碰。
+	 * ⚠️ 调用方只能是**用户动作**（设置项变更 / 让位 / 收回命令），⛔ 不要在 evaluate() 里自动调。
+	 */
+	async function applyOwner(owner: LanguageOwner): Promise<{ ok: boolean; changed: string[] }> {
+		const target = erabasicLanguageId()
+		if (owner === "sasami" && !target) {
+			void vscode.window.showWarningMessage(
+				"设置已选「sasami.erabasic」，但没有找到它（未安装 / 未启用 / 没声明语言 id）。装好后再切换一次，或先切回 era harness。",
+			)
+			return { ok: false, changed: [] }
+		}
+		const assoc = await readAssociations()
+		const changed: string[] = []
+		for (const key of MANAGED_ASSOCIATIONS) {
+			const value = assoc[key]
+			if (owner === "sasami" && target) {
+				if (value !== target) {
+					assoc[key] = target
+					changed.push(key)
+				}
+			} else if (value === LANGUAGE_ID || (target !== undefined && value === target)) {
+				delete assoc[key]
+				changed.push(key)
+			}
+		}
+		if (changed.length > 0) {
+			await writeAssociations(assoc)
+		}
+		return { ok: true, changed }
+	}
+
+	/** 让位：设置与关联一起切到 sasami（用户主动点的命令） */
 	async function yieldToSasami(): Promise<void> {
 		const target = erabasicLanguageId()
 		if (!target) {
@@ -121,38 +168,22 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 			)
 			return
 		}
-		const assoc = await readAssociations()
-		let changed = false
-		for (const key of MANAGED_ASSOCIATIONS) {
-			if (assoc[key] !== target) {
-				assoc[key] = target
-				changed = true
-			}
-		}
-		if (changed) {
-			await writeAssociations(assoc)
-		}
+		const { changed } = await applyOwner("sasami")
+		await setOwner("sasami")
 		void vscode.window.showInformationMessage(
-			`已让位：.erb/.erh 改用 ${target}（sasami.erabasic）。撤销请执行「收回 .erb/.erh 的语法归属」。`,
+			changed.length > 0
+				? `已让位：.erb/.erh 改用 ${target}（sasami.erabasic）。想收回：执行「收回 .erb/.erh 的语法归属」，或把设置「EraBasic 语言归属」切回 era。`
+				: `当前已由 ${target}（sasami.erabasic）接管 .erb/.erh，无需重复让位。`,
 		)
 	}
 
-	/** 收回：只删本扩展写过的值（era-erb 或 erabasic 的语言 id），不碰用户自己的映射 */
+	/** 收回：只删本扩展写过的值（era-erb 或 erabasic 的语言 id），不碰用户自己的映射；设置切回 era */
 	async function reclaimFiles(): Promise<void> {
-		const erabasicId = erabasicLanguageId()
-		const assoc = await readAssociations()
-		const removed: string[] = []
-		for (const key of MANAGED_ASSOCIATIONS) {
-			const value = assoc[key]
-			if (value === LANGUAGE_ID || (erabasicId !== undefined && value === erabasicId)) {
-				delete assoc[key]
-				removed.push(key)
-			}
-		}
-		if (removed.length > 0) {
-			await writeAssociations(assoc)
+		const { changed } = await applyOwner("era")
+		await setOwner("era")
+		if (changed.length > 0) {
 			void vscode.window.showInformationMessage(
-				`已清除 ${removed.join("、")} 的文件关联，.erb/.erh 重新由语言声明决定（禁用本扩展即回到 Ruby）。`,
+				`已收回 ${changed.join("、")} 的文件关联，.erb/.erh 重新由语言声明决定（禁用本扩展即回到 Ruby）。`,
 			)
 		} else {
 			void vscode.window.showInformationMessage("files.associations 里没有 era harness 写入的条目，无需清理。")
@@ -161,7 +192,9 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 
 	function evaluate(): void {
 		const present = vscode.extensions.getExtension(ERABASIC_EXTENSION_ID) !== undefined
-		const autoTakeover = vscode.workspace.getConfiguration("eraHarness.erabasic").get<boolean>("autoTakeover", true)
+		const autoTakeover = vscode.workspace.getConfiguration(OWNER_SECTION).get<boolean>("autoTakeover", true)
+		const owner = readOwner()
+		const yielded = present && owner === "sasami"
 
 		// provider 按语言 id 注册，所以装了 erabasic 也无需撤销：
 		// 若那个文件最终归到 erabasic 的语言，我们的 provider 本就不会被触发。
@@ -172,13 +205,24 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		}
 
 		statusBarItem.backgroundColor = undefined
-		if (present) {
+		if (present && owner !== "sasami") {
 			// 语法归属仍是 era-erb（静态声明无法运行时让），所以把让位入口摆在状态栏：
 			// 点一下才写 files.associations，不自动代用户决策。
 			statusBarItem.command = "eraHarness.erabasic.yieldToSasami"
-			statusBarItem.text = "$(circle-slash) EraBasic: 让位 erabasic"
+			statusBarItem.text = "$(arrow-swap) EraBasic：让 sasami 接管高亮"
 			statusBarItem.tooltip =
-				"检测到 sasami.erabasic。点这里把 .erb/.erh 的语法交给它（会写入你的 files.associations，可随时撤销）"
+				"检测到 sasami.erabasic。点这里把 .erb/.erh 的语法与高亮交给它（会写入你的 files.associations；随时可收回）"
+			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
+		} else if (yielded) {
+			statusBarItem.command = "eraHarness.erabasic.reclaimFiles"
+			statusBarItem.text = "$(check) EraBasic：高亮归 sasami"
+			statusBarItem.tooltip = "当前 .erb/.erh 由 sasami.erabasic 接管。点这里收回，改回 era harness 的语言声明"
+		} else if (owner === "sasami") {
+			// 设置还指着 sasami，但它被卸载/禁用了：关联可能指向不存在的语言 id，必须给一个明显的收回入口
+			statusBarItem.command = "eraHarness.erabasic.reclaimFiles"
+			statusBarItem.text = "$(warning) EraBasic：sasami 不见了，点此收回"
+			statusBarItem.tooltip =
+				"设置里仍指向 sasami.erabasic，但它现在不可用。点这里把 .erb/.erh 收回 era harness，避免变成纯文本"
 			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
 		} else if (autoTakeover) {
 			statusBarItem.command = "eraHarness.erabasic.revealSymbols"
@@ -228,10 +272,25 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		}),
 	)
 
-	context.subscriptions.push(vscode.extensions.onDidChange(() => evaluate()))
+	context.subscriptions.push(
+		vscode.extensions.onDidChange(() => {
+			void (async () => {
+				// sasami 刚装上、而用户之前已选 sasami：把关联补上（用户意图的延续，不是自动接管）
+				if (readOwner() === "sasami" && vscode.extensions.getExtension(ERABASIC_EXTENSION_ID) !== undefined) {
+					await applyOwner("sasami")
+				}
+				evaluate()
+			})()
+		}),
+	)
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration((e) => {
-			if (e.affectsConfiguration("eraHarness.erabasic")) {
+			if (e.affectsConfiguration(`${OWNER_SECTION}.${OWNER_KEY}`)) {
+				// 用户改了「语言归属」：把设置落实到 files.associations
+				void applyOwner(readOwner()).then(() => evaluate())
+				return
+			}
+			if (e.affectsConfiguration(OWNER_SECTION)) {
 				evaluate()
 			}
 		}),

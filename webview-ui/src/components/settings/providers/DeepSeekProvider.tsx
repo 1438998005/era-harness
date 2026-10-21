@@ -2,11 +2,13 @@ import { deepSeekModels, ModelInfo } from "@shared/api"
 import { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { ModelsServiceClient } from "@/services/grpc-client"
+import { ModelsServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { ApiKeyField } from "../common/ApiKeyField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
+import ReasoningEffortSelector from "../ReasoningEffortSelector"
 import { normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
@@ -100,8 +102,19 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 				initialValue={apiConfiguration?.deepSeekApiKey || ""}
 				onChange={(value) => handleFieldChange("deepSeekApiKey", value)}
 				providerName="DeepSeek"
-				signupUrl="https://platform.deepseek.com/api_keys"
+				signupUrl="https://platform.deepseek.com/"
 			/>
+
+			{/* 开放平台入口：注册、充值、看用量、看文档都在这里 */}
+			<div className="flex flex-wrap items-center gap-2 mt-2">
+				<Button
+					onClick={() => void UiServiceClient.openUrl({ value: "https://platform.deepseek.com/" }).catch(console.error)}
+					size="sm"
+					variant="outline-primary">
+					打开 DeepSeek 开放平台
+				</Button>
+				<span className="text-xs text-(--vscode-descriptionForeground)">注册 / 充值 / 查看用量与文档</span>
+			</div>
 
 			{showModelOptions && (
 				<>
@@ -141,6 +154,17 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 					</div>
 
 					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
+
+					{selectedModelInfo?.supportsReasoning && (
+						<ReasoningEffortSelector
+							allowedEfforts={["low", "high", "xhigh"]}
+							currentMode={currentMode}
+							defaultEffort="high"
+							description="DeepSeek V4 默认开启思考：low=轻量、high=深度（默认）、xhigh=最大（发送为 max）。不传则用官方默认值。"
+							label="思维强度（reasoning_effort）"
+							labels={{ low: "低（low）", high: "高（high，默认）", xhigh: "最大（max）" }}
+						/>
+					)}
 
 					{liveModelIds && selectedModelId && !BUILTIN_MODELS[selectedModelId] && (
 						<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-editorWarning-foreground)" }}>

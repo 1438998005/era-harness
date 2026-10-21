@@ -1,11 +1,13 @@
 import { UpdateSettingsRequest } from "@shared/proto/cline/state"
 import { memo, type ReactNode, useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { UiServiceClient } from "@/services/grpc-client"
 import Section from "../Section"
 import SettingsSlider from "../SettingsSlider"
 import { updateSetting } from "../utils/settingsHandlers"
@@ -209,6 +211,15 @@ interface FeatureSettingsSectionProps {
 	renderSectionHeader: (tabId: string) => JSX.Element | null
 }
 
+/** 「工具」区的行：标题 + 说明 + 右侧/下方按钮（不依赖 Cline 的 proto 设置项） */
+const ActionRow = memo(({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) => (
+	<div className="flex flex-col gap-2">
+		<div className="text-sm font-medium text-foreground">{title}</div>
+		<div className="text-xs text-description">{description}</div>
+		<div className="flex flex-wrap gap-2">{children}</div>
+	</div>
+))
+
 const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionProps) => {
 	const { t } = useTranslation("settings")
 
@@ -282,6 +293,15 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 	)
 
 	const isYoloRemoteLocked = remoteConfigSettings?.yoloModeToggled !== undefined
+
+	// 设置页里的“执行扩展命令”按钮（runCommand 在宿主侧有白名单）
+	const runEraCommand = useCallback(async (command: string) => {
+		try {
+			await UiServiceClient.runCommand({ value: command })
+		} catch (error) {
+			console.error(`runCommand(${command}) failed`, error)
+		}
+	}, [])
 
 	// era harness 只暴露和 eraTW 开发直接相关的开关；worktree、Web 工具、
 	// 功能提示这些属于上游遗留，先不显示，避免用户被无关选项淹没。
@@ -467,6 +487,36 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 								</Select>
 							</div>
 						</div>
+					</div>
+				</div>
+
+				{/* eraTW 工具：需要真实 VS Code 命令的操作放这里（不走 proto 设置项） */}
+				<div>
+					<div className="text-xs font-medium text-foreground/80 uppercase tracking-wider mb-3">eraTW 工具</div>
+					<div className="relative p-3 my-3 rounded-md border border-editor-widget-border/50 space-y-4">
+						<ActionRow
+							description="检查上游 → 扫本地改动 → 生成计划 → 弹窗确认后才写入；被覆盖或删除的原文件进 _备份/update_backup_*，可一键撤销。"
+							title="更新 eraTW（跟社区最新版）">
+							<Button onClick={() => void runEraCommand("era-harness.updateGame")} size="sm" variant="secondary">
+								检查并更新
+							</Button>
+						</ActionRow>
+						<ActionRow
+							description="同时装了 sasami.erabasic？可把 .erb/.erh 的语法高亮交给它（会写入用户级 files.associations，可随时收回）。未安装时点「让 sasami 接管」会提示。"
+							title="EraBasic 语法归属">
+							<Button
+								onClick={() => void runEraCommand("eraHarness.erabasic.yieldToSasami")}
+								size="sm"
+								variant="secondary">
+								让 sasami 接管
+							</Button>
+							<Button
+								onClick={() => void runEraCommand("eraHarness.erabasic.reclaimFiles")}
+								size="sm"
+								variant="outline-primary">
+								收回给我
+							</Button>
+						</ActionRow>
 					</div>
 				</div>
 			</Section>
