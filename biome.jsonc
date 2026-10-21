@@ -155,6 +155,7 @@
 				// 设置页按钮 → 扩展命令的唯一入口：必须直接调 vscode.commands.executeCommand，
 				// 但命令 id 走宿主侧白名单（不是通用执行通道）
 				"!src/core/controller/ui/runCommand.ts",
+				"!src/core/controller/ui/getEraBasicLanguageOwner.ts",
 				"!src/core/controller/ui/openWalkthrough.ts"
 			],
 			"plugins": [

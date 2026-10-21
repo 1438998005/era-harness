@@ -3,6 +3,16 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.89.5 — 2026-10-21
+
+### 样式
+
+- 「EraBasic 语法归属」从两个并排按钮改成**二选一单选卡**：当前生效项整卡实心高亮（蓝底白字 + 勾选图标），另一项只留描边；切换时显示加载动画，完成后回读宿主真实状态（sasami 未安装时不会误亮）。
+
+### 实现
+
+- 新增 `UiService.getEraBasicLanguageOwner`（只读 RPC）：webview 不直接读 VS Code 配置，由宿主返回归一化后的 `era` / `sasami`。
+
 ## 3.89.4 — 2026-10-21
 
 ### 样式

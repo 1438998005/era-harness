@@ -281,4 +281,7 @@ service UiService {
 
   // Runs an extension command from the webview (allowlisted host-side; used by settings buttons)
   rpc runCommand(StringRequest) returns (Empty);
+
+  // 读取 EraBasic 语言归属（设置页二选一高亮用）
+  rpc getEraBasicLanguageOwner(EmptyRequest) returns (String);
 }
