@@ -21,6 +21,8 @@ interface ToolWithReasoning {
 	reasoning?: string
 	isActive?: boolean
 	activityText?: string
+	/** 1 for a single call; N when identical read_file calls were merged into this row. */
+	repeatCount?: number
 }
 
 const EXPANDABLE_TOOLS = new Set(["listFilesTopLevel", "listFilesRecursive", "listCodeDefinitionNames", "searchFiles"])
@@ -136,6 +138,7 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 					tool: msg,
 					parsedTool,
 					reasoning: undefined,
+					repeatCount: 1,
 					isActive: true,
 					activityText: getActivityText(parsedTool),
 				}
@@ -193,7 +196,7 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 
 			{/* Content - unified list of completed + active tools */}
 			<div className="min-w-0">
-				{allTools.map(({ tool, parsedTool, isActive, activityText }) => {
+				{allTools.map(({ tool, parsedTool, isActive, activityText, repeatCount }) => {
 					const info = getToolDisplayInfo(parsedTool)
 					if (!info) {
 						return null
@@ -240,6 +243,11 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 									)}>
 									{`${info.displayText || cleanPathPrefix(info.path)}\u200E`}
 								</span>
+								{repeatCount !== undefined && repeatCount > 1 && (
+									<span className="shrink-0 ml-1 text-[11px] opacity-70" title={`${repeatCount} 次相同调用`}>
+										×{repeatCount}
+									</span>
+								)}
 							</Button>
 							{/* Expanded content for folders/search/definitions - file lists only */}
 							{isExpandable && isItemExpanded && content && (
@@ -254,6 +262,16 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 		</div>
 	)
 })
+
+/**
+ * Identity of a read for merging: same file + same requested range collapses into one row.
+ */
+function readMergeKey(tool: ClineSayTool): string | undefined {
+	if (tool.tool !== "readFile" || !tool.path) {
+		return undefined
+	}
+	return `${tool.path}|${tool.readLineStart ?? ""}|${tool.readLineEnd ?? ""}`
+}
 
 /**
  * Build tool items WITHOUT reasoning.
@@ -271,19 +289,20 @@ export function buildToolsWithReasoning(messages: ClineMessage[]): ToolWithReaso
 		if (isLowStakesTool(msg)) {
 			const parsedTool = parseToolSafe(msg.text)
 			const previous = result.at(-1)
-			const supersedesPreviousReadAsk =
-				parsedTool.tool === "readFile" &&
-				parsedTool.path &&
-				msg.say === "tool" &&
-				previous?.tool.ask === "tool" &&
-				previous.parsedTool.tool === "readFile" &&
-				previous.parsedTool.path === parsedTool.path
+			const readKey = readMergeKey(parsedTool)
 
-			if (supersedesPreviousReadAsk) {
+			// Merge every repeat of the same file+range into the previous row and count it.
+			// The previous rule only collapsed the "ask tool → say tool" approval hand-off,
+			// so consecutive `say` rows piled up and made one repeated read look like dozens.
+			const mergesPreviousRead =
+				readKey !== undefined && previous !== undefined && readMergeKey(previous.parsedTool) === readKey
+
+			if (mergesPreviousRead) {
 				result[result.length - 1] = {
 					tool: msg,
 					parsedTool,
 					reasoning: undefined,
+					repeatCount: (previous.repeatCount ?? 1) + 1,
 				}
 				continue
 			}
@@ -291,6 +310,7 @@ export function buildToolsWithReasoning(messages: ClineMessage[]): ToolWithReaso
 				tool: msg,
 				parsedTool,
 				reasoning: undefined, // Never show reasoning in file lists
+				repeatCount: 1,
 			})
 		}
 	}

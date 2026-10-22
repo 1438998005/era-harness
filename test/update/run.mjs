@@ -44,6 +44,9 @@ const SPECS = [
 	"reasoning-support.spec.ts",
 	"global-memory.spec.ts",
 	"version-check.spec.ts",
+	"loop-detection.spec.ts",
+	"audit-redaction.spec.ts",
+	"mimo-model.spec.ts",
 ]
 
 const aliasResolverPlugin = {

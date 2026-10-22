@@ -1,4 +1,5 @@
 import type { ToolUse } from "@core/assistant-message"
+import { recordAudit } from "@core/logging/auditLog"
 import { formatResponse } from "@core/prompts/responses"
 import { readGlobalMemoryDocument, removeGlobalMemoryEntry, upsertGlobalMemoryEntry } from "@core/storage/globalMemory"
 import { GLOBAL_MEMORY_LIMITS, type GlobalMemoryDocument } from "@shared/global-memory"
@@ -116,6 +117,14 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 				}
 
 				const result = await upsertGlobalMemoryEntry({ text, tags, source: "model" })
+				recordAudit({
+					event: "memory",
+					taskId: config.ulid,
+					action: "add",
+					target: result.entry.id,
+					outcome: "ok",
+					message: result.created ? "created" : "updated-existing",
+				})
 				await config.callbacks.say(
 					"info",
 					result.created
@@ -143,6 +152,13 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 				}
 
 				const result = await upsertGlobalMemoryEntry({ id: entryId, text, tags, source: "model" })
+				recordAudit({
+					event: "memory",
+					taskId: config.ulid,
+					action: "update",
+					target: result.entry.id,
+					outcome: "ok",
+				})
 				await config.callbacks.say("info", `全局记忆已更新：${result.entry.text}（${summaryLine(result.document)}）`)
 				config.taskState.consecutiveMistakeCount = 0
 				return `已更新 [${result.entry.id}]：${result.entry.text}\n${summaryLine(result.document)}`
@@ -156,6 +172,13 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 
 				const target = current.entries.find((entry) => entry.id === entryId)
 				const document = await removeGlobalMemoryEntry(entryId)
+				recordAudit({
+					event: "memory",
+					taskId: config.ulid,
+					action: "remove",
+					target: entryId,
+					outcome: "ok",
+				})
 				await config.callbacks.say("info", `全局记忆 -1：${target?.text ?? entryId}（${summaryLine(document)}）`)
 				config.taskState.consecutiveMistakeCount = 0
 				return `已删除 [${entryId}]。${summaryLine(document)}`
@@ -168,6 +191,13 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 		} catch (error) {
 			config.taskState.consecutiveMistakeCount++
 			const message = error instanceof Error ? error.message : String(error)
+			recordAudit({
+				event: "memory",
+				taskId: config.ulid,
+				action: requestedMode,
+				outcome: "error",
+				message,
+			})
 			return formatResponse.toolError(`全局记忆操作失败：${message}`)
 		}
 	}

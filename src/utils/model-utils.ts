@@ -23,6 +23,7 @@ export function isNextGenModelProvider(providerInfo: ApiProviderInfo): boolean {
 		"baseten",
 		"vercel-ai-gateway",
 		"deepseek",
+		"mimo",
 		"oca",
 	].some((id) => providerId === id)
 }
@@ -193,6 +194,11 @@ export function isDeepSeekNativeModelFamily(id: string): boolean {
 		modelId.includes("deepseek-chat") ||
 		modelId.includes("deepseek-reasoner")
 	)
+}
+
+/** 小米 MiMo 系列：目前均支持思维（reasoning_effort / reasoning_content）。 */
+export function isMimoModelFamily(id: string): boolean {
+	return normalize(id).includes("mimo")
 }
 
 export function isPoolsideModelFamily(id: string): boolean {

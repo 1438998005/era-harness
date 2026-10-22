@@ -1,3 +1,4 @@
+import { apiProviderDefaultModelId, isBuiltinModelId } from "@shared/api"
 import PROVIDERS from "@shared/providers/providers.json"
 import { Mode } from "@shared/storage/types"
 import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
@@ -11,6 +12,7 @@ import { PLATFORM_CONFIG, PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { DeepSeekProvider } from "./providers/DeepSeekProvider"
 import { FreeModelProvider } from "./providers/FreeModelProvider"
+import { MimoProvider } from "./providers/MimoProvider"
 import { OpenAICompatibleProvider } from "./providers/OpenAICompatible"
 import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers"
 
@@ -50,7 +52,7 @@ const ApiOptions = ({
 	// Use full context state for immediate save payload
 	const { apiConfiguration, remoteConfigSettings } = useExtensionState()
 
-	const { selectedProvider } = normalizeApiConfiguration(apiConfiguration, currentMode)
+	const { selectedProvider, selectedModelId } = normalizeApiConfiguration(apiConfiguration, currentMode)
 
 	const { handleModeFieldChange } = useApiConfigurationHandlers()
 
@@ -115,6 +117,14 @@ const ApiOptions = ({
 
 	const handleProviderChange = (newProvider: string) => {
 		handleModeFieldChange({ plan: "planModeApiProvider", act: "actModeApiProvider" }, newProvider as any, currentMode)
+
+		// 切换 provider 时，旧模型的 id 属于旧 provider（例如 deepseek-flash 带到 MiMo），
+		// 直接沿用会被发到新端点。只要当前 id 不在目标 provider 的内置表里，就写回其默认 id。
+		const fallbackModelId = apiProviderDefaultModelId(newProvider)
+		if (fallbackModelId && selectedModelId && !isBuiltinModelId(newProvider, selectedModelId)) {
+			handleModeFieldChange({ plan: "planModeApiModelId", act: "actModeApiModelId" }, fallbackModelId, currentMode)
+		}
+
 		setIsDropdownVisible(false)
 		setSelectedIndex(-1)
 	}
@@ -284,6 +294,10 @@ const ApiOptions = ({
 
 			{apiConfiguration && selectedProvider === "deepseek" && (
 				<DeepSeekProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
+
+			{apiConfiguration && selectedProvider === "mimo" && (
+				<MimoProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
 			)}
 
 			{apiConfiguration && selectedProvider === "openai" && (

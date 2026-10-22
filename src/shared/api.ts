@@ -17,6 +17,7 @@ export type ApiProvider =
 	| "requesty"
 	| "together"
 	| "deepseek"
+	| "mimo"
 	| "qwen"
 	| "qwen-code"
 	| "doubao"
@@ -604,6 +605,75 @@ export function getDeepSeekModelInfo(modelId: string, modelInfo?: ModelInfo): Mo
 	}
 	// 在线同步回来的未知模型：保留用户填写的上限，其余用默认模型的保守值
 	return { ...deepSeekModels[deepSeekDefaultModelId], ...modelInfo }
+}
+
+// Xiaomi MiMo
+// https://mimo.mi.com/docs/zh-CN/quick-start/summary/welcome
+//
+// OpenAI 兼容基址：https://api.xiaomimimo.com/v1（实测 /v1/models 无 key 返回 401 Invalid API Key）。
+// 内置清单只做**种子**：实际可用 id 以设置页在线同步（GET /v1/models）为准。
+// 价格没能从官方页面核实到逐档数字，因此一律记 0，UI 上注明「以官方计费为准」，
+// 不用猜测的数字把用户账单算错。
+export type MimoModelId = keyof typeof mimoModels
+export const mimoDefaultModelId: MimoModelId = "mimo-v2.6-flash"
+
+const mimoFlashInfo: ModelInfo = {
+	name: "MiMo V2.6 Flash",
+	// 官方文档未给出逐模型上限时先用保守值：宁可让上下文管理提前截断，
+	// 也不要在真实上限更低时把请求打爆。
+	maxTokens: 8_000,
+	contextWindow: 128_000,
+	supportsImages: false,
+	supportsPromptCache: false,
+	supportsReasoning: true,
+	inputPrice: 0,
+	outputPrice: 0,
+}
+
+export const mimoModels = {
+	"mimo-v2.6-flash": mimoFlashInfo,
+	"mimo-v2.6-pro": {
+		...mimoFlashInfo,
+		name: "MiMo V2.6 Pro",
+	},
+} as const satisfies Record<string, ModelInfo>
+
+export function getMimoModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
+	if (modelId in mimoModels) {
+		return { ...mimoModels[modelId as MimoModelId] }
+	}
+	// 在线同步回来的未知模型：保留用户填写的元数据，缺失时用种子默认的保守值
+	return { ...mimoModels[mimoDefaultModelId], ...modelInfo }
+}
+
+/**
+ * 切换 provider 时的默认模型 id（只有带内置清单的 provider 才有）。
+ * OpenAI 兼容没有清单：模型 id 由用户自己填，不参与纠正。
+ */
+export function apiProviderDefaultModelId(provider: string | undefined): string | undefined {
+	switch (provider) {
+		case "deepseek":
+			return deepSeekDefaultModelId
+		case "mimo":
+			return mimoDefaultModelId
+		default:
+			return undefined
+	}
+}
+
+/** 该 id 是否属于目标 provider 的内置清单（无清单的 provider 一律返回 true，不纠正）。 */
+export function isBuiltinModelId(provider: string | undefined, modelId: string | undefined): boolean {
+	if (!provider || !modelId) {
+		return false
+	}
+	switch (provider) {
+		case "deepseek":
+			return modelId in deepSeekModels
+		case "mimo":
+			return modelId in mimoModels
+		default:
+			return true
+	}
 }
 
 // Hugging Face Inference Providers

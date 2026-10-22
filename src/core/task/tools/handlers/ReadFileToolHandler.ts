@@ -1,5 +1,6 @@
 import path from "node:path"
 import type { ToolUse } from "@core/assistant-message"
+import { recordAudit } from "@core/logging/auditLog"
 import { formatResponse } from "@core/prompts/responses"
 import { getWorkspaceBasename, resolveWorkspacePath } from "@core/workspace"
 import { extractFileContent, type FileContentResult } from "@integrations/misc/extract-file-content"
@@ -9,6 +10,7 @@ import { truncateAtLineBoundary } from "@/shared/content-limits"
 import { ClineSayTool } from "@/shared/ExtensionMessage"
 import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
+import { repeatReadSuppressedMessage, shouldSuppressRepeatRead } from "../../loop-detection"
 import { showNotificationForApproval } from "../../utils"
 import type { IFullyManagedTool } from "../ToolExecutorCoordinator"
 import type { ToolValidator } from "../ToolValidator"
@@ -326,9 +328,48 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 		if (validCached) {
 			validCached.readCount++
 
+			// Per-range counter: reading a *different* range of the same file is a normal
+			// read, not a repeat, so it must not inherit the other range's count.
+			const { startLine, endLine } = parseRequestedLineRange(block)
+			const rangeKey = `${cacheKey}|${startLine ?? ""}|${endLine ?? ""}`
+			const rangeReadCount = (config.taskState.fileReadCounts.get(rangeKey) ?? 0) + 1
+			config.taskState.fileReadCounts.set(rangeKey, rangeReadCount)
+
+			// 审计：排障时最关键的一条——「第几次读同一区间、命中了缓存没有」。
+			recordAudit({
+				event: "tool",
+				taskId: config.ulid,
+				turn: config.taskState.apiRequestCount,
+				tool: block.name,
+				target: displayPath,
+				range: startLine !== undefined && endLine !== undefined ? [startLine, endLine] : undefined,
+				dedupeKey: `read|${displayPath}|${startLine ?? ""}|${endLine ?? ""}`,
+				cacheHit: true,
+				readCount: rangeReadCount,
+				outcome: "ok",
+				provider,
+				model: config.api.getModel().id,
+			})
+
 			// Re-push image block for multimodal models so image context is not lost on cached reads
 			if (validCached.imageBlock) {
 				config.taskState.userMessageContent.push(validCached.imageBlock)
+			}
+
+			// Third+ read of the identical range: stop paying for the body. The model
+			// already holds this content verbatim, so re-sending it adds no information
+			// and only feeds the "read forever" loop.
+			if (shouldSuppressRepeatRead(rangeReadCount)) {
+				if (!config.isSubagentExecution) {
+					// 带上上次展示过的行区间，让分组渲染能把这次合并成同一行的 ×N
+					const payload: ClineSayTool = { ...sharedMessageProps }
+					if (validCached.lastRange) {
+						payload.readLineStart = validCached.lastRange[0]
+						payload.readLineEnd = validCached.lastRange[1]
+					}
+					await config.callbacks.say("tool", JSON.stringify(payload), undefined, undefined, false)
+				}
+				return repeatReadSuppressedMessage(displayPath, rangeReadCount)
 			}
 
 			// Re-read from disk (cache doesn't store content to save memory)
@@ -345,20 +386,15 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 				return formatResponse.toolError(normalizedMessage)
 			}
 
-			if (validCached.readCount >= 3) {
-				await emitReadFileToolUiComplete(config, sharedMessageProps, block, fileContent)
-				return buildReadResponse(
-					block,
-					fileContent,
-					`[DUPLICATE READ] You have already read '${displayPath}' ${validCached.readCount} times in this conversation. The content has not changed since your last read. Please use the information you already have and proceed with your task.`,
-				)
-			}
-
 			await emitReadFileToolUiComplete(config, sharedMessageProps, block, fileContent)
+			const displayedRange = getReadToolDisplayedLineRange(block, fileContent)
+			validCached.lastRange = displayedRange ? [displayedRange.start, displayedRange.end] : undefined
+			const repeatNote =
+				rangeReadCount > 1 ? ` (本文件该区间第 ${rangeReadCount} 次读取，内容未变化；下次重复将不再返回正文)` : ""
 			return buildReadResponse(
 				block,
 				fileContent,
-				`[File already read] The file '${displayPath}' was already read earlier in this conversation. Returning content:`,
+				`[File already read] The file '${displayPath}' was already read earlier in this conversation. Returning content:${repeatNote}`,
 			)
 		}
 
@@ -394,10 +430,20 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 		} catch {
 			// If stat fails, use 0 — the next cache hit will evict due to mtime mismatch
 		}
+		// A fresh read (first read, or cache evicted because the file changed) resets the
+		// per-range counters so future repeats start from 1 again.
+		for (const key of Array.from(config.taskState.fileReadCounts.keys())) {
+			if (key.startsWith(`${cacheKey}|`)) {
+				config.taskState.fileReadCounts.delete(key)
+			}
+		}
+		// 展示行区间要在写缓存前算好：后续被降级的重复读靠它合并成同一行 ×N
+		const freshRange = getReadToolDisplayedLineRange(block, fileContent)
 		config.taskState.fileReadCache.set(cacheKey, {
 			readCount: 1,
 			mtime,
 			imageBlock: fileContent.imageBlock,
+			lastRange: freshRange ? ([freshRange.start, freshRange.end] as [number, number]) : undefined,
 		})
 
 		// Handle image blocks separately - they need to be pushed to userMessageContent

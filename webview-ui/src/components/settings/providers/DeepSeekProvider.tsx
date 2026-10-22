@@ -105,7 +105,7 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 				signupUrl="https://platform.deepseek.com/"
 			/>
 
-			{/* 开放平台入口：注册、充值、看用量、看文档都在这里 */}
+			{/* 入口：开放平台 + 文档；注册、充值、用量在开放平台，参数说明在文档 */}
 			<div className="flex flex-wrap items-center gap-2 mt-2">
 				<Button
 					onClick={() => void UiServiceClient.openUrl({ value: "https://platform.deepseek.com/" }).catch(console.error)}
@@ -113,7 +113,15 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 					variant="outline-primary">
 					打开 DeepSeek 开放平台
 				</Button>
-				<span className="text-xs text-(--vscode-descriptionForeground)">注册 / 充值 / 查看用量与文档</span>
+				<Button
+					onClick={() =>
+						void UiServiceClient.openUrl({ value: "https://api-docs.deepseek.com/zh-cn/" }).catch(console.error)
+					}
+					size="sm"
+					variant="outline-primary">
+					API 文档
+				</Button>
+				<span className="text-xs text-(--vscode-descriptionForeground)">注册 / 充值 / 查看用量（文档含参数说明）</span>
 			</div>
 
 			{showModelOptions && (
