@@ -22,6 +22,7 @@ import {
 	type AuditEntry,
 	auditFileName,
 	buildDiagnosticsHeader,
+	collectRecentLines,
 	compareAuditFilesDesc,
 	type DiagnosticsHeader,
 	diagnosticsFileName,
@@ -123,24 +124,25 @@ export async function readRecentAuditLines(limit = AUDIT_EXPORT_LINE_LIMIT): Pro
 
 	// 按「日期 + 分片号」降序，不能依赖文件名排序（见 compareAuditFilesDesc 注释）
 	files.sort(compareAuditFilesDesc)
-	const collected: string[] = []
+	const contents: string[] = []
+	let seenLines = 0
 	for (const name of files) {
-		let content: string
-		try {
-			content = await fs.readFile(path.join(dir, name), "utf8")
-		} catch {
-			continue
-		}
-		const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0)
-		// 新文件在前，但文件内部要保序：先取出尾部再插到最前面
-		const take = lines.slice(Math.max(0, lines.length - (limit - collected.length)))
-		collected.unshift(...take)
-		if (collected.length >= limit) {
+		if (seenLines >= limit) {
 			break
+		}
+		try {
+			const content = await fs.readFile(path.join(dir, name), "utf8")
+			contents.push(content)
+			// 与 collectRecentLines 同口径（\r?\n + 丢弃空行）：行尾换行会让 split("\n") 多计一行，
+			// 累计后会提前 break，导致导出少于 limit 行。
+			seenLines += content.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+		} catch {
+			// 单个分片读失败不影响导出其余部分
 		}
 	}
 
-	return collected.slice(-limit)
+	// 合并与截取交给纯函数（锁住「最新事件必须在包里」）
+	return collectRecentLines(contents, limit)
 }
 
 export interface DiagnosticsExportResult {

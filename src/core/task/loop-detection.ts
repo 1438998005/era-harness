@@ -44,10 +44,50 @@ const REPEAT_EXEMPT_TOOLS = new Set([
 // the body: the model already has the content verbatim, so re-sending is pure cost.
 export const REPEAT_READ_SUPPRESS_THRESHOLD = 3
 
+/**
+ * 降级读的固定前缀。判据与文案必须同源：文案改一个字而判据没跟，
+ * 「已降级」就再也认不出来，第 5 次照样把任务判死。
+ *
+ * 首行必须**独占**成机器可读字段（`[SAME CONTENT] read=N`），散文从第二行开始：
+ * 路径里可能有 `'`（`O'Brien.ts`），一旦首行要把路径也框进引号，这类路径就会解析
+ * 失败 → 退回第 5 次判死，等于把修复悄悄撤销。
+ */
+export const REPEAT_READ_SUPPRESSED_MARKER = "[SAME CONTENT]"
+
+/**
+ * 已降级的读延后到这里才真正升级：**同一文件同一区间**的第 8 次读。
+ *
+ * 第 3 次起返回的是 `[SAME CONTENT]` 短标记，本回合几乎没有 token 成本，
+ * 再按第 5 次判死等于「已经止损了还判死」（yolo 模式下任务直接失败）。
+ * 但也不能永不升级：真正的死循环每轮仍要一次完整 API 请求。
+ *
+ * 判据取 `commitRangeRead` 的区间累计次数（单调、与窗口占空比无关），
+ * **不能**用 `windowCount`：`读A/命令/读A/命令` 交替下同一签名最多只占 12 槽窗口的
+ * 6 槽，`>= 8` 结构不可达，而且第一次 `hardEscalation` 为真的那一拍响应必然已降级，
+ * 于是判死从此永不触发（实测：改之前第 5 次停，改之后永不停止）。
+ */
+export const REPEAT_SUPPRESSED_HARD_COUNT = REPEAT_WINDOW_HARD_COUNT + 3
+
 // Params that are metadata/tracking, not tool-relevant input.
 // These change between calls even when the user-facing arguments are identical
 // (e.g., task_progress updates its checklist each turn).
 const IGNORED_PARAMS = new Set(["task_progress"])
+
+/**
+ * read_file 的缺省区间与显式 `start_line=1` 读的是同一段内容：
+ * 签名必须归一，否则模型换个写法就能把「同一调用」拆成两条不同记录。
+ */
+function normalizeReadParams(params: Partial<Record<string, string>>): Partial<Record<string, string>> {
+	const normalized = { ...params }
+	const start = Number.parseInt(normalized.start_line ?? "", 10)
+	if (!Number.isFinite(start) || start <= 1) {
+		delete normalized.start_line
+	}
+	if (!normalized.end_line || normalized.end_line.trim() === "") {
+		delete normalized.end_line
+	}
+	return normalized
+}
 
 /**
  * Compute a canonical signature for a tool call's params.
@@ -56,13 +96,16 @@ const IGNORED_PARAMS = new Set(["task_progress"])
  *
  * block.params is Partial<Record<ToolParamName, string>> — always flat,
  * string-valued, no nesting — so the replacer array is sufficient.
+ *
+ * `toolName` 可选：传 `"read_file"` 时把缺省/等价的区间参数归一；不传保持旧行为。
  */
-export function toolCallSignature(params: Partial<Record<string, string>> | undefined): string {
+export function toolCallSignature(params: Partial<Record<string, string>> | undefined, toolName?: string): string {
 	if (!params) return "{}"
-	const keys = Object.keys(params)
+	const effective = toolName === "read_file" ? normalizeReadParams(params) : params
+	const keys = Object.keys(effective)
 		.filter((k) => !IGNORED_PARAMS.has(k))
 		.sort()
-	return JSON.stringify(params, keys)
+	return JSON.stringify(effective, keys)
 }
 
 export interface LoopDetectionResult {
@@ -168,6 +211,50 @@ export function nextRepeatReadCount(previousCount: number | undefined, isFreshRe
 }
 
 /**
+ * 区间计数键：缺省 start 归一为 1，缺省 end 用空串（不引入 MAX_SAFE_INTEGER：
+ * 键要可读，且 `invalidateRepeatWindowForPath` 依赖 `split("|")[0]` 取路径）。
+ *
+ * 用函数而不是各处拼字符串，是为了让「缺省区间与 start_line=1 必须同键」能被单测锁住。
+ */
+export function readRangeKey(cacheKey: string, startLine?: number, endLine?: number): string {
+	// 模型给的 `start_line="abc"` 会 parseInt 成 NaN：不挡住就会写出 `p|NaN|` 这种键，
+	// 既和缺省读对不上，也会让审计里出现一条永远只有 1 次的「区间」。
+	const start = Number.isFinite(startLine) ? Math.max(1, startLine as number) : 1
+	const end = Number.isFinite(endLine) ? (endLine as number) : undefined
+	return `${cacheKey}|${start}|${end ?? ""}`
+}
+
+/**
+ * 审计里的 `dedupeKey`：**必须**和区间计数键同源，否则「缺省 start」与 `start_line=1`
+ * 会被当成两组，同一次 read_file 写的两条审计（ToolExecutor 一条 + handler 缓存命中一条）
+ * 就再也对不上。
+ *
+ * 路径形态保持各自口径：审计用模型可见路径（`displayPath` / `params.path`），
+ * 内存计数用绝对路径（`cacheKey`）。单根工作区下两者相同，多根带 hint 时才不同——
+ * 别误以为两套键应该逐字相等。
+ */
+export function readDedupeKey(displayPath: string, startLine?: number, endLine?: number): string {
+	return `read|${readRangeKey(displayPath, startLine, endLine)}`
+}
+
+/**
+ * 记一次区间读取并返回本次次数：fresh 读先清掉该文件的其它区间计数再播种 1，
+ * 缓存命中则 +1。handler 两个分支都走这一个函数，避免只改一半造成 off-by-one。
+ */
+export function commitRangeRead(counts: Map<string, number>, cacheKey: string, rangeKey: string, isFreshRead: boolean): number {
+	if (isFreshRead) {
+		for (const key of Array.from(counts.keys())) {
+			if (key.startsWith(`${cacheKey}|`)) {
+				counts.delete(key)
+			}
+		}
+	}
+	const nextCount = nextRepeatReadCount(isFreshRead ? undefined : counts.get(rangeKey), isFreshRead)
+	counts.set(rangeKey, nextCount)
+	return nextCount
+}
+
+/**
  * Forget repetition history that targeted a file the agent just modified.
  * Without this, an "edit → re-read" sequence looks like a read loop and the
  * third read would be suppressed even though the content really did change.
@@ -207,7 +294,86 @@ export function shouldSuppressRepeatRead(readCount: number): boolean {
 	return Number.isFinite(readCount) && readCount >= REPEAT_READ_SUPPRESS_THRESHOLD
 }
 
-/** Short marker returned instead of the file body once a repeat read is suppressed. */
+/**
+ * Short marker returned instead of the file body once a repeat read is suppressed.
+ *
+ * 首行是**给机器看**的（`shouldEscalateLoop` 靠它取「这是该区间第几次读」），
+ * 第二、三行是给模型看的提示。两者必须分行：混在一行就得靠正则去抠路径，
+ * 而路径里可能有引号。
+ */
 export function repeatReadSuppressedMessage(displayPath: string, readCount: number): string {
-	return `[SAME CONTENT] '${displayPath}' 该区间已读取 ${readCount} 次，内容与首次完全一致（mtime 未变）。\n不要重复读取同一区间：需要其它部分请用 start_line/end_line，或直接基于已读内容继续。`
+	return [
+		`${REPEAT_READ_SUPPRESSED_MARKER} read=${readCount}`,
+		`'${displayPath}' 该区间已读取 ${readCount} 次，内容与首次完全一致（mtime 未变）。`,
+		"不要重复读取同一区间：需要其它部分请用 start_line/end_line，或直接基于已读内容继续。",
+	].join("\n")
+}
+
+/** 把响应（字符串或内容块数组）压成纯文本，只用于判前缀。 */
+function responseText(response: unknown): string {
+	if (typeof response === "string") {
+		return response
+	}
+	if (Array.isArray(response)) {
+		return response
+			.map((block) =>
+				block && typeof block === "object" && typeof (block as { text?: unknown }).text === "string"
+					? (block as { text: string }).text
+					: "",
+			)
+			.join("\n")
+	}
+	return ""
+}
+
+/** 首行的机器可读头：`[SAME CONTENT] read=N`，整行匹配，不留可被散文污染的空间。 */
+const SUPPRESSED_READ_HEADER_RE = /^\[SAME CONTENT\][ \t]+read=(\d+)$/
+
+export interface SuppressedRepeatRead {
+	/** 本次 read_file 的结果是否已被降级成短标记（正文没再发出去）。 */
+	suppressed: boolean
+	/** 该区间的第几次读（取自首行 `read=N`；取不到则为 undefined）。 */
+	readCount?: number
+}
+
+/** 解析降级标记：只有首行**完整**匹配 `[SAME CONTENT] read=N` 才算已降级。 */
+export function parseSuppressedRepeatReadResult(response: unknown): SuppressedRepeatRead {
+	// trim 顺带吃掉 CRLF 的 `\r`
+	const firstLine = (responseText(response).split("\n", 1)[0] ?? "").trim()
+	const match = SUPPRESSED_READ_HEADER_RE.exec(firstLine)
+	if (!match) {
+		return { suppressed: false }
+	}
+	const readCount = Number.parseInt(match[1], 10)
+	return { suppressed: true, readCount: Number.isFinite(readCount) ? readCount : undefined }
+}
+
+/** 本次 read_file 的结果是否已被降级成短标记（正文没再发出去）。 */
+export function isSuppressedRepeatReadResult(response: unknown): boolean {
+	return parseSuppressedRepeatReadResult(response).suppressed
+}
+
+/**
+ * 是否真的要把这次重复调用升级成「任务级判死」。
+ *
+ * 已降级的读不参与第 5 次判死（本回合几乎没有 token 成本），
+ * 但同一区间读到第 8 次仍然升级——放行不等于纵容。
+ *
+ * `toolName` 必填而不是可选：可选等于给未来的调用点留一个「忘传就静默失去防护」的口子。
+ * 降级标记只由 `read_file` 的 handler 产出，别的工具（或模型回显）恰好以该标记开头
+ * 不能因此拿到延后判死的豁免。
+ */
+export function shouldEscalateLoop(input: { hardEscalation: boolean; toolName: string; response: unknown }): boolean {
+	if (!input.hardEscalation) {
+		return false
+	}
+	if (input.toolName !== "read_file") {
+		return true
+	}
+	const parsed = parseSuppressedRepeatReadResult(input.response)
+	if (!parsed.suppressed || parsed.readCount === undefined) {
+		// 认不出「第几次」就按老规则判死：宁可早停，也不留一个悄悄放宽的默认分支。
+		return true
+	}
+	return parsed.readCount >= REPEAT_SUPPRESSED_HARD_COUNT
 }

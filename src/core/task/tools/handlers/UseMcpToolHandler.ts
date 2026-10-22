@@ -180,20 +180,19 @@ export class UseMcpToolHandler implements IFullyManagedTool {
 					.map((item: any) => `data:${item.mimeType};base64,${item.data}`) || []
 
 			let toolResultText =
-				(toolResult?.isError ? "Error:\n" : "") +
-					toolResult?.content
-						.map((item: any) => {
-							if (item.type === "text") {
-								return item.text
-							}
-							if (item.type === "resource") {
-								const { blob: _blob, ...rest } = item.resource
-								return JSON.stringify(rest, null, 2)
-							}
-							return ""
-						})
-						.filter(Boolean)
-						.join("\n\n") || "(No response)"
+				toolResult?.content
+					.map((item: any) => {
+						if (item.type === "text") {
+							return item.text
+						}
+						if (item.type === "resource") {
+							const { blob: _blob, ...rest } = item.resource
+							return JSON.stringify(rest, null, 2)
+						}
+						return ""
+					})
+					.filter(Boolean)
+					.join("\n\n") || "(No response)"
 
 			// webview extracts images from the text response to display in the UI
 			const toolResultToDisplay = toolResultText + toolResultImages?.map((image: any) => `\n\n${image}`).join("")
@@ -208,10 +207,17 @@ export class UseMcpToolHandler implements IFullyManagedTool {
 			// Truncate response if it exceeds 400KB to prevent context overflow
 			toolResultText = truncateContent(toolResultText)
 
+			// MCP 业务失败（isError）也是失败：包成 toolError，审计才会记 error。
+			// 必须带结构化头（server/tool）：`toolResultText` 是服务端返回的任意内容，
+			// 审计只能留「哪一类失败」，冒号后的正文由 cleanAuditMessage 整段丢弃。
+			if (toolResult?.isError) {
+				return formatResponse.toolError(`MCP tool returned an error (${server_name}/${tool_name}): ${toolResultText}`)
+			}
+
 			// Return formatted result (only pass images if model supports them)
 			return formatResponse.toolResult(toolResultText, supportsImages ? toolResultImages : undefined)
 		} catch (error) {
-			return `Error executing MCP tool: ${(error as Error)?.message}`
+			return formatResponse.toolError(`Error executing MCP tool: ${(error as Error)?.message}`)
 		}
 	}
 }

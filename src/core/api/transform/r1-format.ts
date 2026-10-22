@@ -1,6 +1,7 @@
 import { Anthropic } from "@anthropic-ai/sdk"
 import OpenAI from "openai"
 import { ClineAssistantThinkingBlock, ClineStorageMessage } from "@/shared/messages/content"
+import { shouldAttachMimoReasoning } from "@/shared/mimo-request"
 
 /**
  * DeepSeek Reasoner message format with reasoning_content support.
@@ -10,13 +11,20 @@ export type DeepSeekReasonerMessage = OpenAI.Chat.ChatCompletionMessageParam & {
 }
 
 /**
- * Adds reasoning_content to OpenAI messages for DeepSeek Reasoner.
+ * Adds reasoning_content to OpenAI messages for DeepSeek Reasoner / MiMo.
  * Per DeepSeek API: reasoning_content should be passed back during tool calling in the same turn,
  * and omitted when starting a new turn.
+ *
+ * MiMo 的官方要求更硬：**历史里所有带 `tool_calls` 的 assistant 都必须带 `reasoning_content`**，
+ * 否则 400。而 `lastUserIndex` 是「转换后数组」的下标：只要某条 user 消息混排了非 tool 内容
+ * （重复读软警告、图片块、hook context），它会被追加成 `role:"user"` 并排在所有 tool 消息之后，
+ * 窗口边界随之后移，历史里的工具调用 assistant 就会整批丢掉 reasoning_content。
+ * 因此 MiMo 传 `attachToAllToolCalls: true`；DeepSeek 保持原语义（不传）。
  */
 export function addReasoningContent(
 	openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[],
 	originalMessages: ClineStorageMessage[],
+	options?: { attachToAllToolCalls?: boolean },
 ): DeepSeekReasonerMessage[] {
 	// Find last user message index (start of current turn)
 	// If no user message exists (lastUserIndex = -1), all messages are in the "current turn",
@@ -52,12 +60,33 @@ export function addReasoningContent(
 	return openAiMessages.map((msg, i): DeepSeekReasonerMessage => {
 		if (msg.role === "assistant") {
 			const thinking = thinkingByIndex.get(aiIdx++)
-			if (thinking && i >= lastUserIndex) {
+			// 带 tool_calls 的 assistant 是 MiMo 的硬性要求：无论窗口边界在哪都必须回传。
+			const toolCalls = (msg as { tool_calls?: unknown[] }).tool_calls
+			const isToolCallAssistant = Array.isArray(toolCalls) && toolCalls.length > 0
+			if (thinking && (i >= lastUserIndex || (options?.attachToAllToolCalls && isToolCallAssistant))) {
 				return { ...msg, reasoning_content: thinking }
 			}
 		}
 		return msg
 	})
+}
+
+/**
+ * MiMo 的消息准备（handler 的唯一入口）。
+ *
+ * 为什么单独成函数：`addReasoningContent` 的 `attachToAllToolCalls` 只是一层**接线**，
+ * 写在 handler 里就等于没测——删掉它，只测 `addReasoningContent` 的用例照样全绿。
+ * 把「effort → 是否回传思考」与「MiMo 必须 attachToAllToolCalls」钉在一处，
+ * 测试从这里进，删掉接线就会红。
+ */
+export function prepareMimoMessages(
+	openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[],
+	originalMessages: ClineStorageMessage[],
+	effort: string | undefined,
+): OpenAI.Chat.ChatCompletionMessageParam[] {
+	return shouldAttachMimoReasoning(effort)
+		? addReasoningContent(openAiMessages, originalMessages, { attachToAllToolCalls: true })
+		: openAiMessages
 }
 
 /**

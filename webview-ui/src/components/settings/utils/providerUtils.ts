@@ -7,8 +7,9 @@ import {
 	getMimoModelInfo,
 	ModelInfo,
 	mimoDefaultModelId,
-	mimoModels,
 	openAiModelInfoSaneDefaults,
+	resolveCatalogModelId,
+	resolveMimoModelId,
 } from "@shared/api"
 import { FREE_POOL } from "@shared/free-pools"
 import { Mode } from "@shared/storage/types"
@@ -34,23 +35,6 @@ export function normalizeApiConfiguration(
 
 	const modelId = currentMode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
 
-	const getProviderData = (models: Record<string, ModelInfo>, defaultId: string) => {
-		let selectedModelId: string
-		let selectedModelInfo: ModelInfo
-		if (modelId && modelId in models) {
-			selectedModelId = modelId
-			selectedModelInfo = models[modelId]
-		} else {
-			selectedModelId = defaultId
-			selectedModelInfo = models[defaultId]
-		}
-		return {
-			selectedProvider: provider,
-			selectedModelId,
-			selectedModelInfo,
-		}
-	}
-
 	switch (provider) {
 		case "free":
 			// 免费模型：路由自动选模型，无用户可选模型 id。
@@ -66,22 +50,34 @@ export function normalizeApiConfiguration(
 					contextWindow: FREE_POOL[0]?.contextWindow ?? openAiModelInfoSaneDefaults.contextWindow,
 				},
 			}
-		case "deepseek":
-			const deepSeekResult = getProviderData(deepSeekModels, deepSeekDefaultModelId)
+		case "deepseek": {
+			// 大小写归一 + 未知 id 保留：与 MiMo 分支、扩展侧 getDeepSeekModelInfo 共用同一份规则，
+			// 否则会出现「设置页显示 flash、扩展实际发 pro」。
+			const selectedModelId = resolveCatalogModelId(deepSeekModels, modelId, deepSeekDefaultModelId)
 			const deepSeekModelInfo =
 				currentMode === "plan" ? apiConfiguration?.planModeDeepSeekModelInfo : apiConfiguration?.actModeDeepSeekModelInfo
 			return {
-				...deepSeekResult,
-				selectedModelInfo: getDeepSeekModelInfo(deepSeekResult.selectedModelId, deepSeekModelInfo),
+				selectedProvider: provider,
+				selectedModelId,
+				selectedModelInfo: getDeepSeekModelInfo(selectedModelId, deepSeekModelInfo),
 			}
-		case "mimo":
-			const mimoResult = getProviderData(mimoModels, mimoDefaultModelId)
+		}
+		case "mimo": {
+			// 在线同步回来的 id 大小写不保证（如 MiMo-V2.6-Pro）：先归一再取元数据，
+			// 否则 selectedModelId 会掉回默认 flash，而扩展侧实际发的是 pro。
+			// 未知但非空的 id 要保留（官方可能新增模型），只有空值才落默认。
+			const requestedModelId = modelId?.trim()
+			const resolvedModelId = requestedModelId
+				? (resolveMimoModelId(requestedModelId) ?? requestedModelId)
+				: mimoDefaultModelId
 			const mimoModelInfo =
 				currentMode === "plan" ? apiConfiguration?.planModeMimoModelInfo : apiConfiguration?.actModeMimoModelInfo
 			return {
-				...mimoResult,
-				selectedModelInfo: getMimoModelInfo(mimoResult.selectedModelId, mimoModelInfo),
+				selectedProvider: provider,
+				selectedModelId: resolvedModelId,
+				selectedModelInfo: getMimoModelInfo(resolvedModelId, mimoModelInfo),
 			}
+		}
 		case "openai":
 			const openAiModelId =
 				currentMode === "plan" ? apiConfiguration?.planModeOpenAiModelId : apiConfiguration?.actModeOpenAiModelId
@@ -205,6 +201,37 @@ export async function syncModeConfigurations(
 
 	// Make the atomic update
 	await handleFieldsChange(updates)
+}
+
+/**
+ * 把在线同步回来的模型 id（`GET /models`）合并成下拉清单。
+ *
+ * 键**必须**用规范 id：`DeepSeek-V4-Pro` 与内置清单里的 `deepseek-v4-pro` 是同一个模型，
+ * 用原始 id 当键会让 `ModelSelector` 出现两行同一模型（它不做去重）。
+ *
+ * 抽成纯函数而不是在 DeepSeek / MiMo 两个组件里各写一遍：这正是本项目已复发多次的
+ * 「同一规则写两遍必然有一遍漂移」。
+ *
+ * @param canonicalize 归一函数（`resolveDeepSeekModelId` / `resolveMimoModelId`）；
+ *                     返回 undefined 表示清单里没有这个 id，原样保留（官方可能新增模型）
+ * @param infoFor      按 id 取元数据
+ * @param selectedModelId 当前选中的模型，必须始终在列表里，否则下拉框会显示空值
+ */
+export function mergeLiveModelIds(
+	liveModelIds: string[],
+	canonicalize: (id: string) => string | undefined,
+	infoFor: (id: string) => ModelInfo,
+	selectedModelId?: string,
+): Record<string, ModelInfo> {
+	const merged: Record<string, ModelInfo> = {}
+	for (const id of liveModelIds) {
+		const key = canonicalize(id) ?? id
+		merged[key] = infoFor(key)
+	}
+	if (selectedModelId && !merged[selectedModelId]) {
+		merged[selectedModelId] = infoFor(selectedModelId)
+	}
+	return merged
 }
 
 export { filterOpenRouterModelIds } from "@shared/utils/model-filters"

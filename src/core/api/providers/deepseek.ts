@@ -1,4 +1,4 @@
-import { DeepSeekModelId, deepSeekDefaultModelId, deepSeekModels, getDeepSeekModelInfo, ModelInfo } from "@shared/api"
+import { DeepSeekModelId, deepSeekDefaultModelId, getDeepSeekModelInfo, ModelInfo, resolveDeepSeekModelId } from "@shared/api"
 import { calculateDeepSeekCost } from "@shared/deepseekPricing"
 import OpenAI from "openai"
 import type { ChatCompletionTool as OpenAITool } from "openai/resources/chat/completions"
@@ -161,9 +161,11 @@ export class DeepSeekHandler implements ApiHandler {
 	getModel(): { id: DeepSeekModelId; info: ModelInfo } {
 		const modelId = this.options.apiModelId
 		if (modelId) {
-			if (modelId in deepSeekModels) {
-				const id = modelId as DeepSeekModelId
-				return { id, info: getDeepSeekModelInfo(id, this.options.deepSeekModelInfo) }
+			// 大小写归一：同步回来的 `DeepSeek-V4-Pro` 若不归一，会落进下面的「未知模型」分支
+			// （官方价格/上下文全丢），并把非规范 id 原样发给端点。
+			const known = resolveDeepSeekModelId(modelId)
+			if (known) {
+				return { id: known, info: getDeepSeekModelInfo(known, this.options.deepSeekModelInfo) }
 			}
 			// 在线同步回来的新模型不在内置清单里：保留用户选的 id，元数据用保守默认，
 			// 否则请求会被悄悄改回默认模型。

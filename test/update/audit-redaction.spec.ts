@@ -11,7 +11,9 @@ import {
 	auditFileChunkIndex,
 	auditFileName,
 	buildDiagnosticsHeader,
+	cleanAuditMessage,
 	cleanAuditText,
+	collectRecentLines,
 	compareAuditFilesDesc,
 	diagnosticsFileName,
 	parseAuditFileDate,
@@ -19,6 +21,12 @@ import {
 	scrubSecrets,
 	serializeAuditEntry,
 } from "../../src/core/logging/audit-log-format"
+import {
+	extractToolErrorMessage,
+	isToolDenied,
+	outcomeFromToolResponse,
+	TOOL_DENIED_TEXT,
+} from "../../src/core/task/tool-outcome"
 
 test("只保留白名单字段：未知键（含正文/参数）一律丢弃", () => {
 	const dirty = {
@@ -84,6 +92,100 @@ test("空串与非字符串不写入", () => {
 	assert.equal(cleanAuditText(undefined), undefined)
 })
 
+test("审计 message 剥离正文块：diffError / SEARCH 原文 / initial_task 都不能落盘", () => {
+	const body = "【角色台词】这是绝对不能被带出去的正文"
+	const toolError =
+		"The tool execution failed with the following error:\n<error>\n" +
+		`The SEARCH block:\n${body}\n...does not match anything in the file.\n\n` +
+		`<file_content path="ERB/A.ERB">\n${body}\n</file_content>\n</error>`
+
+	const outcome = outcomeFromToolResponse(toolError)
+	assert.equal(outcome.outcome, "error")
+
+	const line = serializeAuditEntry({ event: "tool", tool: "replace_in_file", message: outcome.message }, 1)
+	assert.ok(line)
+	assert.equal((line as string).includes("角色台词"), false, "正文不能进审计")
+	assert.equal((line as string).includes("file_content"), false, "标签本身也不该留下")
+	assert.equal(JSON.parse(line as string).message, "The SEARCH block does not match the file content.")
+
+	// 没有闭合标签（错误文本被截断）时整段丢弃
+	assert.equal(cleanAuditMessage('<file_content path="ERB/A.ERB">未闭合的正文'), "[omitted]")
+	assert.equal(cleanAuditMessage("Before completing\n<initial_task>\n秘密任务\n</initial_task>")?.includes("秘密任务"), false)
+
+	// message 上限 80 字，且压成单行
+	const cleaned = cleanAuditMessage(`EACCES: ${"长".repeat(200)}\n第二行`)
+	assert.ok(cleaned)
+	assert.ok((cleaned as string).length <= 81)
+	assert.equal((cleaned as string).includes("\n"), false)
+})
+
+/**
+ * `diff.ts` 有 4 处 throw、**3 种结尾**（375/707 同文案、399 malformatted、715 incorrect content），
+ * 全都把模型给的 SEARCH 块（就是文件内容）拼进 message。只认其中一种结尾，
+ * 另外两种就会把最多 80 字的正文送进「可以直接发给陌生人」的诊断包。
+ *
+ * 所以判据必须钉在**头部** `The SEARCH block:` 上，而不是枚举结尾。
+ * 结尾表里刻意放一个**目前不存在**的第 4 种：将来新增 throw 时不会有人回来补正则，
+ * 钉头部的写法必须天然覆盖它。
+ */
+test("SEARCH 不匹配的四种结尾都要归一：正文一个字都不能留在 message 里", () => {
+	const body = "【角色台词】这是绝对不能被带出去的正文"
+	const endings = [
+		"...does not match anything in the file.", // diff.ts:375 / :707
+		"...is malformatted.", // diff.ts:399
+		"...matched an incorrect content in the file.", // diff.ts:715
+		"...failed the pre-write sanity check.", // 目前不存在：锁「钉头部」而不是「枚举结尾」
+	]
+
+	for (const ending of endings) {
+		const cleaned = cleanAuditMessage(`The SEARCH block:\n${body}\n${ending}`)
+		assert.equal(cleaned, "The SEARCH block does not match the file content.", `${ending} 必须归一`)
+		assert.equal(cleaned?.includes("角色台词"), false, `${ending} 不能漏正文`)
+	}
+
+	// ToolExecutor.handleError 拼的是 `Error executing <tool>: `（两段），同样要认
+	assert.equal(
+		cleanAuditMessage(`Error executing replace_in_file: The SEARCH block:\n${body}\n...is malformatted.`),
+		"The SEARCH block does not match the file content.",
+	)
+	// 前缀段数不是判据：单段写法（旧版生产形状）也不能把正文漏出去
+	assert.equal(
+		cleanAuditMessage(`Error replace_in_file: The SEARCH block:\n${body}\n...is malformatted.`),
+		"The SEARCH block does not match the file content.",
+		"前缀剥不干净就等于正文泄漏，所以不枚举段数",
+	)
+
+	// 完整链路（toolError → outcome → JSONL）也要干净
+	const toolError =
+		"The tool execution failed with the following error:\n<error>\n" +
+		`The SEARCH block:\n${body}\n...matched an incorrect content in the file.\n</error>`
+	const outcome = outcomeFromToolResponse(toolError)
+	assert.equal(outcome.outcome, "error")
+	const line = serializeAuditEntry({ event: "tool", tool: "replace_in_file", message: outcome.message }, 1)
+	assert.ok(line)
+	assert.equal((line as string).includes("角色台词"), false, "第三种结尾同样不能漏正文")
+})
+
+/**
+ * MCP 的 `isError` 文本是服务端返回的**任意**内容（可能是整段 JSON 或文件正文），
+ * 只截 80 字挡不住：前 80 字就是正文。审计只能留「哪一类失败」，不能留失败内容。
+ */
+test("MCP 自由文本错误只留结构化头：正文与密钥都不落盘", () => {
+	const payload = `{"api_key":"sk-live-0123456789abcdef","rows":[${'"角色台词",'.repeat(80)}]}`
+	const toolError =
+		"The tool execution failed with the following error:\n<error>\n" +
+		`MCP tool returned an error (fs/read_file): ${payload}\n</error>`
+
+	const outcome = outcomeFromToolResponse(toolError)
+	assert.equal(outcome.outcome, "error")
+
+	const line = serializeAuditEntry({ event: "tool", tool: "use_mcp_tool", message: outcome.message }, 1)
+	assert.ok(line)
+	assert.equal(JSON.parse(line as string).message, "MCP tool returned an error (fs/read_file)")
+	assert.equal((line as string).includes("角色台词"), false, "MCP 返回正文不能进审计")
+	assert.equal((line as string).includes("sk-"), false, "密钥不能进审计")
+})
+
 test("range 只接受两个有限数字", () => {
 	const withValid = sanitizeAuditEntry({ event: "tool", range: [1, 100] }, 1)
 	assert.deepEqual(withValid?.range, [1, 100])
@@ -138,6 +240,61 @@ test("审计文件降序：先日期后分片号，不靠字典序", () => {
 	assert.equal(auditFileChunkIndex("audit-2026-10-22.jsonl"), 1)
 	assert.equal(auditFileChunkIndex("audit-2026-10-22-7.jsonl"), 7)
 	assert.equal(auditFileChunkIndex("diagnostics-20261022-153000.txt"), 1)
+})
+
+test("导出合并：保留最新 limit 行，且输出为旧→新", () => {
+	// 入参是「从新到旧」的文件内容（readRecentAuditLines 的读取顺序）
+	const newest = ["n1", "n2", "n3"].join("\n")
+	const older = ["o1", "o2", "o3"].join("\n")
+
+	// 最新 4 行 = o3, n1, n2, n3
+	assert.deepEqual(collectRecentLines([newest, older], 4), ["o3", "n1", "n2", "n3"])
+	// 只取最新 2 行：必须来自最新的那个文件，不能是最早的
+	assert.deepEqual(collectRecentLines([newest, older], 2), ["n2", "n3"])
+	// 空行不算行
+	assert.deepEqual(collectRecentLines(["a\n\n b\n"], 10), ["a", " b"])
+	assert.deepEqual(collectRecentLines([], 10), [])
+})
+
+test("工具拒绝与失败都能落到 outcome（只认抛异常会漏掉最高频的两种）", () => {
+	const resolvedError = "The tool execution failed with the following error:\n<error>\nEACCES: permission denied\n</error>"
+
+	assert.equal(extractToolErrorMessage(resolvedError), "EACCES: permission denied")
+	assert.equal(
+		extractToolErrorMessage([{ type: "text", text: resolvedError }]),
+		"EACCES: permission denied",
+		"内容块形式的 toolError 也要能识别",
+	)
+	assert.equal(extractToolErrorMessage("File read successfully."), undefined)
+	assert.equal(extractToolErrorMessage(undefined), undefined)
+	assert.equal(
+		extractToolErrorMessage("The tool execution failed with the following error:\n<error>\n\n</error>"),
+		undefined,
+		"空错误文本不产生空消息",
+	)
+
+	// 用户在审批里点「拒绝」：handler 正常 resolve 固定文案，不抛异常
+	assert.equal(isToolDenied(TOOL_DENIED_TEXT), true)
+	assert.equal(isToolDenied([{ type: "text", text: TOOL_DENIED_TEXT }]), true)
+	assert.equal(isToolDenied("The user approved this operation."), false)
+
+	// handler 会在标准文案后追加说明：WriteToFile 带「文件未更新/未创建」，ApplyPatch 带「补丁未应用」。
+	// 只做全等比较会把这两个最高频的拒绝记成 ok。
+	const deniedWithNote = `${TOOL_DENIED_TEXT} The file was not updated, and maintains its original contents.`
+	assert.equal(isToolDenied(deniedWithNote), true, "带后缀的拒绝文案必须识别")
+	assert.deepEqual(outcomeFromToolResponse(deniedWithNote), { outcome: "denied", message: TOOL_DENIED_TEXT })
+	assert.equal(isToolDenied("The user denied this operation. The patch was not applied."), true)
+	assert.equal(isToolDenied("The user denied this patch operation."), true, "兼容 ApplyPatch 的历史文案")
+	assert.equal(isToolDenied("The user denied this operation"), false, "缺句号不能误判")
+
+	assert.deepEqual(outcomeFromToolResponse(TOOL_DENIED_TEXT), { outcome: "denied", message: TOOL_DENIED_TEXT })
+	assert.deepEqual(outcomeFromToolResponse(resolvedError), { outcome: "error", message: "EACCES: permission denied" })
+	assert.deepEqual(outcomeFromToolResponse("文件读取成功"), { outcome: "ok" })
+	// attempt_completion 的「完成前复核」是流程控制，不是工具失败（用普通 tool result 返回）
+	assert.deepEqual(outcomeFromToolResponse("Before completing, re-verify your work against the original task requirements."), {
+		outcome: "ok",
+	})
+	assert.deepEqual(outcomeFromToolResponse(undefined), { outcome: "ok" }, "拿不准时不误报失败")
 })
 
 test("诊断包头部：含版本与设置摘要，但不含密钥值", () => {

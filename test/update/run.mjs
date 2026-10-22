@@ -47,6 +47,7 @@ const SPECS = [
 	"loop-detection.spec.ts",
 	"audit-redaction.spec.ts",
 	"mimo-model.spec.ts",
+	"model-id.spec.ts",
 ]
 
 const aliasResolverPlugin = {

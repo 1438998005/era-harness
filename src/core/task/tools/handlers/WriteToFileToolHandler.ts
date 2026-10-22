@@ -24,7 +24,6 @@ import type { TaskConfig } from "../types/TaskConfig"
 import type { StronglyTypedUIHelpers } from "../types/UIHelpers"
 import { captureAccepted, captureRejected, getModelInfo } from "../utils/AiOutputTelemetry"
 import { applyModelContentFixes } from "../utils/ModelContentProcessor"
-import { ToolDisplayUtils } from "../utils/ToolDisplayUtils"
 import { ToolResultUtils } from "../utils/ToolResultUtils"
 
 /** 超过这个体积的已存在文件，整篇覆盖时要额外把关 */
@@ -85,7 +84,8 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 
 		// Creates file if it doesn't exist, and opens editor to stream content in. We don't want to handle this in the try/catch below since the error handler for it resets the diff view, which wouldn't be open if this failed.
 		const result = await this.validateAndPrepareFileOperation(config, block, rawRelPath, rawDiff, rawContent)
-		if (!result) {
+		// 字符串是错误文本：partial 阶段不展示，交给完整块执行时统一投递。
+		if (typeof result === "string" || !result) {
 			return
 		}
 
@@ -197,6 +197,10 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 
 		try {
 			const result = await this.validateAndPrepareFileOperation(config, block, rawRelPath, rawDiff, rawContent)
+			// handler 只负责返回错误文本，投递与 outcome 判定统一由 ToolExecutor 完成。
+			if (typeof result === "string") {
+				return result
+			}
 			if (!result) {
 				return "" // can only happen if the sharedLogic adds an error to userMessages
 			}
@@ -508,21 +512,8 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			// Show error and return early (full original behavior)
 			await config.callbacks.say("clineignore_error", resolvedPath)
 
-			// Push tool result and save checkpoint using existing utilities
-			const errorResponse = formatResponse.toolError(formatResponse.clineIgnoreError(resolvedPath))
-			ToolResultUtils.pushToolResult(
-				errorResponse,
-				block,
-				config.taskState.userMessageContent,
-				ToolDisplayUtils.getToolDescription,
-				config.coordinator,
-				config.taskState.toolUseIdMap,
-			)
-			if (!config.enableParallelToolCalling) {
-				config.taskState.didAlreadyUseTool = true
-			}
-
-			return
+			// 只 return，不在 handler 里 push：投递交给 ToolExecutor，否则结果会被判成 ok。
+			return formatResponse.toolError(formatResponse.clineIgnoreError(resolvedPath))
 		}
 
 		// Check if file exists to determine the correct UI message
@@ -584,29 +575,17 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 				const isNativeToolCall = block.isNativeToolCall === true
 				telemetryService.captureDiffEditFailure(config.ulid, modelId, providerId, errorType, isNativeToolCall)
 
-				// Push tool result with detailed error using existing utilities
+				// 只 return，不在 handler 里 push：投递交给 ToolExecutor，否则这次失败会被记成 ok。
 				const errorResponse = formatResponse.toolError(
 					`${(error as Error)?.message}\n\n` +
 						formatResponse.diffError(relPath, config.services.diffViewProvider.getOriginalContentForLLM()),
 				)
-				ToolResultUtils.pushToolResult(
-					errorResponse,
-					block,
-					config.taskState.userMessageContent,
-					ToolDisplayUtils.getToolDescription,
-					config.coordinator,
-					config.taskState.toolUseIdMap,
-				)
-
-				if (!config.enableParallelToolCalling) {
-					config.taskState.didAlreadyUseTool = true
-				}
 
 				// Revert changes and reset diff view
 				await config.services.diffViewProvider.revertChanges()
 				await config.services.diffViewProvider.reset()
 
-				return
+				return errorResponse
 			}
 		} else if (content != null) {
 			// Handle write_to_file with direct content (empty string is valid)
@@ -632,19 +611,8 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 		if (!block.partial && content != null && fileExists) {
 			const overwriteWarning = await this.checkLargeFileOverwrite(absolutePath, newContent)
 			if (overwriteWarning) {
-				const errorResponse = formatResponse.toolError(overwriteWarning)
-				ToolResultUtils.pushToolResult(
-					errorResponse,
-					block,
-					config.taskState.userMessageContent,
-					ToolDisplayUtils.getToolDescription,
-					config.coordinator,
-					config.taskState.toolUseIdMap,
-				)
-				if (!config.enableParallelToolCalling) {
-					config.taskState.didAlreadyUseTool = true
-				}
-				return
+				// 只 return，不在 handler 里 push：投递交给 ToolExecutor，否则这次失败会被记成 ok。
+				return formatResponse.toolError(overwriteWarning)
 			}
 		}
 
