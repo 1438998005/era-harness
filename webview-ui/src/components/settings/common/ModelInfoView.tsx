@@ -116,7 +116,9 @@ const formatCompactPrice = (price: number | undefined, currency: "USD" | "CNY" =
 		return `${symbol}${price.toFixed(4)}/M`
 	}
 	if (price < 1) {
-		return `${symbol}${price.toFixed(2)}/M`
+		// 3 位小数去尾零：MiMo Pro 的缓存命中价是 0.025，固定 2 位会四舍五入成 0.03（差 20%）。
+		// 0.025 → "0.025"、0.02 → "0.02"、0.5 → "0.5"。
+		return `${symbol}${price.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}/M`
 	}
 	return `${symbol}${price % 1 === 0 ? price : price.toFixed(2)}/M`
 }

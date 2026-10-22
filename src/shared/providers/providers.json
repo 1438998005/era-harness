@@ -5,16 +5,16 @@
 			"label": "免费模型"
 		},
 		{
-			"value": "openai",
-			"label": "OpenAI Compatible"
-		},
-		{
 			"value": "deepseek",
 			"label": "DeepSeek"
 		},
 		{
 			"value": "mimo",
 			"label": "Xiaomi MiMo"
+		},
+		{
+			"value": "openai",
+			"label": "OpenAI Compatible"
 		}
 	]
 }

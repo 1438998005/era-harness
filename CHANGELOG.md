@@ -19,7 +19,7 @@
   - 设置 → 关于 新增「导出诊断包」「打开诊断目录」两个按钮（命令面板同名命令）：导出的 `diagnostics-*.txt` 含插件/VS Code/系统版本、**脱敏设置摘要**（provider/model/思维强度/温度/是否有 key）与最近 500 条审计记录。
   - 日志始终开启，不新增 `eraHarness.*` 配置项；靠轮转与保留期控制体积。
 - **小米 MiMo（Xiaomi MiMo）供应商**：OpenAI 兼容基址 `https://api.xiaomimimo.com/v1`，密钥独立保存（`mimoApiKey`），模型列表在填入密钥后自动同步（内置 `MiMo-V2.6-Flash` / `MiMo-V2.6-Pro` 作为种子），plan/act 模型信息与 DeepSeek 同构。
-  - 思维强度走 OpenAI 兼容 `reasoning_effort`（低/中/高；`xhigh`/`max` 收敛为 high，`none` 不发送）；端点 400/422 明确拒绝时自动去参重试，并记住该端点 30 分钟。
+  - 深度思考走官方 `thinking: { type: "enabled" | "disabled" }` 开关（只有开 / 关，无档位；官方默认开启，选「关闭」才发 `disabled`）；端点 400/422 明确拒绝该参数时自动去参重试，并记住该端点 30 分钟。
   - 设置页提供「打开 MiMo 开放平台（余额）」「注册 / 登录」「API 文档」三个入口，并提示邀请码 `PTA7TX` 可得 10 元试用赠金。
   - 切换 provider 时，若当前模型 id 不属于目标 provider 的内置清单，自动写回其默认 id（避免 `deepseek-flash` 被发到 MiMo 端点）。
 - **DeepSeek 设置页补「API 文档」入口**（`https://api-docs.deepseek.com/zh-cn/`）。
@@ -27,18 +27,67 @@
 ### 审查后修复（同日代码审查）
 
 - **审计日志只对完整调用记账**：流式分片（partial）不再写日志——一次工具调用会触发几十个分片，旧实现会在日志里写出几十条半截路径的「成功」并把缓存命中/次数的统计冲成噪声。
-- **审计错误分支可达**：工具异常在 `execute()` 内部被转成 toolError（不冒泡），现在由 `handleError` 把错误交给审计层，日志里终于能看到 `outcome:"error"`。
-- **导出诊断包不再丢最新事件**：同日分片改为按「日期 + 分片号」降序，不再依赖字典序（`-2.jsonl` 会排在基础文件之前的坑）。
-- **同区间第 3 次确实降级**：首次读也播种区间计数，修正旧实现「实际第 4 次才降级、日志与提示都少记一次」的 off-by-one。
-- **审批流下的读不再拆两行**：合并键把「无区间」视为通配，`ask→say` 重新折叠为一行；且只有两条已完成调用才累加 `×N`（单次读取不会显示成 ×2）。
-- **编辑后失效更准**：路径改为归一化后精确比较（编辑 `foo.ts` 不再误清 `myfoo.ts`，`a\\b.ts` 与 `a/b.ts` 视为同一文件），并从 `apply_patch` 的 patch 文本提取受影响路径（之前对 apply_patch 完全失效）。
+- **审计结果可信**：`outcome` 由执行路径直接返回——异常、handler 正常返回的 `toolError`、用户拒绝/重复调用/计划模式拦截（`denied`）、取消（`cancelled`）都能区分；旧实现只覆盖抛异常一条路径，且绝大多数失败仍记 `ok`。
+- **导出诊断包不再丢最新事件**：同日分片按「日期 + 分片号」降序读取，合并与截取由纯函数保证「最新在包尾、只保留最新 N 行」；不再依赖字典序（`-2.jsonl` 会排在基础文件之前的坑）。
+- **同区间第 3 次确实降级**：首读也播种区间计数（`commitRangeRead` 统一两个分支），修正旧实现「实际第 4 次才降级、日志与提示都少记一次」的 off-by-one。
+- **审批流下的读不再拆两行**：合并键把「无区间」视为通配，`ask→say` 重新折叠为一行；且只有两条已完成调用才累加 `×N`（单次读取不会显示成 ×2），无区间消息也不会抹掉已完成行的区间。
+- **编辑后失效更准**：路径改为归一化后精确比较（编辑 `foo.ts` 不再误清 `foo.ts.bak`/`myfoo.ts`，`a\\b.ts` 与 `a/b.ts` 视为同一文件），并从 `apply_patch` 的 patch 文本提取受影响路径（之前对 apply_patch 完全失效）。
 - **切 provider 改为一次原子写入**：旧实现连写两次全量配置且不 await，后一次会用旧 provider 覆盖前一次，可能出现「UI 已切到 MiMo、请求仍走 DeepSeek」。
-- **MiMo 思维强度可回退**：档位列表加入「不指定」——否则默认值不在选项里导致下拉框空白，且选过 high 后再也回不到默认。
+- **切 provider 不再误改模型 id**：只有当前 id 明显属于别的 provider 时才写回默认 id；否则不碰 `modelId`——避免把在线同步/手填的非内置 id 静默换掉。切到 OpenAI 兼容（读独立字段 `openAiModelId`）时也不再清空用户在 DeepSeek/MiMo 上选的模型。
+- **MiMo 思维开关按官方语义**：原「档位」改成「开/关」（官方只有 `thinking.type` 开关，没有档位）。
+- **Provider 顺序**：下拉列表为「免费模型 → DeepSeek → Xiaomi MiMo → OpenAI Compatible」，MiMo 不再排到末尾。
+- **拒绝审批终于能被审计查到**：handler 在用户点「拒绝」时是**正常返回**固定文案（不抛异常），旧实现把它记成 `ok`；现在归入 `denied`——包括 WriteToFile 带「文件未更新/未创建」后缀、ApplyPatch 的独立文案。
+
+### 第三轮审查修复（同日：审计 / 重复读 / MiMo）
+
+- **拒绝不再被记成成功**：`WriteToFile` 的拒绝文案会带「文件未更新/未创建」后缀、`ApplyPatch` 用另一句话，旧的全等比较把这两种最高频的拒绝记成 `ok`；现在按前缀识别，统一归入 `denied`。
+- **审计不再带出正文块**：`message` 先剥离 `<file_content>` / `<initial_task>` 等块再压到 80 字；`replace_in_file` 的 SEARCH 失败、MCP 业务失败也改走 `toolError`，不再因 handler 先 push 后返回空值而在审计里隐身。（**当时的声明过头了**：SEARCH 文案只归一了一种结尾，另两种仍会漏出最多 80 字正文，已在第四轮补上。）
+- **完成前复核不再算错误**：`attempt_completion` 的二次确认是流程控制，改回普通 tool result。
+- **命令后重复读仍会降级**：`execute_command` 不再清空读缓存（缓存只存元数据，命中时仍重新读盘），mtime 才是「内容变了没有」的判据；`start_line` 缺省与 `=1` 归一为同一计数键。
+- **被拒绝/失败的写不再白送一次全文重读**：只有 `outcome === "ok"` 的写才失效读历史。
+- **MiMo 混排消息不再整批丢思考**：软警告/图片等文本会让「当前轮」窗口边界后移，带 `tool_calls` 的历史 assistant 现在一律回传 `reasoning_content`；关闭思考时则不再回传。
+- **设置页不再显示错模型**：`GET /v1/models` 返回大小写不同的 id 时按归一后的 id 取元数据；切 provider 不再清空用户选的模型 id。
+- **回归网**：MiMo 请求体构造下沉为纯函数 `buildMimoParams`，单测锁住 `max_completion_tokens` / `thinking.type` / 无 `reasoning_effort` / 工具参数合并；模型清单不再锁死总数。
+
+### 第四轮审查修复（同日：审计正文 / 重复读判死 / 模型 id）
+
+- **审计的 SEARCH 归一不再漏**：上一轮只认 `does not match anything in the file.` 这一种结尾，而 `diff.ts` 有 4 处 throw、**3 种结尾**（另两种是 `is malformatted.` 与 `matched an incorrect content in the file.`），后两种会把最多 80 字的**文件正文**写进「可以直接发给陌生人」的诊断包。判据改为钉在头部 `The SEARCH block:`（兼容 `Error <tool>: ` 前缀），结尾怎么变都拦得住。
+- **MCP 失败只留「哪一类失败」**：`use_mcp_tool` 的 `isError` 文本是服务端返回的任意内容（可能是整段 JSON 或文件正文），只截 80 字挡不住；错误文本现在带结构化头 `MCP tool returned an error (server/tool)`，审计只保留这个头。
+- **已降级的重复读不再判死任务**：第 3 次同区间读起只回 `[SAME CONTENT]`（本回合几乎零成本），但第 5 次会撞上 `hardEscalation` 把 `consecutiveMistakeCount` 顶到上限——yolo 模式下任务直接失败。现在已降级的读不参与第 5 次判死，延后到第 8 次；未降级的重复读仍按原规则判死。（**当时的判据选错了**：用的是 `windowCount`，见第五轮。）
+- **同一次读不再写两条对不上的审计**：审计 `dedupeKey` 与内存区间计数键收口到 `readDedupeKey` / `readRangeKey` 一份归一逻辑；`start_line` 缺省与 `=1` 同键，`start_line="abc"` 也不会再写出 `p|NaN|` 这种键。
+- **切换 provider 不再吃掉新模型 id**：只纠正「明显属于**别家**清单」的 id；`deepseek-v5` 这类官方新增 / 在线同步回来的 id 会被保留（旧实现静默换回默认档，与代码里自己的注释相反）。
+- **DeepSeek 模型 id 也按小写归一**：`DeepSeek-V4-Pro` 之前会被当成未知模型 → 元数据落到 flash 的价格与上下文，且扩展侧还会把非规范 id 原样发出去；`isBuiltinModelId` / `modelIdBelongsToKnownCatalog` / `getModel()` / 设置页取值现在共用 `resolveDeepSeekModelId`，不再各自手写 `toLowerCase` 或 `in` 判断。未知模型仍走「保留 id + 保守默认」的老分支（不改成默认档的上限，避免高估上下文）。
+- **MiMo「必须回传思考」有了真正的回归网**：`effort → 是否回传` 与 `attachToAllToolCalls` 的接线下沉为 `prepareMimoMessages`；删掉接线会让单测变红（旧测试只测 `addReasoningContent` 本身，接线删掉仍全绿）。
+- **回归网**：`test/update` 342 → 353 条，新增 `model-id.spec.ts`。R1 / R2 / R4 / R6 均做过变异检验（把修复改回原样，对应用例确实变红）。
+
+### 第五轮审查修复（同日：判死判据 / 审计前缀 / 模型 id）
+
+- **判死判据换成「同一区间第几次读」（上一轮引入的回归）**：上一轮把「已降级的读」排除出第 5 次判死，判据用的是 `windowCount >= 8`。但 `windowCount` 是「最近 12 条非豁免调用里同签名的条数」，在 `读A → 命令 → 读A → 命令` 交替下该签名**最多只占 6 槽**，`>= 8` 结构不可达；更要命的是第一次 `hardEscalation` 为真的那一拍（第 5 次读）响应**必然已降级**，于是 `shouldEscalateLoop` 返回 false 且此后再无机会为真——**判死从此永不触发**（改之前第 5 次就停，等于把刹车拆了）。
+  - 现在降级标记首行带机器可读的 `read=N`（`commitRangeRead` 的同区间累计次数，单调、与窗口占空比无关），判据改为 `readCount >= 8`；`toolName` 改成**必填**并限定 `read_file`，别的工具（或模型回显）恰好以该标记开头不再能拿到「延后判死」的豁免。
+  - **回归网**：`读A/命令/读A/命令` 跑 16 轮，断言首次判死恰好落在第 8 次读。旧的纯重复 8 次用例恰好落在「能达成 8」的路径上，所以上一轮全绿也测不到这个洞。
+  - **已知残留（未修）**：若模型在每次重读之间插入 ≥3 次其它调用，窗口计数始终 < 5，仍不会判死；此时每次重读只回 `[SAME CONTENT]`，token 成本已接近零，属于可接受。
+- **审计的 `Error executing <tool>: ` 前缀终于剥得掉**：`handleError` 拼的是 `Error executing replace_in_file: `（**两段**：`executing` + 工具名），旧正则 `[a-z_]+` 只吃一段，前缀剥不掉 → SEARCH 归一规则实际不命中。当前没有活着的泄漏（`diff.ts` 的 4 处 throw 全被 `WriteToFileToolHandler` 就地 catch 并 return，`handleError` 到不了），但**测试锁的是一个生产不会产生的形状**。正则改为不枚举前缀段数（`Error <任意说明>: ` 一律剥掉），测试夹具换成真实形状，并新增一个**目前不存在**的第 4 种 SEARCH 结尾——锁「钉头部」而不是「枚举结尾」。
+- **在线同步的模型不再在设置页出现两行**：`GET /models` 返回 `DeepSeek-V4-Pro` 时与内置清单里的 `deepseek-v4-pro` 是两个不同的键，而 `ModelSelector` 不做去重 → 同一个模型两行。合并键改用 `resolveDeepSeekModelId` / `resolveMimoModelId` 的**规范 id**，两家共用同一个 `mergeLiveModelIds`（`providerUtils.ts`），不再各写一遍。
+- **已知风险（未修，仅记录）**：思维强度存在共享字段 `planModeReasoningEffort` / `actModeReasoningEffort` 里，OpenAI 兼容与 MiMo 共用。在 OpenAI 兼容下选过 `none` 的用户切到 MiMo，会直接得到 `thinking.type = "disabled"`（MiMo 的「关闭」映射到同一个 `none`）。
+- **已知限制（未修，仅记录）**：降级读靠 `mtime` 判断「内容有没有变」。用 `cp -p` / `rsync -a` / 恢复旧版本等方式写入时 mtime 可能保持不变，此时降级读会继续回 `[SAME CONTENT]`，模型拿不到新内容——需要用户重新打开文件或触发一次真实修改。
+
+### 按官方文档适配 MiMo
+
+上一版多处参数是从「OpenAI 兼容」这个形状推测的。本次逐页读了官方文档（`/docs/zh-CN/quick-start/summary/model`、`/docs/zh-CN/quick-start/summary/first-api-call`、`/docs/zh-CN/quick-start/usage-guide/text-generation/deep-thinking`）并改了四处实质错误、补上一处价格缺口：
+
+1. **思考参数**：官方是 `thinking: { type: "enabled" | "disabled" }`，**不是 `reasoning_effort`**。旧实现发的 `reasoning_effort` 会被 MiMo 忽略——用户选什么都等于没选。现在：默认不发（官方已默认开启），选「关闭」才发 `disabled`。
+2. **输出长度参数**：官方用 `max_completion_tokens`（限制「思考 + 回答」总长），旧实现发的是 `max_tokens`。
+3. **多轮工具调用会 400**：官方明确写着「历史 assistant 含工具调用时必须完整回传 `reasoning_content`，否则 400」（官方点名 Cursor/TRAE/Roo Code/Codex 这类 Agent）。旧实现没回传——现在走与 DeepSeek 思考模型同一套 `addReasoningContent`。
+4. **能力与上限按官方表改写**：三款 `mimo-v2.6-*`（补上 `mimo-v2.6-pro-ultraspeed`）均为**上下文 1M / 最大输出 128K**、支持**全模态理解**与**缓存命中**（旧值 128K / 8K 且不开图像）。思考开启时 `temperature`/`top_p` 由服务端强制 1.0/0.95，因此仍不发。
+5. **价格入库，成本不再恒为 0**：官方定价页（`/docs/zh-CN/price/pay-as-you-go`，公开可访问）与三张模型页逐项一致——`flash` 命中 0.02 / 未命中 1 / 输出 2，`pro` 0.025 / 3 / 6，`pro-ultraspeed` 0.25 / 30 / 60（元 / 百万 tokens，实时推理档）。字段沿用 DeepSeek 口径（`cacheWritesPrice` = 未命中输入价），模型信息行直接显示三档价；批量推理半价、联网搜索按次另计、Token Plan 按套餐扣费，均不在此表。缓存命中价 0.025 的显示精度一并修正（原固定两位小数会四舍五入成 0.03）。
+
+配套：入口按密钥前缀自动选（实时 API `api.xiaomimimo.com/v1` 与 Token Plan `token-plan-cn.xiaomimimo.com/v1` 不互通，密钥 `sk-` / `tp-` / `ttp-`）；基址与开关映射下沉到 `src/shared/mimo-request.ts`，扩展侧与设置页在线同步共用一份，不会再漂移；模型 id 改为大小写不敏感匹配（在线同步回 `MiMo-V2.6-Pro` 不会再被当成未知模型）。
 
 ### 已知限制
 
-- MiMo 未内置官方价格（一律记 0，界面注明「以控制台计费为准」）；上下文/输出上限在官方给出逐模型数字前用保守值 128k / 8k。
-- MiMo 的 `reasoning_effort` 形态尚未用真实 Key 实测：若端点拒绝，走自动去参重试（日志里会有一条 warn）。
+- MiMo 价格是**编译期常量**（官方按量计费实时档），官方调价需发新版本才会更新；用 Token Plan 密钥（`tp-` / `ttp-`）时按套餐扣费，界面显示的是等价 token 价值，实际以控制台用量页为准。批量推理半价、联网搜索按次另计，均未建模。
+- 在线同步到内置清单之外的 MiMo 模型时，元数据与单价按 flash 种子估算；若官方新增 UltraSpeed 档的新 id，成本会被低估（已知局限，见 `知识库/18` §18.9）。
+- MiMo 走 OpenAI 兼容协议（`/v1`）；官方另有 Anthropic 兼容 `/anthropic` 与批量推理入口，本插件未接。`thinking` 参数被网关拒绝时的自动去参重试仍尚未用真实 Key 实测（日志会留一条 warn）。
 - 设置页新增文案（MiMo 页、诊断按钮、记忆页、思维强度选择器）仍是中文硬编码，未走 i18n。
 - 诊断包中的文件路径可能包含系统用户名，外发前请自行确认。
 

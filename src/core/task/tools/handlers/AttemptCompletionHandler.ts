@@ -75,16 +75,18 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 			const taskPreview = getInitialTaskPreview(config)
 			const taskSection = taskPreview ? `\n\n<initial_task>\n${taskPreview}\n</initial_task>` : ""
 
-			return formatResponse.toolError(
+			// 这是流程控制（要求模型再核对一遍），不是工具失败：用普通 tool result 返回。
+			// 用 toolError 会让 doubleCheckCompletionEnabled 一开就在审计里稳定出现 error。
+			return (
 				"Before completing, re-verify your work against the original task requirements. Check that:\n" +
-					"1. All requested changes have been made\n" +
-					"2. No steps were skipped or partially completed\n" +
-					"3. Edge cases and error handling are addressed\n" +
-					"4. The solution matches what was asked for, not just what was convenient\n" +
-					"5. Output files contain exactly what was specified--no extra columns, fields, debug output, or commentary\n" +
-					"6. If the task specifies numerical thresholds or accuracy targets, verify your result meets the criteria. If close but not passing, iterate rather than declaring completion" +
-					taskSection +
-					"\n\nIf everything checks out, call attempt_completion again with your final result.",
+				"1. All requested changes have been made\n" +
+				"2. No steps were skipped or partially completed\n" +
+				"3. Edge cases and error handling are addressed\n" +
+				"4. The solution matches what was asked for, not just what was convenient\n" +
+				"5. Output files contain exactly what was specified--no extra columns, fields, debug output, or commentary\n" +
+				"6. If the task specifies numerical thresholds or accuracy targets, verify your result meets the criteria. If close but not passing, iterate rather than declaring completion" +
+				taskSection +
+				"\n\nIf everything checks out, call attempt_completion again with your final result."
 			)
 		}
 		// Reset so the next attempt_completion pair triggers double-check again

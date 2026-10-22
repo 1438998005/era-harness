@@ -1,4 +1,4 @@
-import { apiProviderDefaultModelId, isBuiltinModelId } from "@shared/api"
+import { apiProviderDefaultModelId, shouldResetModelForProvider } from "@shared/api"
 import PROVIDERS from "@shared/providers/providers.json"
 import { Mode } from "@shared/storage/types"
 import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
@@ -120,14 +120,36 @@ const ApiOptions = ({
 		// 分两次调用（且不 await）时，后一次会用旧闭包里的 provider 把前一次覆盖回去，
 		// 导致 UI 显示新 provider、后端实际仍走旧 provider。
 		const fallbackModelId = apiProviderDefaultModelId(newProvider)
-		const shouldResetModel = !!fallbackModelId && !isBuiltinModelId(newProvider, selectedModelId)
+		// 判断「目标 provider 自己的模型字段」，而不是当前归一化后的 selectedModelId：
+		// 从 OpenAI 兼容切回 DeepSeek/MiMo 时，selectedModelId 还是 openai 字段的值，
+		// 用它判断会把刚保留下来的原选择覆盖成默认档。
+		const targetModelId =
+			newProvider === "openai"
+				? currentMode === "plan"
+					? apiConfiguration?.planModeOpenAiModelId
+					: apiConfiguration?.actModeOpenAiModelId
+				: currentMode === "plan"
+					? apiConfiguration?.planModeApiModelId
+					: apiConfiguration?.actModeApiModelId
+		// 只纠正「明显属于别家清单」的 id：在线同步回来的新模型（如 deepseek-v5）必须保留，
+		// 否则刚选的模型会被静默换回默认档——正是下面注释里说的那个坑。
+		const shouldResetModel = !!fallbackModelId && shouldResetModelForProvider(newProvider, targetModelId)
 
+		// 不需要纠正时**不写** modelId：selectedModelId 是归一化后的值，
+		// 写回去会把用户在线同步/手填的非内置 id 静默换成内置默认值。
+		//
+		// 这里不再「切到无清单 provider 时清空 modelId」：OpenAI 兼容端点读的是独立的
+		// `openAiModelId` 字段，清 `planModeApiModelId` 既拦不住别家 id 发出去，
+		// 又会把用户在 DeepSeek/MiMo 上选的模型白丢掉（切回来被重置成默认档）。
 		void handleModeFieldsChange(
 			{
 				provider: { plan: "planModeApiProvider", act: "actModeApiProvider" },
-				modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" },
+				...(shouldResetModel ? { modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" } } : {}),
 			},
-			{ provider: newProvider, modelId: shouldResetModel ? fallbackModelId : selectedModelId },
+			{
+				provider: newProvider,
+				...(shouldResetModel ? { modelId: fallbackModelId } : {}),
+			},
 			currentMode,
 		)
 

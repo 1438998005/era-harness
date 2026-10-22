@@ -1,4 +1,5 @@
-import { ModelInfo, mimoModels } from "@shared/api"
+import { ModelInfo, mimoModels, resolveMimoModelId } from "@shared/api"
+import { MIMO_CONSOLE_URL, MIMO_DOCS_URL, mimoBaseUrlForKey } from "@shared/mimo-request"
 import { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -9,24 +10,32 @@ import { ApiKeyField } from "../common/ApiKeyField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
-import { normalizeApiConfiguration } from "../utils/providerUtils"
+import { mergeLiveModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
-// 以下地址均已核对（2026-10）：/v1 为 OpenAI 兼容基址，其余为控制台/邀请/文档入口。
-const MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
-const MIMO_CONSOLE_URL = "https://platform.xiaomimimo.com/console/balance"
+// 基址、控制台与文档入口取自 @shared/mimo-request（与扩展侧发请求同一份，避免漂移）。
+// 只有邀请链接是带推广参数的入口，官方文档里没有，因此留在本地。
 const MIMO_SIGNUP_URL = "https://platform.xiaomimimo.com?ref=PTA7TX"
-const MIMO_DOCS_URL = "https://mimo.mi.com/docs/zh-CN/quick-start/summary/welcome"
 const INVITE_CODE = "PTA7TX"
+
+/** 按小写命中内置清单：在线同步回来的 id 大小写可能与清单不一致（如 MiMo-V2.6-Pro）。 */
+function modelInfoFor(id: string): ModelInfo {
+	const knownId = resolveMimoModelId(id)
+	return (knownId && BUILTIN_MODELS[knownId]) || FALLBACK_MODEL_INFO
+}
 
 const BUILTIN_MODELS = mimoModels as Record<string, ModelInfo>
 
-/** API 返回了本地没有的模型时用的保守元数据 */
+/**
+ * API 返回了本地没有的模型时用的元数据。
+ * 取官方对 v2.6 系的公开下限（1M 上下文 / 128K 输出 / 全模态 / 有缓存命中），
+ * 因为目前清单里只有这一代模型；真出现不同代的模型时仍以在线同步与手填为准。
+ */
 const FALLBACK_MODEL_INFO: ModelInfo = {
-	contextWindow: 128_000,
-	maxTokens: 8_000,
-	supportsImages: false,
-	supportsPromptCache: false,
+	contextWindow: 1_000_000,
+	maxTokens: 128_000,
+	supportsImages: true,
+	supportsPromptCache: true,
 	supportsReasoning: true,
 }
 
@@ -60,7 +69,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 		try {
 			const response = await ModelsServiceClient.refreshOpenAiModels({
 				metadata: {},
-				baseUrl: MIMO_BASE_URL,
+				baseUrl: mimoBaseUrlForKey(key),
 				apiKey: key,
 			} as any)
 			const ids = (response?.values ?? []).filter((id): id is string => !!id)
@@ -87,15 +96,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 		if (!liveModelIds) {
 			return BUILTIN_MODELS
 		}
-		const merged: Record<string, ModelInfo> = {}
-		for (const id of liveModelIds) {
-			merged[id] = BUILTIN_MODELS[id] ?? FALLBACK_MODEL_INFO
-		}
-		// 当前选中的模型必须始终在列表里，否则下拉框会显示空值
-		if (selectedModelId && !merged[selectedModelId]) {
-			merged[selectedModelId] = BUILTIN_MODELS[selectedModelId] ?? FALLBACK_MODEL_INFO
-		}
-		return merged
+		return mergeLiveModelIds(liveModelIds, resolveMimoModelId, modelInfoFor, selectedModelId)
 	}, [liveModelIds, selectedModelId])
 
 	const open = (url: string) => void UiServiceClient.openUrl({ value: url }).catch(console.error)
@@ -166,28 +167,27 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 
 					{selectedModelInfo?.supportsReasoning && (
 						<ReasoningEffortSelector
-							allowedEfforts={["none", "low", "medium", "high"]}
+							allowedEfforts={["high", "none"]}
 							currentMode={currentMode}
-							defaultEffort="none"
-							description="MiMo 的思维强度走 OpenAI 兼容的 reasoning_effort（low/medium/high）。若端点拒绝该参数，会自动去掉并重试（30 分钟内不再发送）。"
-							label="思维强度（reasoning_effort）"
+							defaultEffort="high"
+							description="官方参数是 thinking.type（enabled / disabled），只有开关没有档位；三款 v2.6 默认开启。思考开启时 temperature 与 top_p 由服务端强制 1.0 / 0.95，传了也无效。输出上限 128K 是「思考 + 回答」的总长。"
+							label="深度思考"
 							labels={{
-								low: "低（low）",
-								medium: "中（medium）",
-								high: "高（high）",
-								none: "不指定（用服务端默认）",
+								high: "开启（官方默认）",
+								none: "关闭（thinking: disabled）",
 							}}
 						/>
 					)}
 
-					{liveModelIds && selectedModelId && !BUILTIN_MODELS[selectedModelId] && (
+					{liveModelIds && selectedModelId && !resolveMimoModelId(selectedModelId) && (
 						<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-editorWarning-foreground)" }}>
-							该模型不在内置清单中，上下文与输出上限按保守默认值处理。
+							该模型不在内置清单中，上下文与输出上限按 v2.6 系的公开下限处理，可在下方按需修正。
 						</p>
 					)}
 
 					<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-descriptionForeground)" }}>
-						未内置官方价格，费用以 MiMo 控制台计费为准。
+						价格为官方按量计费单价（元 / 百万 tokens）：输入分缓存命中 / 未命中两档，缓存写入限时免费。使用 Token Plan
+						密钥（tp- / ttp-）时按套餐扣费，这里的数字只是等价 token 价值；实际扣费以 MiMo 控制台用量页为准。
 					</p>
 				</>
 			)}

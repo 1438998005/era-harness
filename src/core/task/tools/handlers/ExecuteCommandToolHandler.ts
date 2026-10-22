@@ -322,15 +322,10 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 			clearTimeout(timeoutId)
 		}
 
-		// Invalidate the entire file read cache after any command execution.
-		// Bash commands can modify files in ways we can't predict (sed, npm install, git checkout, mv, etc.),
-		// so we must clear the cache to prevent stale reads.
-		// Invalidate the entire file read cache after any command execution.
-		// Bash commands can modify files in ways we can't predict (sed, npm install, git checkout, mv, etc.),
-		// so we must clear the cache to prevent stale reads.
-		if (!userRejected) {
-			config.taskState.fileReadCache.clear()
-		}
+		// 刻意不清 fileReadCache：缓存只存元数据（mtime/readCount/imageBlock），命中时仍会重新读盘；
+		// 文件真被命令改过时，ReadFileToolHandler 的 mtime 比对会驱逐条目并按 fresh 重置区间计数。
+		// 反过来，clear() 会把 mtime 一起抹掉，让「读 → 跑命令 → 读」每次都从 1 开始计数，
+		// 同区间第 3 次降级永远不触发。
 
 		if (userRejected) {
 			config.taskState.didRejectTool = true

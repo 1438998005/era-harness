@@ -196,7 +196,7 @@ export function isDeepSeekNativeModelFamily(id: string): boolean {
 	)
 }
 
-/** 小米 MiMo 系列：目前均支持思维（reasoning_effort / reasoning_content）。 */
+/** 小米 MiMo 系列：目前均支持思维（官方用 `thinking.type` 开关，内容在 `reasoning_content`）。 */
 export function isMimoModelFamily(id: string): boolean {
 	return normalize(id).includes("mimo")
 }

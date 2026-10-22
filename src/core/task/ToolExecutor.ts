@@ -24,10 +24,13 @@ import {
 	extractApplyPatchPaths,
 	invalidateRepeatWindowForPath,
 	LOOP_DETECTION_SOFT_THRESHOLD,
+	readDedupeKey,
+	shouldEscalateLoop,
 	toolCallSignature,
 } from "./loop-detection"
 import { MessageStateHandler } from "./message-state"
 import { TaskState } from "./TaskState"
+import { outcomeFromToolResponse, type ToolExecutionResult } from "./tool-outcome"
 import { AutoApprove } from "./tools/autoApprove"
 import { IPartialBlockHandler, ToolExecutorCoordinator } from "./tools/ToolExecutorCoordinator"
 import { ToolValidator } from "./tools/ToolValidator"
@@ -52,10 +55,6 @@ export function canonicalizeAttemptCompletionParams(block: ToolUse): boolean {
 export class ToolExecutor {
 	private autoApprover: AutoApprove
 	private coordinator: ToolExecutorCoordinator
-
-	// 工具失败时由 handleError 写入。execute() 内部会把异常转成 toolError 返回给模型（不冒泡），
-	// 所以「本次调用失败」只能靠这个字段告诉审计层。
-	private lastToolErrorMessage?: string
 
 	// Auto-approval methods using the AutoApprove class
 	private shouldAutoApproveTool(toolName: ClineDefaultTool): boolean | [boolean, boolean] {
@@ -226,19 +225,18 @@ export class ToolExecutor {
 
 		const startedAt = Date.now()
 		const model = this.auditModelInfo()
-		this.lastToolErrorMessage = undefined
 
 		try {
-			await this.execute(block)
+			const result = await this.execute(block)
 			recordAudit({
 				event: "tool",
 				taskId: this.taskId,
 				turn: this.taskState.apiRequestCount,
 				tool: block.name,
 				...this.auditTarget(block),
-				outcome: this.lastToolErrorMessage ? "error" : "ok",
+				outcome: result.outcome,
 				ms: Date.now() - startedAt,
-				message: this.lastToolErrorMessage,
+				message: result.message,
 				...model,
 			})
 		} catch (error) {
@@ -254,8 +252,6 @@ export class ToolExecutor {
 				...model,
 			})
 			throw error
-		} finally {
-			this.lastToolErrorMessage = undefined
 		}
 	}
 
@@ -294,9 +290,7 @@ export class ToolExecutor {
 			query: params.regex || undefined,
 			pattern: params.file_pattern || undefined,
 			dedupeKey:
-				target && block.name === ClineDefaultTool.FILE_READ
-					? `read|${target}|${startLine ?? ""}|${endLine ?? ""}`
-					: undefined,
+				target && block.name === ClineDefaultTool.FILE_READ ? readDedupeKey(target, startLine, endLine) : undefined,
 		}
 	}
 
@@ -310,15 +304,16 @@ export class ToolExecutor {
 	 * @param error The error that occurred
 	 * @param block The tool use block that caused the error
 	 */
-	private async handleError(action: string, error: Error, block: ToolUse): Promise<void> {
+	private async handleError(action: string, error: Error, block: ToolUse): Promise<string> {
 		const errorString = `Error ${action}: ${error.message}`
-		// 错误不冒泡到 executeTool，只能在这里把结果交给审计层（否则日志里永远只有 ok）。
-		this.lastToolErrorMessage = errorString
 		await this.say("error", errorString)
 
 		// Create error response for the tool
 		const errorResponse = formatResponse.toolError(errorString)
 		this.pushToolResult(errorResponse, block)
+
+		// 返回值给 execute()：错误已在內部被吃成 toolError，不冒泡，审计只能靠这个结果。
+		return errorString
 	}
 
 	/**
@@ -385,14 +380,14 @@ export class ToolExecutor {
 	 * - Error handling and checkpointing
 	 *
 	 * @param block The tool use block to execute
-	 * @returns true if the tool was handled (even if execution failed), false if not registered
+	 * @returns 执行结果（outcome 供审计使用）；未注册的工具返回 ok
 	 */
-	private async execute(block: ToolUse): Promise<boolean> {
+	private async execute(block: ToolUse): Promise<ToolExecutionResult> {
 		// Note: MCP tool name transformation happens earlier in ToolUseHandler.getPartialToolUsesAsContent()
 		// The toolUseIdMap is updated at the point of transformation in index.ts
 
 		if (!this.coordinator.has(block.name)) {
-			return false // Tool not handled by coordinator
+			return { outcome: "ok" } // Tool not handled by coordinator
 		}
 		canonicalizeAttemptCompletionParams(block)
 
@@ -405,16 +400,14 @@ export class ToolExecutor {
 					? "Tool was interrupted and not executed due to user rejecting a previous tool."
 					: "Skipping tool due to user rejecting a previous tool."
 				this.createToolRejectionMessage(block, reason)
-				return true
+				return { outcome: "denied", message: reason }
 			}
 
 			// Check if a tool has already been used in this message (only enforced when parallel tool calling is disabled)
 			if (!this.isParallelToolCallingEnabled() && this.taskState.didAlreadyUseTool) {
-				this.taskState.userMessageContent.push({
-					type: "text",
-					text: formatResponse.toolAlreadyUsed(block.name),
-				})
-				return true
+				const alreadyUsedMessage = formatResponse.toolAlreadyUsed(block.name)
+				this.taskState.userMessageContent.push({ type: "text", text: alreadyUsedMessage })
+				return { outcome: "denied", message: alreadyUsedMessage }
 			}
 
 			// Logic for plan-mode tool call restrictions
@@ -431,21 +424,20 @@ export class ToolExecutor {
 				if (!block.partial) {
 					this.pushToolResult(formatResponse.toolError(errorMessage), block)
 				}
-				return true
+				return { outcome: "denied", message: errorMessage }
 			}
 
 			// Handle partial blocks
 			if (block.partial) {
 				await this.handlePartialBlock(block, config)
-				return true
+				return { outcome: "ok" }
 			}
 
 			// Handle complete blocks
-			await this.handleCompleteBlock(block, config)
-			return true
+			return await this.handleCompleteBlock(block, config)
 		} catch (error) {
-			await this.handleError(`executing ${block.name}`, error as Error, block)
-			return true
+			const message = await this.handleError(`executing ${block.name}`, error as Error, block)
+			return { outcome: "error", message }
 		}
 	}
 
@@ -622,10 +614,10 @@ export class ToolExecutor {
 	 * @param block The complete tool use block with all parameters
 	 * @param config The task configuration containing all necessary context
 	 */
-	private async handleCompleteBlock(block: ToolUse, config: any): Promise<void> {
+	private async handleCompleteBlock(block: ToolUse, config: any): Promise<ToolExecutionResult> {
 		// Check abort flag at the very start to prevent execution after cancellation
 		if (this.taskState.abort) {
-			return
+			return { outcome: "cancelled", message: "aborted before execution" }
 		}
 
 		const hooksEnabled = getHooksEnabledSafe(this.stateManager.getGlobalSettingsKey("hooksEnabled"))
@@ -636,12 +628,13 @@ export class ToolExecutor {
 		let executionSuccess = true
 		let toolResult: any = null
 		let toolWasExecuted = false
+		let toolOutcome: ToolExecutionResult = { outcome: "ok" }
 		const executionStartTime = Date.now()
 
 		try {
 			// Final abort check immediately before tool execution
 			if (this.taskState.abort) {
-				return
+				return { outcome: "cancelled", message: "aborted before execution" }
 			}
 
 			// Execute the actual tool
@@ -649,9 +642,13 @@ export class ToolExecutor {
 			toolWasExecuted = true
 			this.pushToolResult(toolResult, block)
 
+			// handler 正常 resolve 的 toolError / 用户拒绝也算失败，只有抛异常会被 catch 看到
+			toolOutcome = outcomeFromToolResponse(toolResult)
+
 			// A successful edit changes the file's content, so earlier reads of it are no
 			// longer "the same content" — forget them to avoid suppressing a legitimate re-read.
-			if (FILE_MUTATING_TOOLS.has(block.name)) {
+			// 被拒绝/失败的写没有改动文件，不能清读历史，否则等于白送模型一次全文重读。
+			if (FILE_MUTATING_TOOLS.has(block.name) && toolOutcome.outcome === "ok") {
 				if (block.name === ClineDefaultTool.APPLY_PATCH) {
 					// apply_patch 没有 path 参数，受影响路径只能从 patch 文本里取；
 					// 不解析它的话「读 → patch → 读」循环会被误判成重复读。
@@ -666,7 +663,7 @@ export class ToolExecutor {
 			// --- Repeated tool call loop detection ---
 			// Must run BEFORE updating lastToolName/lastToolParams so we compare
 			// against the previous call's values, not the current one.
-			const currentSignature = toolCallSignature(block.params)
+			const currentSignature = toolCallSignature(block.params, block.name)
 			const loopCheck = checkRepeatedToolCall(this.taskState, block.name, currentSignature)
 
 			if (loopCheck.softWarning) {
@@ -682,7 +679,14 @@ export class ToolExecutor {
 				})
 			}
 
-			if (loopCheck.hardEscalation) {
+			// 已降级成 [SAME CONTENT] 的读不按第 5 次判死（yolo 下会直接把任务 fail 掉），
+			// 延后到**同一区间第 8 次读**；判据见 shouldEscalateLoop。
+			const escalate = shouldEscalateLoop({
+				hardEscalation: loopCheck.hardEscalation,
+				toolName: block.name,
+				response: toolResult,
+			})
+			if (escalate) {
 				this.taskState.consecutiveMistakeCount = this.stateManager.getGlobalSettingsKey("maxConsecutiveMistakes")
 			}
 
@@ -692,7 +696,7 @@ export class ToolExecutor {
 
 			// Check abort before running PostToolUse hook (success path)
 			if (this.taskState.abort) {
-				return
+				return toolOutcome
 			}
 
 			// Run PostToolUse hook for successful tool execution
@@ -741,12 +745,14 @@ export class ToolExecutor {
 
 		// Early return if hook requested cancellation
 		if (shouldCancelAfterHook) {
-			return
+			return toolOutcome
 		}
 
 		// Handle focus chain updates
 		if (!block.partial && this.stateManager.getGlobalSettingsKey("focusChainSettings").enabled) {
 			await this.updateFCListFromToolResponse(block.params.task_progress)
 		}
+
+		return toolOutcome
 	}
 }

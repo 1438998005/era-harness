@@ -252,7 +252,7 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 				const { PreToolUseHookCancellationError } = await import("@core/hooks/PreToolUseHookCancellationError")
 				if (error instanceof PreToolUseHookCancellationError) {
 					await provider.reset()
-					return "The user denied this patch operation."
+					return "The user denied this operation. The patch was not applied."
 				}
 				throw error
 			}
@@ -307,7 +307,7 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 					config.taskState.didRejectTool = true
 					await provider.revertChanges()
 					await provider.reset()
-					return "The user denied this patch operation."
+					return "The user denied this operation. The patch was not applied."
 				}
 
 				// Save the changes for this file after approval

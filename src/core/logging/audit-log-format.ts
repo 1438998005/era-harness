@@ -93,6 +93,74 @@ export function cleanAuditText(value: unknown, maxChars = AUDIT_MAX_TEXT_CHARS):
 	return scrubbed.length > maxChars ? `${scrubbed.slice(0, maxChars)}…` : scrubbed
 }
 
+/** `message` 比其它字段更短：它只用来回答「失败在哪一类」，不需要整段错误。 */
+const AUDIT_MESSAGE_MAX_CHARS = 80
+
+/**
+ * 错误文本里可能内嵌**文件正文**，截断挡不住（前 200 字就是正文）。
+ * 典型来源：
+ * - `formatResponse.diffError()` 把 `<file_content>` 原文塞进错误；
+ * - `diff.ts` 的 SEARCH 不匹配把模型给的 SEARCH 块（就是文件内容）原样拼进 message；
+ * - `attempt_completion` 的二次确认带 `<initial_task>`。
+ * 审计包要能直接发给陌生人，所以必须先剥结构再截断。
+ */
+const CONTENT_BLOCK_RE = /<(file_content|final_file_content|initial_task|feedback)\b[^>]*>[\s\S]*?<\/\1>/gi
+/** 没有闭合标签（错误文本被截断）时，从这里往后整段丢弃。 */
+const UNCLOSED_CONTENT_BLOCK_RE = /<(file_content|final_file_content|initial_task|feedback)\b[^>]*>[\s\S]*$/i
+export const SEARCH_MISMATCH_TEXT = "The SEARCH block does not match the file content."
+
+/**
+ * `message` 的归一规则：命中**头部**就把整段换掉，冒号后面的内容一个字都不留。
+ *
+ * 为什么钉头部而不是枚举结尾：`diff.ts` 有 4 处 throw、**3 种结尾**
+ * （`does not match anything in the file.` / `is malformatted.` /
+ * `matched an incorrect content in the file.`），全都把模型给的 SEARCH 块
+ * （就是文件正文）拼在冒号后面。枚举结尾必然漏一个，将来新增第 4 种也不会有人
+ * 回来补正则；而 `The SEARCH block:` 这个头是稳定的。
+ */
+const AUDIT_MESSAGE_RULES: Array<{ re: RegExp; replace: (match: RegExpExecArray) => string }> = [
+	{
+		// 兼容 ToolExecutor.handleError 拼出的前缀。生产形状是
+		// `Error executing replace_in_file: `——**两段**（`ToolExecutor.ts:439` 传
+		// `executing ${block.name}`，`:308` 拼 `Error ${action}: `）。
+		// 但段数属于会漂移的细节（旧写法 `[a-z_]+` 只吃一段，前缀剥不掉 → 规则根本不命中），
+		// 所以这里**不枚举段数**：`Error <任意说明>: ` 一律剥掉，钉的是 `The SEARCH block:` 这个头。
+		re: /^(?:error\s+[^:\n]*:\s*)?the\s+search\s+block\s*:/i,
+		replace: () => SEARCH_MISMATCH_TEXT,
+	},
+	{
+		// MCP 的 isError 文本是服务端返回的**任意**内容（可能是整段 JSON 或文件正文），
+		// 只留「哪一类失败」：`MCP tool returned an error (server/tool)`。
+		re: /^(mcp tool returned an error\s*\([^)\n]*\))/i,
+		replace: (match) => match[1].trim(),
+	},
+]
+
+/** `message` 专用清洗：剥掉正文块 → 已知错误按头部归一 → 首句 → 80 字。 */
+export function cleanAuditMessage(value: unknown): string | undefined {
+	if (typeof value !== "string") {
+		return undefined
+	}
+	let text = value.replace(CONTENT_BLOCK_RE, "[omitted]").replace(UNCLOSED_CONTENT_BLOCK_RE, "[omitted]")
+	// <error> 只是包装，保留里面的短说明；真正的内容块已经在上面剥掉。
+	text = text.replace(/<\/?error>/gi, " ").trim()
+
+	for (const rule of AUDIT_MESSAGE_RULES) {
+		const match = rule.re.exec(text)
+		if (match) {
+			text = rule.replace(match)
+			break
+		}
+	}
+
+	const scrubbed = scrubSecrets(text)
+	if (!scrubbed) {
+		return undefined
+	}
+	const firstSentence = scrubbed.split(/(?<=[.!?。！？])\s/)[0] || scrubbed
+	return firstSentence.length > AUDIT_MESSAGE_MAX_CHARS ? `${firstSentence.slice(0, AUDIT_MESSAGE_MAX_CHARS)}…` : firstSentence
+}
+
 function cleanNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
@@ -173,7 +241,7 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 	const model = cleanAuditText(entry.model, 64)
 	if (model) record.model = model
 
-	const message = cleanAuditText(entry.message, 200)
+	const message = cleanAuditMessage(entry.message)
 	if (message) record.message = message
 
 	return record
@@ -224,6 +292,24 @@ export function compareAuditFilesDesc(a: string, b: string): number {
 		return dateB - dateA
 	}
 	return auditFileChunkIndex(b) - auditFileChunkIndex(a)
+}
+
+/**
+ * 把「从新到旧」读取到的文件内容合并成导出文本：输出旧→新，且只保留最新的 limit 行。
+ *
+ * 抽成纯函数是为了锁住「最新事件必须在包里」这个 bug（只测文件排序锁不住拼接顺序）。
+ */
+export function collectRecentLines(fileContentsNewestFirst: string[], limit: number): string[] {
+	const collected: string[] = []
+	for (const content of fileContentsNewestFirst) {
+		if (collected.length >= limit) {
+			break
+		}
+		const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0)
+		const take = lines.slice(Math.max(0, lines.length - (limit - collected.length)))
+		collected.unshift(...take)
+	}
+	return collected.slice(-limit)
 }
 
 /** 诊断包文件名：`diagnostics-YYYYMMDD-HHmmss.txt`。 */

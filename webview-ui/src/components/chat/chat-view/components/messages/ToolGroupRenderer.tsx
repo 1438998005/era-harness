@@ -312,9 +312,16 @@ export function buildToolsWithReasoning(messages: ClineMessage[]): ToolWithReaso
 				// 只有「两条已完成的 say」才算真正的重复调用；
 				// ask→say（审批交接）和流式 partial 都是同一次读取，不能把计数 +1（否则单次读取会显示 ×2）。
 				const bothCompleted = previous?.tool.say === "tool" && msg.say === "tool"
+				// 无区间的消息（审批 ask / partial）不能把已完成行的区间抹掉：
+				// 否则「读 A 1-100 → 审批 ask → 读 A 200-300」会只剩最后一行，前一次读取从列表消失。
+				const previousHasRange =
+					previous?.parsedTool.readLineStart !== undefined || previous?.parsedTool.readLineEnd !== undefined
+				const currentHasRange = parsedTool.readLineStart !== undefined || parsedTool.readLineEnd !== undefined
+				const keepPreviousDisplay = !currentHasRange && !!previousHasRange
+
 				result[result.length - 1] = {
-					tool: msg,
-					parsedTool,
+					tool: keepPreviousDisplay && previous ? previous.tool : msg,
+					parsedTool: keepPreviousDisplay && previous ? previous.parsedTool : parsedTool,
 					reasoning: undefined,
 					repeatCount: bothCompleted ? (previous?.repeatCount ?? 1) + 1 : (previous?.repeatCount ?? 1),
 				}

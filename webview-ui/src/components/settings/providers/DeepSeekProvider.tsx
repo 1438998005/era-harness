@@ -1,4 +1,4 @@
-import { deepSeekModels, ModelInfo } from "@shared/api"
+import { deepSeekModels, ModelInfo, resolveDeepSeekModelId } from "@shared/api"
 import { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -9,7 +9,7 @@ import { ApiKeyField } from "../common/ApiKeyField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
-import { normalizeApiConfiguration } from "../utils/providerUtils"
+import { mergeLiveModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -22,6 +22,12 @@ const FALLBACK_MODEL_INFO: ModelInfo = {
 	maxTokens: 384_000,
 	supportsImages: false,
 	supportsPromptCache: true,
+}
+
+/** 按小写命中内置清单：在线同步回来的 id 大小写可能与清单不一致（如 DeepSeek-V4-Pro）。 */
+function modelInfoFor(id: string): ModelInfo {
+	const knownId = resolveDeepSeekModelId(id)
+	return (knownId && BUILTIN_MODELS[knownId]) || FALLBACK_MODEL_INFO
 }
 
 /**
@@ -85,15 +91,7 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 		if (!liveModelIds) {
 			return BUILTIN_MODELS
 		}
-		const merged: Record<string, ModelInfo> = {}
-		for (const id of liveModelIds) {
-			merged[id] = BUILTIN_MODELS[id] ?? FALLBACK_MODEL_INFO
-		}
-		// 当前选中的模型必须始终在列表里，否则下拉框会显示空值
-		if (selectedModelId && !merged[selectedModelId]) {
-			merged[selectedModelId] = BUILTIN_MODELS[selectedModelId] ?? FALLBACK_MODEL_INFO
-		}
-		return merged
+		return mergeLiveModelIds(liveModelIds, resolveDeepSeekModelId, modelInfoFor, selectedModelId)
 	}, [liveModelIds, selectedModelId])
 
 	return (
@@ -174,7 +172,7 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 						/>
 					)}
 
-					{liveModelIds && selectedModelId && !BUILTIN_MODELS[selectedModelId] && (
+					{liveModelIds && selectedModelId && !resolveDeepSeekModelId(selectedModelId) && (
 						<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-editorWarning-foreground)" }}>
 							该模型不在内置清单中，上下文与输出上限按保守默认值处理。
 						</p>

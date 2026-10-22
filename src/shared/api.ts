@@ -597,53 +597,124 @@ export const deepSeekModels = {
 	},
 } as const satisfies Record<string, ModelInfo>
 
+/**
+ * 按小写匹配官方模型 id。
+ * 在线同步（GET /models）回来的 id 大小写不保证（如 `DeepSeek-V4-Pro`），
+ * 不做归一化会让**已知**模型被当成未知 → 元数据落到 flash 的价格与上下文窗口。
+ */
+const deepSeekModelIdsByLowerCase = new Map<string, DeepSeekModelId>(
+	Object.keys(deepSeekModels).map((id) => [id.toLowerCase(), id as DeepSeekModelId]),
+)
+
+export function resolveDeepSeekModelId(modelId: string): DeepSeekModelId | undefined {
+	return deepSeekModelIdsByLowerCase.get(modelId.trim().toLowerCase())
+}
+
 export function getDeepSeekModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
-	if (modelId in deepSeekModels) {
+	const known = resolveDeepSeekModelId(modelId)
+	if (known) {
 		// 已知模型一律以官方数据为准：历史配置里可能残留旧的上限（例如 8000），
 		// 与官方 1M 上下文 / 384K 输出对不上，会让设置页显示自相矛盾的数字。
-		return { ...deepSeekModels[modelId as DeepSeekModelId] }
+		return { ...deepSeekModels[known] }
 	}
 	// 在线同步回来的未知模型：保留用户填写的上限，其余用默认模型的保守值
 	return { ...deepSeekModels[deepSeekDefaultModelId], ...modelInfo }
 }
 
 // Xiaomi MiMo
-// https://mimo.mi.com/docs/zh-CN/quick-start/summary/welcome
+// 官方文档（2026-10 逐页核对，不引用第三方报道）：
+// - 模型列表 https://mimo.mi.com/docs/zh-CN/quick-start/summary/model
+// - 首次调用 https://mimo.mi.com/docs/zh-CN/quick-start/summary/first-api-call
+// - 深度思考 https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/text-generation/deep-thinking
 //
-// OpenAI 兼容基址：https://api.xiaomimimo.com/v1（实测 /v1/models 无 key 返回 401 Invalid API Key）。
-// 内置清单只做**种子**：实际可用 id 以设置页在线同步（GET /v1/models）为准。
-// 价格没能从官方页面核实到逐档数字，因此一律记 0，UI 上注明「以官方计费为准」，
-// 不用猜测的数字把用户账单算错。
+// OpenAI 兼容基址 https://api.xiaomimimo.com/v1（实测无 key 访问 /v1/models 返回 401）；
+// 另有 Anthropic 兼容 /anthropic、Token Plan（token-plan-cn.xiaomimimo.com/v1，密钥 tp-/ttp-）
+// 与批量推理（batch-api-cn.xiaomimimo.com/v1）三个**不同入口**，同一个密钥不能跳着用。
+// 官方模型表：三款 v2.6 均为「上下文 1M / 最大输出 128K」，限流 RPM 100、TPM 10M
+// （UltraSpeed 为定制配额），
+// 能力含全模态理解、深度思考（默认开启，由 thinking.type 开关）、流式、函数调用、
+// 结构化输出、联网搜索。mimo-v2.5-pro / mimo-v2.5 已于 2026-10-21 下线，不收录。
+//
+// 价格（2026-10-22 核对 https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go 与三张模型页，
+// 两处逐项一致；单位 元 / 百万 tokens，取实时推理档）：
+//   flash 命中 0.02 / 未命中 1 / 输出 2；pro 0.025 / 3 / 6；pro-ultraspeed 0.25 / 30 / 60。
+// 字段映射沿用 DeepSeek 口径：cacheReadsPrice=输入(缓存命中)、cacheWritesPrice=输入(缓存未命中)、
+// inputPrice 恒 0。⚠️ cacheWritesPrice 在这里**不是**缓存写入费——官方写入限时免费，且 usage
+// 不单列写入 token，该字段只承载「未命中输入价」；按字面理解会算错账。
+// 未纳入本表：批量推理为实时档半价（UltraSpeed 不支持）、联网搜索 ¥16/1000 次另计、
+// Token Plan 按套餐扣费（与按量计费额度不互通）。插件当前只走实时 API。
 export type MimoModelId = keyof typeof mimoModels
 export const mimoDefaultModelId: MimoModelId = "mimo-v2.6-flash"
 
-const mimoFlashInfo: ModelInfo = {
+const mimoBaseInfo: ModelInfo = {
 	name: "MiMo V2.6 Flash",
-	// 官方文档未给出逐模型上限时先用保守值：宁可让上下文管理提前截断，
-	// 也不要在真实上限更低时把请求打爆。
-	maxTokens: 8_000,
-	contextWindow: 128_000,
-	supportsImages: false,
-	supportsPromptCache: false,
+	// 官方：最大输出 128K（思考内容与最终回答共用这个额度，小了会截断回答）
+	maxTokens: 128_000,
+	// 官方：上下文窗口 1M
+	contextWindow: 1_000_000,
+	// 官方：全系支持全模态理解
+	supportsImages: true,
+	// 响应里带 usage.prompt_tokens_details.cached_tokens，且官方列了缓存命中单价
+	supportsPromptCache: true,
+	// 官方：深度思考，三款 v2.6 默认开启
 	supportsReasoning: true,
+	// 输入全部按「缓存命中 / 未命中」两档计价，inputPrice 恒为 0（与 DeepSeek 同口径）
 	inputPrice: 0,
-	outputPrice: 0,
+	cacheReadsPrice: 0.02, // 输入（缓存命中），元/百万 tokens
+	cacheWritesPrice: 1, // 输入（缓存未命中）——不是缓存写入费，官方写入限时免费
+	outputPrice: 2,
 }
 
 export const mimoModels = {
-	"mimo-v2.6-flash": mimoFlashInfo,
+	"mimo-v2.6-flash": mimoBaseInfo,
 	"mimo-v2.6-pro": {
-		...mimoFlashInfo,
+		...mimoBaseInfo,
 		name: "MiMo V2.6 Pro",
+		cacheReadsPrice: 0.025,
+		cacheWritesPrice: 3,
+		outputPrice: 6,
+	},
+	"mimo-v2.6-pro-ultraspeed": {
+		...mimoBaseInfo,
+		name: "MiMo V2.6 Pro UltraSpeed",
+		cacheReadsPrice: 0.25,
+		cacheWritesPrice: 30,
+		outputPrice: 60,
 	},
 } as const satisfies Record<string, ModelInfo>
 
+/**
+ * 按小写匹配官方模型 id。
+ * 在线同步（GET /v1/models）回来的 id 大小写可能与清单不一致（如 MiMo-V2.6-Pro），
+ * 不做归一化会让已知模型被当成未知→元数据落到保守默认、并在切 provider 时被误纠正。
+ */
+const mimoModelIdsByLowerCase = new Map<string, MimoModelId>(
+	Object.keys(mimoModels).map((id) => [id.toLowerCase(), id as MimoModelId]),
+)
+
+export function resolveMimoModelId(modelId: string): MimoModelId | undefined {
+	return mimoModelIdsByLowerCase.get(modelId.trim().toLowerCase())
+}
+
 export function getMimoModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
-	if (modelId in mimoModels) {
-		return { ...mimoModels[modelId as MimoModelId] }
+	const known = resolveMimoModelId(modelId)
+	if (known) {
+		return { ...mimoModels[known] }
 	}
-	// 在线同步回来的未知模型：保留用户填写的元数据，缺失时用种子默认的保守值
+	// 在线同步回来的未知模型：保留用户填写的元数据，缺失时用种子默认值
 	return { ...mimoModels[mimoDefaultModelId], ...modelInfo }
+}
+
+/**
+ * 该 id 是否明显属于某家**有内置清单**的 provider。
+ * 用来处理「切到无清单的 OpenAI 兼容端点时，别家的模型 id 会被原样发出去」。
+ */
+export function modelIdBelongsToKnownCatalog(modelId: string | undefined): boolean {
+	if (!modelId?.trim()) {
+		return false
+	}
+	// 两家都用同一个归一函数，别再各自手写 toLowerCase 循环（写两遍就会有一遍忘记 trim）
+	return resolveMimoModelId(modelId) !== undefined || resolveDeepSeekModelId(modelId) !== undefined
 }
 
 /**
@@ -668,12 +739,49 @@ export function isBuiltinModelId(provider: string | undefined, modelId: string |
 	}
 	switch (provider) {
 		case "deepseek":
-			return modelId in deepSeekModels
+			return resolveDeepSeekModelId(modelId) !== undefined
 		case "mimo":
-			return modelId in mimoModels
+			return resolveMimoModelId(modelId) !== undefined
 		default:
 			return true
 	}
+}
+
+/**
+ * 从内置清单里挑模型 id：命中清单返回**规范 id**（大小写归一），
+ * 未知但非空的 id **原样保留**（官方可能新增模型，静默改回默认等于替用户改配置），
+ * 只有空值才落默认。
+ *
+ * 两个 provider 共用同一规则：写两遍必然有一遍把「未知 → 默认」和「未知 → 保留」
+ * 弄反，设置页就会显示一个、扩展侧发另一个。
+ */
+export function resolveCatalogModelId(
+	models: Record<string, ModelInfo>,
+	modelId: string | undefined,
+	defaultModelId: string,
+): string {
+	const requested = modelId?.trim()
+	if (!requested) {
+		return defaultModelId
+	}
+	const canonical = Object.keys(models).find((id) => id.toLowerCase() === requested.toLowerCase())
+	return canonical ?? requested
+}
+
+/**
+ * 切换 provider 时要不要把模型 id 重置成目标 provider 的默认档。
+ *
+ * 只纠正「明显属于**别家**清单」的 id：`deepseek-v5` 这种官方新增、在线同步回来的
+ * 未知 id 必须保留，否则用户刚选的模型会被静默换掉（与 MiMo 分支的既有规则一致）。
+ */
+export function shouldResetModelForProvider(provider: string | undefined, modelId: string | undefined): boolean {
+	if (!modelId?.trim()) {
+		return true
+	}
+	if (isBuiltinModelId(provider, modelId)) {
+		return false
+	}
+	return modelIdBelongsToKnownCatalog(modelId)
 }
 
 // Hugging Face Inference Providers
