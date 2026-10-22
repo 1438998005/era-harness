@@ -22,6 +22,7 @@ import {
 	type AuditEntry,
 	auditFileName,
 	buildDiagnosticsHeader,
+	compareAuditFilesDesc,
 	type DiagnosticsHeader,
 	diagnosticsFileName,
 	parseAuditFileDate,
@@ -120,7 +121,8 @@ export async function readRecentAuditLines(limit = AUDIT_EXPORT_LINE_LIMIT): Pro
 		return []
 	}
 
-	files.sort().reverse()
+	// 按「日期 + 分片号」降序，不能依赖文件名排序（见 compareAuditFilesDesc 注释）
+	files.sort(compareAuditFilesDesc)
 	const collected: string[] = []
 	for (const name of files) {
 		let content: string

@@ -8,9 +8,11 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
 	AUDIT_MAX_TEXT_CHARS,
+	auditFileChunkIndex,
 	auditFileName,
 	buildDiagnosticsHeader,
 	cleanAuditText,
+	compareAuditFilesDesc,
 	diagnosticsFileName,
 	parseAuditFileDate,
 	sanitizeAuditEntry,
@@ -118,6 +120,24 @@ test("审计文件名按天且可解析回日期", () => {
 test("诊断包文件名带年月日时分秒", () => {
 	const name = diagnosticsFileName(new Date(2026, 0, 5, 7, 8, 9))
 	assert.equal(name, "diagnostics-20260105-070809.txt")
+})
+
+test("审计文件降序：先日期后分片号，不靠字典序", () => {
+	// 字典序会把 `-2.jsonl` 排在 `-.jsonl` 前面（'-' < '.'），导出时就会取到最旧的一段
+	const files = ["audit-2026-10-21.jsonl", "audit-2026-10-22.jsonl", "audit-2026-10-22-2.jsonl", "audit-2026-10-22-10.jsonl"]
+
+	const sorted = [...files].sort(compareAuditFilesDesc)
+
+	assert.deepEqual(sorted, [
+		"audit-2026-10-22-10.jsonl",
+		"audit-2026-10-22-2.jsonl",
+		"audit-2026-10-22.jsonl",
+		"audit-2026-10-21.jsonl",
+	])
+
+	assert.equal(auditFileChunkIndex("audit-2026-10-22.jsonl"), 1)
+	assert.equal(auditFileChunkIndex("audit-2026-10-22-7.jsonl"), 7)
+	assert.equal(auditFileChunkIndex("diagnostics-20261022-153000.txt"), 1)
 })
 
 test("诊断包头部：含版本与设置摘要，但不含密钥值", () => {

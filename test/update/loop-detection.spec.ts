@@ -10,8 +10,10 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
 	checkRepeatedToolCall,
+	extractApplyPatchPaths,
 	invalidateRepeatWindowForPath,
 	LOOP_DETECTION_SOFT_THRESHOLD,
+	nextRepeatReadCount,
 	REPEAT_READ_SUPPRESS_THRESHOLD,
 	REPEAT_WINDOW_HARD_COUNT,
 	REPEAT_WINDOW_SIZE,
@@ -134,22 +136,76 @@ test("依赖元数据的参数不影响签名（task_progress 被忽略）", () 
 	assert.equal(toolCallSignature({ path: "a", start_line: "1" }), toolCallSignature({ start_line: "1", path: "a" }))
 })
 
-test("编辑文件后清掉该文件的重读历史与计数", () => {
+test("编辑文件后只清该文件的重读历史与计数（不误伤同名前缀）", () => {
 	const state = createState()
 	const path = "ERB/A.ERB"
-	const key = `${path.toLowerCase()}|1|100`
 
 	call(state, "read_file", { path, start_line: "1", end_line: "100" })
-	call(state, "read_file", { path, start_line: "1", end_line: "100" })
-	state.fileReadCounts.set(key, 3)
+	state.fileReadCounts.set("erb/a.erb|1|100", 3)
+	state.fileReadCounts.set("d:/work/erb/a.erb|1|100", 3)
+	state.fileReadCounts.set("d:/work/xerb/a.erb|1|100", 2)
 	state.fileReadCounts.set("erb/b.erb|1|100", 2)
+	state.recentToolSignatures.push({ name: "read_file", signature: toolCallSignature({ path: "ERB/AX.ERB" }) })
+	state.warnedRepeatSignatures.add(`read_file\u0000${toolCallSignature({ path: "ERB/A.ERB" })}`)
+	state.warnedRepeatSignatures.add(`read_file\u0000${toolCallSignature({ path: "ERB/AX.ERB" })}`)
 
 	invalidateRepeatWindowForPath(state, path)
 
-	assert.equal(state.recentToolSignatures.length, 0, "该文件的读历史被清空")
-	assert.equal(state.fileReadCounts.get(key), undefined, "该文件的区间计数被清空")
+	assert.equal(state.recentToolSignatures.length, 1, "只清掉该文件自己的读历史（同前缀 AX 保留）")
+	assert.equal(state.fileReadCounts.get("erb/a.erb|1|100"), undefined, "相对路径键被清")
+	assert.equal(state.fileReadCounts.get("d:/work/erb/a.erb|1|100"), undefined, "绝对路径键按分隔符边界匹配")
+	assert.equal(state.fileReadCounts.get("d:/work/xerb/a.erb|1|100"), 2, "同前缀的其它目录不受影响")
 	assert.equal(state.fileReadCounts.get("erb/b.erb|1|100"), 2, "其它文件不受影响")
-	assert.equal(state.warnedRepeatSignatures.size, 0)
+	assert.equal(state.warnedRepeatSignatures.size, 1, "只丢掉与该文件相关的警告记录")
+})
+
+test("路径分隔符与大小写不同也能失效重读历史", () => {
+	const state = createState()
+	state.recentToolSignatures.push({ name: "read_file", signature: toolCallSignature({ path: "ERB\\Sub\\A.ERB" }) })
+
+	invalidateRepeatWindowForPath(state, "./erb/sub/a.erb")
+
+	assert.equal(state.recentToolSignatures.length, 0)
+})
+
+test("apply_patch 从 patch 文本提取受影响路径，从而能失效读历史", () => {
+	const patch = [
+		"*** Begin Patch",
+		"*** Update File: ERB/A.ERB",
+		"@@",
+		"-old",
+		"+new",
+		"*** Add File: ERB/B.ERB",
+		"+content",
+		"*** Move to: ERB/C.ERB",
+		"*** End Patch",
+	].join("\n")
+
+	const paths = extractApplyPatchPaths(patch)
+	assert.deepEqual(paths.sort(), ["ERB/A.ERB", "ERB/B.ERB", "ERB/C.ERB"])
+	assert.deepEqual(extractApplyPatchPaths(undefined), [])
+	assert.deepEqual(extractApplyPatchPaths("*** Begin Patch\n*** End Patch"), [])
+})
+
+test("同区间计数：首读播种为 1，第 3 次才降级（不再晚一拍）", () => {
+	const counts: number[] = []
+	let previous: number | undefined
+
+	// 第 1 次：首读，播种 1
+	const first = nextRepeatReadCount(previous, true)
+	counts.push(first)
+	previous = first
+
+	// 第 2、3 次：缓存命中，+1
+	for (let i = 0; i < 2; i++) {
+		const next = nextRepeatReadCount(previous, false)
+		counts.push(next)
+		previous = next
+	}
+
+	assert.deepEqual(counts, [1, 2, 3])
+	assert.equal(shouldSuppressRepeatRead(counts[1]), false, "第 2 次仍回正文")
+	assert.equal(shouldSuppressRepeatRead(counts[2]), true, "第 3 次只回 [SAME CONTENT]")
 })
 
 test("重复读降级判据：第 3 次起只回标记", () => {

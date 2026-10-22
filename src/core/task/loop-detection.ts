@@ -117,25 +117,89 @@ export function checkRepeatedToolCall(state: TaskState, toolName: string, curren
 }
 
 /**
+ * 路径归一化：统一分隔符、去掉 `./`、转小写。
+ * 工具参数里是模型给的相对路径，`fileReadCounts` 的键用的是绝对路径，
+ * 两边只能靠「归一化 + 按分隔符边界比较」对齐。
+ */
+function normalizeRepeatPath(value: string): string {
+	return value.trim().replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase()
+}
+
+/** 从调用签名里取 `params.path`（取不到或解析失败返回 undefined）。 */
+function signaturePath(signature: string): string | undefined {
+	try {
+		const parsed = JSON.parse(signature) as { path?: unknown }
+		return typeof parsed?.path === "string" ? parsed.path : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * 从 `apply_patch` 的 patch 文本里取出受影响的路径。
+ * apply_patch 没有 `path` 参数（全部信息在 `input` 里），不解析它就无法失效读历史。
+ */
+export function extractApplyPatchPaths(input: string | undefined): string[] {
+	if (!input) {
+		return []
+	}
+	const paths = new Set<string>()
+	for (const rawLine of input.split(/\r?\n/)) {
+		const line = rawLine.trim()
+		const match = /^\*\*\*\s+(?:Update|Add|Delete) File:\s*(.+)$/.exec(line) ?? /^\*\*\*\s+Move to:\s*(.+)$/.exec(line)
+		if (match?.[1]) {
+			paths.add(match[1].trim())
+		}
+	}
+	return Array.from(paths)
+}
+
+/**
+ * 同区间读取计数：首读（或缓存因 mtime 失效后的重读）从 1 开始，缓存命中则 +1。
+ *
+ * 抽成函数是为了让「第 3 次降级」这个阀值边界可以被单测逐次推演，
+ * 而不依赖携带真实文件系统的 handler。
+ */
+export function nextRepeatReadCount(previousCount: number | undefined, isFreshRead: boolean): number {
+	if (isFreshRead) {
+		return 1
+	}
+	return (previousCount ?? 0) + 1
+}
+
+/**
  * Forget repetition history that targeted a file the agent just modified.
  * Without this, an "edit → re-read" sequence looks like a read loop and the
  * third read would be suppressed even though the content really did change.
  */
 export function invalidateRepeatWindowForPath(state: TaskState, filePath: string | undefined): void {
 	if (!filePath) return
-	const needle = filePath.toLowerCase()
+	const needle = normalizeRepeatPath(filePath)
+	if (!needle) return
 
-	state.recentToolSignatures = state.recentToolSignatures.filter((entry) => !entry.signature.toLowerCase().includes(needle))
+	// 精确比较签名里的 path：旧实现用「子串包含」，编辑 foo.ts 会误清 myfoo.ts 的历史，
+	// 而 a\b.ts 与 a/b.ts 这种同文异形的路径又清不掉。
+	state.recentToolSignatures = state.recentToolSignatures.filter((entry) => {
+		const entryPath = signaturePath(entry.signature)
+		return !entryPath || normalizeRepeatPath(entryPath) !== needle
+	})
 
-	const prefix = `${needle}|`
+	// fileReadCounts 的键是「绝对路径|start|end」：按分隔符边界比较，
+	// 既兼容相对路径，也避免 `a/x.erb` 命中 `b/x.erb`。
 	for (const key of Array.from(state.fileReadCounts.keys())) {
-		if (key.startsWith(prefix)) {
+		const keyPath = normalizeRepeatPath(key.split("|")[0] ?? "")
+		if (keyPath === needle || keyPath.endsWith(`/${needle}`)) {
 			state.fileReadCounts.delete(key)
 		}
 	}
 
-	// Stale warnings would silence a genuine loop on the new content; cheap to rebuild.
-	state.warnedRepeatSignatures.clear()
+	// 只丢掉与该文件相关的警告记录（旧实现全局清空，会让其它工具白白多警告一次）。
+	for (const key of Array.from(state.warnedRepeatSignatures)) {
+		const entryPath = signaturePath(key.split("\u0000").slice(1).join("\u0000"))
+		if (entryPath && normalizeRepeatPath(entryPath) === needle) {
+			state.warnedRepeatSignatures.delete(key)
+		}
+	}
 }
 
 /** Whether a same-range read has happened often enough to stop re-sending the body. */
