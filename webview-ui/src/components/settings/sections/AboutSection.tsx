@@ -30,6 +30,22 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 		}
 	}
 
+	const openDiagnosticsFolder = async () => {
+		try {
+			await UiServiceClient.runCommand({ value: "era-harness.openDiagnosticsFolder" })
+		} catch (error) {
+			console.error("Failed to open diagnostics folder:", error)
+		}
+	}
+
+	const exportDiagnostics = async () => {
+		try {
+			await UiServiceClient.runCommand({ value: "era-harness.exportDiagnostics" })
+		} catch (error) {
+			console.error("Failed to export diagnostics:", error)
+		}
+	}
+
 	return (
 		<div>
 			{renderSectionHeader("about")}
@@ -51,9 +67,24 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 						只有你点「检查更新」才会联网检查；发现有新版本后，还要再点「下一步：下载并安装」才会下载安装，装完需重载窗口生效。启动时不会自动检查。
 					</p>
 
+					<h3 className="text-md font-semibold mt-2">操作日志 / 排障</h3>
+					<div className="flex items-center gap-2">
+						<VSCodeButton appearance="secondary" onClick={exportDiagnostics}>
+							导出诊断包
+						</VSCodeButton>
+						<VSCodeButton appearance="secondary" onClick={openDiagnosticsFolder}>
+							打开诊断目录
+						</VSCodeButton>
+					</div>
+					<p className="m-0 text-xs text-description">
+						每次工具调用（读了哪个文件、第几次、耗时、成功与否）都会记到诊断目录，只记元数据，不记对话正文与密钥；保留
+						14 天。 遇到奇怪行为时，先点「导出诊断包」，把生成的 txt 发给开发者即可定位。
+					</p>
+
 					<h3 className="text-md font-semibold mt-2">本地版说明</h3>
 					<p className="m-0">
-						无账号、无登录、无遥测、无插件市场。模型提供方只保留 DeepSeek 与 OpenAI 兼容端点，密钥只存在本机。
+						无账号、无登录、无遥测、无插件市场。模型提供方保留 DeepSeek、Xiaomi MiMo 与 OpenAI
+						兼容端点，密钥只存在本机。
 					</p>
 
 					<h3 className="text-md font-semibold mt-2">上游血缘</h3>

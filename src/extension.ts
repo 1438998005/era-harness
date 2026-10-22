@@ -530,6 +530,18 @@ ${ctx.cellJson || "{}"}
 		}),
 	)
 
+	// 诊断：打开审计日志目录 / 导出诊断包（供用户发一个 txt 就能排障）
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.OpenDiagnosticsFolder, async () => {
+			const { openDiagnosticsFolder } = await import("./hosts/vscode/diagnostics")
+			await openDiagnosticsFolder()
+		}),
+		vscode.commands.registerCommand(commands.ExportDiagnostics, async () => {
+			const { exportDiagnosticsPackage } = await import("./hosts/vscode/diagnostics")
+			await exportDiagnosticsPackage()
+		}),
+	)
+
 	// EraBasic 语言支持：独立语言 id + 运行时自动检测路由（装了 erabasic 则让位，否则接管 .erb/.erh）
 	registerEraBasicLanguageSupport(context)
 

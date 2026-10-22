@@ -47,9 +47,22 @@ export class TaskState {
 	lastToolParams = "" // Canonical signature of last tool's params (via toolCallSignature)
 	consecutiveIdenticalToolCount = 0 // Consecutive calls with identical tool name + params
 
+	// Windowed repetition tracking — catches "read A, read A, search, read A" patterns
+	// that the strict-consecutive counter above resets on. Capped at REPEAT_WINDOW_SIZE.
+	recentToolSignatures: Array<{ name: string; signature: string }> = []
+	warnedRepeatSignatures: Set<string> = new Set() // soft warning emitted at most once per tool+signature
+
+	// Per-range read counters (key = `${lowercased path}|${startLine}|${endLine}`).
+	// Drives the graded repeat-read degradation in ReadFileToolHandler; cleared for a
+	// path whenever its fileReadCache entry is evicted (file edited / mtime changed).
+	fileReadCounts: Map<string, number> = new Map()
+
 	// File read deduplication cache - prevents the model from endlessly reading the same files
-	// Maps absolute file path → { readCount: times read in this task, mtime: last modified timestamp, imageBlock: optional image data for multimodal models }
-	fileReadCache: Map<string, { readCount: number; mtime: number; imageBlock?: Anthropic.ImageBlockParam }> = new Map()
+	// Maps absolute file path → { readCount: times read in this task, mtime: last modified timestamp, imageBlock: optional image data for multimodal models, lastRange: last displayed line range (so a suppressed repeat can still be grouped in the UI) }
+	fileReadCache: Map<
+		string,
+		{ readCount: number; mtime: number; imageBlock?: Anthropic.ImageBlockParam; lastRange?: [number, number] }
+	> = new Map()
 
 	// Error tracking
 	consecutiveMistakeCount = 0

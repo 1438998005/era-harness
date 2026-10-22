@@ -1,6 +1,7 @@
 import fs from "fs/promises"
 import * as path from "path"
 import * as vscode from "vscode"
+import { recordAudit } from "@/core/logging/auditLog"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { fetch } from "@/shared/net"
@@ -99,9 +100,11 @@ let checkInFlight = false
 async function runUserApprovedUpdate(context: vscode.ExtensionContext, asset: ReleaseAsset): Promise<void> {
 	try {
 		await downloadAndInstall(context, asset)
+		recordAudit({ event: "update", action: "install", target: asset.name, outcome: "ok" })
 	} catch (error) {
 		Logger.error("[update] 安装失败：", error)
 		const message = error instanceof Error ? error.message : String(error)
+		recordAudit({ event: "update", action: "install", target: asset.name, outcome: "error", message })
 		const retry = await HostProvider.window.showMessage({
 			type: ShowMessageType.ERROR,
 			message: `更新安装失败：${message}（当前版本未被改动）`,
@@ -141,6 +144,7 @@ export async function checkForUpdates(context: vscode.ExtensionContext): Promise
 		}
 
 		const tag = release.tag_name
+		recordAudit({ event: "update", action: "check", target: tag, outcome: "info" })
 		if (!isNewerVersion(ExtensionRegistryInfo.version, tag)) {
 			await HostProvider.window.showMessage({
 				type: ShowMessageType.INFORMATION,
@@ -170,6 +174,7 @@ export async function checkForUpdates(context: vscode.ExtensionContext): Promise
 		Logger.warn("[update] 检查更新失败：", error)
 
 		const message = error instanceof Error ? error.message : String(error)
+		recordAudit({ event: "update", action: "check", outcome: "error", message })
 		const answer = await HostProvider.window.showMessage({
 			type: ShowMessageType.ERROR,
 			message: `检查更新失败：${message}。可稍后重试，或直接打开 Release 页面手动下载。`,

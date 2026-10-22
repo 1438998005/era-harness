@@ -151,6 +151,7 @@ message ModelsApiSecrets {
   optional string oca_refresh_token = 37;
   optional string minimax_api_key = 38;
   optional string aihubmix_api_key = 39;
+  optional string mimo_api_key = 40;
 }
 
 // API configuration options (non-secret settings)
@@ -214,6 +215,7 @@ message ModelsApiOptions {
   optional string plan_mode_open_ai_model_id = 109;
   optional OpenAiCompatibleModelInfo plan_mode_open_ai_model_info = 110;
   optional OpenRouterModelInfo plan_mode_deep_seek_model_info = 139;
+  optional OpenRouterModelInfo plan_mode_mimo_model_info = 240;
   optional string plan_mode_ollama_model_id = 111;
   optional string plan_mode_lm_studio_model_id = 112;
   optional string plan_mode_lite_llm_model_id = 113;
@@ -254,6 +256,7 @@ message ModelsApiOptions {
   optional string act_mode_open_ai_model_id = 209;
   optional OpenAiCompatibleModelInfo act_mode_open_ai_model_info = 210;
   optional OpenRouterModelInfo act_mode_deep_seek_model_info = 239;
+  optional OpenRouterModelInfo act_mode_mimo_model_info = 241;
   optional string act_mode_ollama_model_id = 211;
   optional string act_mode_lm_studio_model_id = 212;
   optional string act_mode_lite_llm_model_id = 213;
@@ -415,6 +418,7 @@ enum ApiProvider {
   OPENAI_CODEX = 40;
   WANDB = 41;
   FREE = 43;
+  MIMO = 44;
 }
 
 enum ApiFormat {
@@ -498,6 +502,7 @@ message ModelsApiConfiguration {
   optional string gemini_base_url = 29;
   optional string open_ai_native_api_key = 30;
   optional string deep_seek_api_key = 31;
+  optional string mimo_api_key = 245;
   optional string requesty_api_key = 32;
   optional string requesty_base_url = 33;
   optional string together_api_key = 34;
@@ -568,6 +573,7 @@ message ModelsApiConfiguration {
   optional string plan_mode_open_ai_model_id = 109;
   optional OpenAiCompatibleModelInfo plan_mode_open_ai_model_info = 110;
   optional OpenRouterModelInfo plan_mode_deep_seek_model_info = 144;
+  optional OpenRouterModelInfo plan_mode_mimo_model_info = 246;
   optional string plan_mode_ollama_model_id = 111;
   optional string plan_mode_lm_studio_model_id = 112;
   optional string plan_mode_lite_llm_model_id = 113;
@@ -611,6 +617,7 @@ message ModelsApiConfiguration {
   optional string act_mode_open_ai_model_id = 209;
   optional OpenAiCompatibleModelInfo act_mode_open_ai_model_info = 210;
   optional OpenRouterModelInfo act_mode_deep_seek_model_info = 244;
+  optional OpenRouterModelInfo act_mode_mimo_model_info = 247;
   optional string act_mode_ollama_model_id = 211;
   optional string act_mode_lm_studio_model_id = 212;
   optional string act_mode_lite_llm_model_id = 213;

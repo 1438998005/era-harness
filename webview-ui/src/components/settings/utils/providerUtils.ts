@@ -4,7 +4,10 @@ import {
 	deepSeekDefaultModelId,
 	deepSeekModels,
 	getDeepSeekModelInfo,
+	getMimoModelInfo,
 	ModelInfo,
+	mimoDefaultModelId,
+	mimoModels,
 	openAiModelInfoSaneDefaults,
 } from "@shared/api"
 import { FREE_POOL } from "@shared/free-pools"
@@ -71,6 +74,14 @@ export function normalizeApiConfiguration(
 				...deepSeekResult,
 				selectedModelInfo: getDeepSeekModelInfo(deepSeekResult.selectedModelId, deepSeekModelInfo),
 			}
+		case "mimo":
+			const mimoResult = getProviderData(mimoModels, mimoDefaultModelId)
+			const mimoModelInfo =
+				currentMode === "plan" ? apiConfiguration?.planModeMimoModelInfo : apiConfiguration?.actModeMimoModelInfo
+			return {
+				...mimoResult,
+				selectedModelInfo: getMimoModelInfo(mimoResult.selectedModelId, mimoModelInfo),
+			}
 		case "openai":
 			const openAiModelId =
 				currentMode === "plan" ? apiConfiguration?.planModeOpenAiModelId : apiConfiguration?.actModeOpenAiModelId
@@ -113,6 +124,7 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			// Model info objects
 			openAiModelInfo: undefined,
 			deepSeekModelInfo: undefined,
+			mimoModelInfo: undefined,
 
 			// Other mode-specific fields
 			thinkingBudgetTokens: undefined,
@@ -132,6 +144,7 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 		openAiModelInfo: mode === "plan" ? apiConfiguration.planModeOpenAiModelInfo : apiConfiguration.actModeOpenAiModelInfo,
 		deepSeekModelInfo:
 			mode === "plan" ? apiConfiguration.planModeDeepSeekModelInfo : apiConfiguration.actModeDeepSeekModelInfo,
+		mimoModelInfo: mode === "plan" ? apiConfiguration.planModeMimoModelInfo : apiConfiguration.actModeMimoModelInfo,
 
 		// Other mode-specific fields (thinking budget 随非目标 provider 已剥离)
 		thinkingBudgetTokens: undefined,
@@ -175,6 +188,13 @@ export async function syncModeConfigurations(
 			updates.actModeOpenAiModelId = sourceFields.openAiModelId
 			updates.planModeOpenAiModelInfo = sourceFields.openAiModelInfo
 			updates.actModeOpenAiModelInfo = sourceFields.openAiModelInfo
+			break
+
+		case "mimo":
+			updates.planModeApiModelId = sourceFields.apiModelId
+			updates.actModeApiModelId = sourceFields.apiModelId
+			updates.planModeMimoModelInfo = sourceFields.mimoModelInfo
+			updates.actModeMimoModelInfo = sourceFields.mimoModelInfo
 			break
 
 		default:

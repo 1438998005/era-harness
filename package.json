@@ -2,7 +2,7 @@
 	"name": "era-harness",
 	"displayName": "era harness",
 	"description": "eraTW / Emuera 脚本工程的 AI 开发助手：CP932/UTF-8 安全读写、引擎日志诊断、312 页指令手册（可在线同步）、真实启动引擎验证加载。改动先出 diff，审批后才落盘；无账号、无遥测，仅本地安装。",
-	"version": "3.90.0",
+	"version": "3.91.0",
 	"icon": "assets/icons/icon.png",
 	"workspaces": [
 		"."
@@ -183,6 +183,18 @@
 				"title": "%cline.command.updateGame%",
 				"category": "era harness",
 				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "era-harness.openDiagnosticsFolder",
+				"title": "era harness: 打开诊断日志目录",
+				"category": "era harness",
+				"icon": "$(folder-opened)"
+			},
+			{
+				"command": "era-harness.exportDiagnostics",
+				"title": "era harness: 导出诊断包",
+				"category": "era harness",
+				"icon": "$(export)"
 			},
 			{
 				"command": "era-harness.checkForUpdates",

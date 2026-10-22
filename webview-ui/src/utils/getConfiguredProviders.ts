@@ -27,6 +27,11 @@ export function getConfiguredProviders(
 		configured.push("deepseek")
 	}
 
+	// Xiaomi MiMo - requires API key
+	if (apiConfiguration.mimoApiKey) {
+		configured.push("mimo")
+	}
+
 	// OpenAI Compatible - requires base URL and API key, OR has model configured
 	if (
 		(apiConfiguration.openAiBaseUrl && apiConfiguration.openAiApiKey) ||

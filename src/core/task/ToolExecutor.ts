@@ -3,6 +3,7 @@ import { FileContextTracker } from "@core/context/context-tracking/FileContextTr
 import { getHookModelContext } from "@core/hooks/hook-model-context"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
+import { recordAudit } from "@core/logging/auditLog"
 import { CommandPermissionController } from "@core/permissions"
 import { DiffViewProvider } from "@integrations/editor/DiffViewProvider"
 import type { CommandExecutionOptions } from "@integrations/terminal"
@@ -18,7 +19,12 @@ import { formatResponse } from "../prompts/responses"
 import { StateManager } from "../storage/StateManager"
 import { WorkspaceRootManager } from "../workspace"
 import { ToolResponse } from "."
-import { checkRepeatedToolCall, LOOP_DETECTION_SOFT_THRESHOLD, toolCallSignature } from "./loop-detection"
+import {
+	checkRepeatedToolCall,
+	invalidateRepeatWindowForPath,
+	LOOP_DETECTION_SOFT_THRESHOLD,
+	toolCallSignature,
+} from "./loop-detection"
 import { MessageStateHandler } from "./message-state"
 import { TaskState } from "./TaskState"
 import { AutoApprove } from "./tools/autoApprove"
@@ -28,6 +34,10 @@ import { TaskConfig, validateTaskConfig } from "./tools/types/TaskConfig"
 import { createUIHelpers } from "./tools/types/UIHelpers"
 import { ToolDisplayUtils } from "./tools/utils/ToolDisplayUtils"
 import { ToolResultUtils } from "./tools/utils/ToolResultUtils"
+
+// Tools that change file contents. A successful call invalidates the repetition
+// history for the touched path (see invalidateRepeatWindowForPath).
+const FILE_MUTATING_TOOLS = new Set<string>([ClineDefaultTool.FILE_NEW, ClineDefaultTool.FILE_EDIT, ClineDefaultTool.APPLY_PATCH])
 
 export function canonicalizeAttemptCompletionParams(block: ToolUse): boolean {
 	if (block.name === ClineDefaultTool.ATTEMPT && !block.params?.result && typeof block.params?.response === "string") {
@@ -202,7 +212,76 @@ export class ToolExecutor {
 	 * Main entry point for tool execution - called by Task class
 	 */
 	public async executeTool(block: ToolUse): Promise<void> {
-		await this.execute(block)
+		const startedAt = Date.now()
+		const model = this.auditModelInfo()
+
+		try {
+			await this.execute(block)
+			recordAudit({
+				event: "tool",
+				taskId: this.taskId,
+				turn: this.taskState.apiRequestCount,
+				tool: block.name,
+				...this.auditTarget(block),
+				outcome: "ok",
+				ms: Date.now() - startedAt,
+				...model,
+			})
+		} catch (error) {
+			recordAudit({
+				event: "tool",
+				taskId: this.taskId,
+				turn: this.taskState.apiRequestCount,
+				tool: block.name,
+				...this.auditTarget(block),
+				outcome: "error",
+				ms: Date.now() - startedAt,
+				message: error instanceof Error ? error.message : String(error),
+				...model,
+			})
+			throw error
+		}
+	}
+
+	/** 审计用的 provider/model；任何一项拿不到就不写，绝不影响任务。 */
+	private auditModelInfo(): { provider?: string; model?: string } {
+		try {
+			const apiConfig = this.stateManager.getApiConfiguration()
+			const mode = this.stateManager.getGlobalSettingsKey("mode")
+			const provider = (mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
+			return { provider: provider || undefined, model: this.api.getModel().id }
+		} catch {
+			return {}
+		}
+	}
+
+	/** 从工具参数里取可审计的元数据（不取命令全文、不取文件正文）。 */
+	private auditTarget(block: ToolUse): {
+		target?: string
+		range?: [number, number]
+		query?: string
+		pattern?: string
+		dedupeKey?: string
+	} {
+		const params = block.params ?? {}
+		const target = params.path ?? params.url
+		const startLine = params.start_line ? Number.parseInt(params.start_line, 10) : undefined
+		const endLine = params.end_line ? Number.parseInt(params.end_line, 10) : undefined
+		const range: [number, number] | undefined =
+			startLine !== undefined && endLine !== undefined && !Number.isNaN(startLine) && !Number.isNaN(endLine)
+				? [startLine, endLine]
+				: undefined
+
+		return {
+			target: target || undefined,
+			range,
+			query: params.regex || undefined,
+			pattern: params.file_pattern || undefined,
+			dedupeKey:
+				target && block.name === ClineDefaultTool.FILE_READ
+					? `read|${target}|${startLine ?? ""}|${endLine ?? ""}`
+					: undefined,
+		}
 	}
 
 	/**
@@ -552,6 +631,12 @@ export class ToolExecutor {
 			toolWasExecuted = true
 			this.pushToolResult(toolResult, block)
 
+			// A successful edit changes the file's content, so earlier reads of it are no
+			// longer "the same content" — forget them to avoid suppressing a legitimate re-read.
+			if (FILE_MUTATING_TOOLS.has(block.name)) {
+				invalidateRepeatWindowForPath(this.taskState, block.params?.path)
+			}
+
 			// --- Repeated tool call loop detection ---
 			// Must run BEFORE updating lastToolName/lastToolParams so we compare
 			// against the previous call's values, not the current one.
@@ -561,7 +646,13 @@ export class ToolExecutor {
 			if (loopCheck.softWarning) {
 				this.taskState.userMessageContent.push({
 					type: "text",
-					text: formatResponse.repeatedToolCall(block.name, LOOP_DETECTION_SOFT_THRESHOLD),
+					text: formatResponse.repeatedToolCall(
+						block.name,
+						Math.max(loopCheck.windowCount, LOOP_DETECTION_SOFT_THRESHOLD),
+						block.name === ClineDefaultTool.FILE_READ
+							? "The same file+range has been read repeatedly: continue from the content you already have, or read a different start_line/end_line."
+							: undefined,
+					),
 				})
 			}
 

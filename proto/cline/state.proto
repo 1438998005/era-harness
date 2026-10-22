@@ -66,6 +66,7 @@ message Secrets {
   optional string mcp_o_auth_secrets = 43;
   optional string openai_codex_oauth_credentials = 44;
   optional string ovh_ai_endpoints_api_key = 45;
+  optional string mimo_api_key = 46;
 }
 
 // NOTE: Add new fields under API_HANDLER_SETTINGS_FIELDS or USER_SETTINGS_FIELDS
@@ -129,6 +130,8 @@ message Settings {
   optional bool lazy_teammate_mode_enabled = 183;
   optional OpenRouterModelInfo plan_mode_deep_seek_model_info = 188;
   optional OpenRouterModelInfo act_mode_deep_seek_model_info = 189;
+  optional OpenRouterModelInfo plan_mode_mimo_model_info = 190;
+  optional OpenRouterModelInfo act_mode_mimo_model_info = 191;
 }
 
 message State {

@@ -5,6 +5,7 @@ import { Logger } from "@/shared/services/Logger"
 import { ClineTool } from "@/shared/tools"
 import { DeepSeekHandler } from "./providers/deepseek"
 import { FreeModelHandler } from "./providers/free"
+import { MimoHandler } from "./providers/mimo"
 import { OpenAiHandler } from "./providers/openai"
 import { ApiStream, ApiStreamUsageChunk } from "./transform/stream"
 
@@ -66,6 +67,14 @@ function createHandlerForProvider(
 				deepSeekApiKey: options.deepSeekApiKey,
 				apiModelId: mode === "plan" ? options.planModeApiModelId : options.actModeApiModelId,
 				deepSeekModelInfo: mode === "plan" ? options.planModeDeepSeekModelInfo : options.actModeDeepSeekModelInfo,
+				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+			})
+		case "mimo":
+			return new MimoHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				mimoApiKey: options.mimoApiKey,
+				apiModelId: mode === "plan" ? options.planModeApiModelId : options.actModeApiModelId,
+				mimoModelInfo: mode === "plan" ? options.planModeMimoModelInfo : options.actModeMimoModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
 			})
 		default:

@@ -26,6 +26,7 @@ import * as NotificationHook from "@core/hooks/notification-hook"
 import { executePreCompactHookWithCleanup, HookCancellationError, HookExecution } from "@core/hooks/precompact-executor"
 import { parseIdentityFromText, setCurrentIdentityMode } from "@core/identity/scope"
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
+import { recordAudit } from "@core/logging/auditLog"
 import { parseMentions } from "@core/mentions"
 import { CommandPermissionController } from "@core/permissions"
 import { summarizeTask } from "@core/prompts/contextManagement"
@@ -1052,6 +1053,18 @@ export class Task {
 
 	// Task lifecycle
 
+	/** 审计用的 provider/model；拿不到就不写，绝不影响任务。 */
+	private auditTaskMeta(): { provider?: string; model?: string } {
+		try {
+			const apiConfig = this.stateManager.getApiConfiguration()
+			const mode = this.stateManager.getGlobalSettingsKey("mode")
+			const provider = (mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
+			return { provider: provider || undefined, model: this.api.getModel().id }
+		} catch {
+			return {}
+		}
+	}
+
 	public async startTask(task?: string, images?: string[], files?: string[]): Promise<void> {
 		try {
 			await this.clineIgnoreController.initialize()
@@ -1069,6 +1082,16 @@ export class Task {
 		await this.say("task", task, images, files)
 
 		this.taskState.isInitialized = true
+
+		// 审计：任务开始（只记模型/提供方与工作目录，不记任务正文）
+		recordAudit({
+			event: "task",
+			taskId: this.taskId,
+			turn: 0,
+			action: "start",
+			target: this.cwd,
+			...this.auditTaskMeta(),
+		})
 
 		const imageBlocks: ClineImageContentBlock[] = formatResponse.imageBlocks(images)
 
@@ -1530,6 +1553,15 @@ export class Task {
 
 	async abortTask() {
 		try {
+			// 审计：任务被取消（用户主动或错误升级）
+			recordAudit({
+				event: "task",
+				taskId: this.taskId,
+				turn: this.taskState.apiRequestCount,
+				action: "abort",
+				...this.auditTaskMeta(),
+			})
+
 			// PHASE 1: Check if TaskCancel should run BEFORE any cleanup
 			// We must capture this state now because subsequent cleanup will
 			// clear the active work indicators that shouldRunTaskCancelHook checks

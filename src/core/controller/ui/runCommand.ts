@@ -15,6 +15,8 @@ const ALLOWED_COMMANDS = new Set<string>([
 	"eraHarness.erabasic.reclaimFiles",
 	"era-harness.updateGame",
 	"era-harness.checkForUpdates",
+	"era-harness.openDiagnosticsFolder",
+	"era-harness.exportDiagnostics",
 ])
 
 /**

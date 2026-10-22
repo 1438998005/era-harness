@@ -26,6 +26,8 @@ const ClineCommands = {
 	ReconstructTaskHistory: prefix + ".reconstructTaskHistory",
 	UpdateGame: prefix + ".updateGame",
 	CheckForUpdates: prefix + ".checkForUpdates",
+	OpenDiagnosticsFolder: prefix + ".openDiagnosticsFolder",
+	ExportDiagnostics: prefix + ".exportDiagnostics",
 	// Jupyter Notebook commands
 	JupyterGenerateCell: prefix + ".jupyterGenerateCell",
 	JupyterExplainCell: prefix + ".jupyterExplainCell",

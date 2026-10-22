@@ -11,6 +11,10 @@
 		{
 			"value": "deepseek",
 			"label": "DeepSeek"
+		},
+		{
+			"value": "mimo",
+			"label": "Xiaomi MiMo"
 		}
 	]
 }

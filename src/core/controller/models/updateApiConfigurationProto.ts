@@ -55,6 +55,9 @@ export async function updateApiConfigurationProto(
 			planModeDeepSeekModelInfo: protoApiConfiguration.planModeDeepSeekModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeDeepSeekModelInfo)
 				: undefined,
+			planModeMimoModelInfo: protoApiConfiguration.planModeMimoModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.planModeMimoModelInfo)
+				: undefined,
 			planModeHuggingFaceModelInfo: protoApiConfiguration.planModeHuggingFaceModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeHuggingFaceModelInfo)
 				: undefined,
@@ -92,6 +95,9 @@ export async function updateApiConfigurationProto(
 				: undefined,
 			actModeDeepSeekModelInfo: protoApiConfiguration.actModeDeepSeekModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeDeepSeekModelInfo)
+				: undefined,
+			actModeMimoModelInfo: protoApiConfiguration.actModeMimoModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.actModeMimoModelInfo)
 				: undefined,
 			actModeRequestyModelInfo: protoApiConfiguration.actModeRequestyModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeRequestyModelInfo)
