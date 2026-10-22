@@ -76,12 +76,14 @@ test("proto 往返：mimo ↔ MIMO，且模型信息不会丢", () => {
 
 	assert.equal(proto.planModeApiProvider, ProtoApiProvider.MIMO)
 	assert.equal(proto.actModeApiProvider, ProtoApiProvider.MIMO)
+	assert.equal(proto.mimoApiKey, "test-key", "密钥字段必须随配置一起转换（漏 case 会被悄悄丢掉）")
 	assert.equal(proto.planModeMimoModelInfo?.contextWindow, 128_000)
 	assert.equal(proto.actModeMimoModelInfo, undefined, "未设置的 act 模型信息保持未设置")
 
 	const back = convertProtoToApiConfiguration(proto)
 	assert.equal(back.planModeApiProvider, "mimo")
 	assert.equal(back.actModeApiProvider, "mimo")
+	assert.equal(back.mimoApiKey, "test-key", "反向转换也不能丢密钥")
 	assert.equal(back.planModeApiModelId, "mimo-v2.6-pro")
 	assert.equal(back.planModeMimoModelInfo?.maxTokens, 8_000)
 	assert.equal(convertProtoToApiProvider(ProtoApiProvider.MIMO), "mimo")

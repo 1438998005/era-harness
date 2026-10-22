@@ -54,7 +54,7 @@ const ApiOptions = ({
 
 	const { selectedProvider, selectedModelId } = normalizeApiConfiguration(apiConfiguration, currentMode)
 
-	const { handleModeFieldChange } = useApiConfigurationHandlers()
+	const { handleModeFieldsChange } = useApiConfigurationHandlers()
 
 	// Provider search state
 	const [searchTerm, setSearchTerm] = useState("")
@@ -116,14 +116,20 @@ const ApiOptions = ({
 	}, [searchableItems, searchTerm, fuse, currentProviderLabel])
 
 	const handleProviderChange = (newProvider: string) => {
-		handleModeFieldChange({ plan: "planModeApiProvider", act: "actModeApiProvider" }, newProvider as any, currentMode)
-
-		// 切换 provider 时，旧模型的 id 属于旧 provider（例如 deepseek-flash 带到 MiMo），
-		// 直接沿用会被发到新端点。只要当前 id 不在目标 provider 的内置表里，就写回其默认 id。
+		// provider 与 modelId 必须**同批原子写入**：内部实现是「全量覆盖旧配置」，
+		// 分两次调用（且不 await）时，后一次会用旧闭包里的 provider 把前一次覆盖回去，
+		// 导致 UI 显示新 provider、后端实际仍走旧 provider。
 		const fallbackModelId = apiProviderDefaultModelId(newProvider)
-		if (fallbackModelId && selectedModelId && !isBuiltinModelId(newProvider, selectedModelId)) {
-			handleModeFieldChange({ plan: "planModeApiModelId", act: "actModeApiModelId" }, fallbackModelId, currentMode)
-		}
+		const shouldResetModel = !!fallbackModelId && !isBuiltinModelId(newProvider, selectedModelId)
+
+		void handleModeFieldsChange(
+			{
+				provider: { plan: "planModeApiProvider", act: "actModeApiProvider" },
+				modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" },
+			},
+			{ provider: newProvider, modelId: shouldResetModel ? fallbackModelId : selectedModelId },
+			currentMode,
+		)
 
 		setIsDropdownVisible(false)
 		setSelectedIndex(-1)

@@ -205,6 +205,27 @@ export function parseAuditFileDate(fileName: string): Date | undefined {
 	return Number.isNaN(date.getTime()) ? undefined : date
 }
 
+/** `audit-YYYY-MM-DD(-n)?.jsonl` 里的分片号（基础文件为 1）。 */
+export function auditFileChunkIndex(fileName: string): number {
+	const match = /^audit-\d{4}-\d{2}-\d{2}(?:-(\d+))?\.jsonl$/.exec(fileName)
+	return match?.[1] ? Number(match[1]) : 1
+}
+
+/**
+ * 审计文件降序比较（最新在前）：先比日期，再比分片号。
+ *
+ * 不能用文件名直接排序：`audit-…-2.jsonl` 里的 `-`(0x2D) 小于 `audit-….jsonl` 的 `.`(0x2E)，
+ * 分片会排到基础文件前面；一旦只取最近 N 行就永远是当天最早那段，导出包丢掉故障现场。
+ */
+export function compareAuditFilesDesc(a: string, b: string): number {
+	const dateA = parseAuditFileDate(a)?.getTime() ?? 0
+	const dateB = parseAuditFileDate(b)?.getTime() ?? 0
+	if (dateA !== dateB) {
+		return dateB - dateA
+	}
+	return auditFileChunkIndex(b) - auditFileChunkIndex(a)
+}
+
 /** 诊断包文件名：`diagnostics-YYYYMMDD-HHmmss.txt`。 */
 export function diagnosticsFileName(date: Date): string {
 	const yyyy = date.getFullYear()

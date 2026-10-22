@@ -166,7 +166,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 
 					{selectedModelInfo?.supportsReasoning && (
 						<ReasoningEffortSelector
-							allowedEfforts={["low", "medium", "high"]}
+							allowedEfforts={["none", "low", "medium", "high"]}
 							currentMode={currentMode}
 							defaultEffort="none"
 							description="MiMo 的思维强度走 OpenAI 兼容的 reasoning_effort（low/medium/high）。若端点拒绝该参数，会自动去掉并重试（30 分钟内不再发送）。"

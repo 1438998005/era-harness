@@ -10,7 +10,7 @@ import { truncateAtLineBoundary } from "@/shared/content-limits"
 import { ClineSayTool } from "@/shared/ExtensionMessage"
 import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
-import { repeatReadSuppressedMessage, shouldSuppressRepeatRead } from "../../loop-detection"
+import { nextRepeatReadCount, repeatReadSuppressedMessage, shouldSuppressRepeatRead } from "../../loop-detection"
 import { showNotificationForApproval } from "../../utils"
 import type { IFullyManagedTool } from "../ToolExecutorCoordinator"
 import type { ToolValidator } from "../ToolValidator"
@@ -305,6 +305,10 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 		// The cache stores only metadata (readCount, mtime, imageBlock) — not file content —
 		// to keep memory usage minimal. On cache hits we re-read from disk to return fresh content.
 		const cacheKey = absolutePath.toLowerCase()
+		// 区间计数键用「请求的区间」（不是实际展示区间），首次读取时也要播种；
+		// 否则计数序列从 1 开始对应的是「真实第 2 次」，降级会晚一次。
+		const requestedRange = parseRequestedLineRange(block)
+		const rangeKey = `${cacheKey}|${requestedRange.startLine ?? ""}|${requestedRange.endLine ?? ""}`
 		const cached = config.taskState.fileReadCache.get(cacheKey)
 
 		if (cached) {
@@ -330,9 +334,7 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 
 			// Per-range counter: reading a *different* range of the same file is a normal
 			// read, not a repeat, so it must not inherit the other range's count.
-			const { startLine, endLine } = parseRequestedLineRange(block)
-			const rangeKey = `${cacheKey}|${startLine ?? ""}|${endLine ?? ""}`
-			const rangeReadCount = (config.taskState.fileReadCounts.get(rangeKey) ?? 0) + 1
+			const rangeReadCount = nextRepeatReadCount(config.taskState.fileReadCounts.get(rangeKey), false)
 			config.taskState.fileReadCounts.set(rangeKey, rangeReadCount)
 
 			// 审计：排障时最关键的一条——「第几次读同一区间、命中了缓存没有」。
@@ -342,8 +344,11 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 				turn: config.taskState.apiRequestCount,
 				tool: block.name,
 				target: displayPath,
-				range: startLine !== undefined && endLine !== undefined ? [startLine, endLine] : undefined,
-				dedupeKey: `read|${displayPath}|${startLine ?? ""}|${endLine ?? ""}`,
+				range:
+					requestedRange.startLine !== undefined && requestedRange.endLine !== undefined
+						? [requestedRange.startLine, requestedRange.endLine]
+						: undefined,
+				dedupeKey: `read|${displayPath}|${requestedRange.startLine ?? ""}|${requestedRange.endLine ?? ""}`,
 				cacheHit: true,
 				readCount: rangeReadCount,
 				outcome: "ok",
@@ -437,6 +442,8 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 				config.taskState.fileReadCounts.delete(key)
 			}
 		}
+		// 首次读取也要播种计数，否则第 3 次读才被当成第 2 次（降级晚一拍）
+		config.taskState.fileReadCounts.set(rangeKey, nextRepeatReadCount(undefined, true))
 		// 展示行区间要在写缓存前算好：后续被降级的重复读靠它合并成同一行 ×N
 		const freshRange = getReadToolDisplayedLineRange(block, fileContent)
 		config.taskState.fileReadCache.set(cacheKey, {

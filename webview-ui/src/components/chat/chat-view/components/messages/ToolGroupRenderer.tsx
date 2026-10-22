@@ -264,13 +264,26 @@ export const ToolGroupRenderer = memo(({ messages, allMessages, isLastGroup }: T
 })
 
 /**
- * Identity of a read for merging: same file + same requested range collapses into one row.
+ * 两次 read_file 能否合并成一行。
+ *
+ * 「无区间」必须当通配：审批流里 `ask("tool")` 只带 path，完成后的 `say("tool")` 一定带行区间，
+ * 严格比区间会把同一次读取拆成两行（也会让 ×N 累加失效）。
  */
-function readMergeKey(tool: ClineSayTool): string | undefined {
-	if (tool.tool !== "readFile" || !tool.path) {
-		return undefined
+function isSameRead(previous: ClineSayTool | undefined, current: ClineSayTool): boolean {
+	if (!previous || previous.tool !== "readFile" || current.tool !== "readFile") {
+		return false
 	}
-	return `${tool.path}|${tool.readLineStart ?? ""}|${tool.readLineEnd ?? ""}`
+	if (!previous.path || previous.path !== current.path) {
+		return false
+	}
+
+	const previousHasRange = previous.readLineStart !== undefined || previous.readLineEnd !== undefined
+	const currentHasRange = current.readLineStart !== undefined || current.readLineEnd !== undefined
+	if (!previousHasRange || !currentHasRange) {
+		return true
+	}
+
+	return previous.readLineStart === current.readLineStart && previous.readLineEnd === current.readLineEnd
 }
 
 /**
@@ -289,20 +302,21 @@ export function buildToolsWithReasoning(messages: ClineMessage[]): ToolWithReaso
 		if (isLowStakesTool(msg)) {
 			const parsedTool = parseToolSafe(msg.text)
 			const previous = result.at(-1)
-			const readKey = readMergeKey(parsedTool)
 
 			// Merge every repeat of the same file+range into the previous row and count it.
 			// The previous rule only collapsed the "ask tool → say tool" approval hand-off,
 			// so consecutive `say` rows piled up and made one repeated read look like dozens.
-			const mergesPreviousRead =
-				readKey !== undefined && previous !== undefined && readMergeKey(previous.parsedTool) === readKey
+			const mergesPreviousRead = isSameRead(previous?.parsedTool, parsedTool)
 
 			if (mergesPreviousRead) {
+				// 只有「两条已完成的 say」才算真正的重复调用；
+				// ask→say（审批交接）和流式 partial 都是同一次读取，不能把计数 +1（否则单次读取会显示 ×2）。
+				const bothCompleted = previous?.tool.say === "tool" && msg.say === "tool"
 				result[result.length - 1] = {
 					tool: msg,
 					parsedTool,
 					reasoning: undefined,
-					repeatCount: (previous.repeatCount ?? 1) + 1,
+					repeatCount: bothCompleted ? (previous?.repeatCount ?? 1) + 1 : (previous?.repeatCount ?? 1),
 				}
 				continue
 			}

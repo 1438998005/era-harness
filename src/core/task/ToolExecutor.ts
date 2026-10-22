@@ -21,6 +21,7 @@ import { WorkspaceRootManager } from "../workspace"
 import { ToolResponse } from "."
 import {
 	checkRepeatedToolCall,
+	extractApplyPatchPaths,
 	invalidateRepeatWindowForPath,
 	LOOP_DETECTION_SOFT_THRESHOLD,
 	toolCallSignature,
@@ -51,6 +52,10 @@ export function canonicalizeAttemptCompletionParams(block: ToolUse): boolean {
 export class ToolExecutor {
 	private autoApprover: AutoApprove
 	private coordinator: ToolExecutorCoordinator
+
+	// 工具失败时由 handleError 写入。execute() 内部会把异常转成 toolError 返回给模型（不冒泡），
+	// 所以「本次调用失败」只能靠这个字段告诉审计层。
+	private lastToolErrorMessage?: string
 
 	// Auto-approval methods using the AutoApprove class
 	private shouldAutoApproveTool(toolName: ClineDefaultTool): boolean | [boolean, boolean] {
@@ -212,8 +217,16 @@ export class ToolExecutor {
 	 * Main entry point for tool execution - called by Task class
 	 */
 	public async executeTool(block: ToolUse): Promise<void> {
+		// 流式分片（partial）只用于渲染 UI：一次真实调用会触发几十次，且参数字路是半截的。
+		// 在这里记账会把「读过几次、命中几次」彻底冲成噪声，所以只对完整块记账。
+		if (block.partial) {
+			await this.execute(block)
+			return
+		}
+
 		const startedAt = Date.now()
 		const model = this.auditModelInfo()
+		this.lastToolErrorMessage = undefined
 
 		try {
 			await this.execute(block)
@@ -223,8 +236,9 @@ export class ToolExecutor {
 				turn: this.taskState.apiRequestCount,
 				tool: block.name,
 				...this.auditTarget(block),
-				outcome: "ok",
+				outcome: this.lastToolErrorMessage ? "error" : "ok",
 				ms: Date.now() - startedAt,
+				message: this.lastToolErrorMessage,
 				...model,
 			})
 		} catch (error) {
@@ -240,6 +254,8 @@ export class ToolExecutor {
 				...model,
 			})
 			throw error
+		} finally {
+			this.lastToolErrorMessage = undefined
 		}
 	}
 
@@ -296,6 +312,8 @@ export class ToolExecutor {
 	 */
 	private async handleError(action: string, error: Error, block: ToolUse): Promise<void> {
 		const errorString = `Error ${action}: ${error.message}`
+		// 错误不冒泡到 executeTool，只能在这里把结果交给审计层（否则日志里永远只有 ok）。
+		this.lastToolErrorMessage = errorString
 		await this.say("error", errorString)
 
 		// Create error response for the tool
@@ -634,7 +652,15 @@ export class ToolExecutor {
 			// A successful edit changes the file's content, so earlier reads of it are no
 			// longer "the same content" — forget them to avoid suppressing a legitimate re-read.
 			if (FILE_MUTATING_TOOLS.has(block.name)) {
-				invalidateRepeatWindowForPath(this.taskState, block.params?.path)
+				if (block.name === ClineDefaultTool.APPLY_PATCH) {
+					// apply_patch 没有 path 参数，受影响路径只能从 patch 文本里取；
+					// 不解析它的话「读 → patch → 读」循环会被误判成重复读。
+					for (const patchedPath of extractApplyPatchPaths(block.params?.input)) {
+						invalidateRepeatWindowForPath(this.taskState, patchedPath)
+					}
+				} else {
+					invalidateRepeatWindowForPath(this.taskState, block.params?.path)
+				}
 			}
 
 			// --- Repeated tool call loop detection ---
