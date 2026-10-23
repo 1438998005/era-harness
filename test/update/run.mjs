@@ -51,6 +51,7 @@ const SPECS = [
 	"model-id.spec.ts",
 	"error-text.spec.ts",
 	"open-folder.spec.ts",
+	"era-domain-prompt.spec.ts",
 ]
 
 const aliasResolverPlugin = {

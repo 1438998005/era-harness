@@ -44,7 +44,8 @@ const onDemandKnowledgeLines = KNOWLEDGE_ENTRIES.filter((entry) => !injectedKnow
 	.map((entry) => `- ${entry.id}：${shortKnowledgeTitle(entry.title)}（检索词如 ${entry.tags.slice(0, 3).join("、")}）`)
 	.join("\n")
 
-function buildEraDomainSection(profile: EraProjectProfile): string {
+/** 纯函数：给定探测结果渲染 era 域小节。导出供测试断言提示词文本（`getEraDomainSection` 需要真实目录探测）。 */
+export function buildEraDomainSection(profile: EraProjectProfile): string {
 	const rootLines = profile.relativeRoots
 		.slice(0, 5)
 		.map((relPath, index) => `  ${index + 1}. ${relPath}${index === 0 ? "（主工程）" : ""}`)
@@ -116,6 +117,9 @@ ${onDemandKnowledgeLines}
 - 超过 200KB 的脚本优先用 replace_in_file 做定点替换；这种大小的文件整篇重写极容易丢内容。
 - 读超大文件用 read_file 的 start_line / end_line 分段读，不要试图一次读完整篇。
 - 改完脚本后如果工具返回「ERB 结构警告」，必须回去检查对应块是否配平，不要直接结束任务。
+- SEARCH 片段必须能唯一定位：制表符（\\t）重复 N 次也是重复 N+1 次那行的子串，只给「缩进＋正文」会误命中相邻缩进的行 ⇒ 把行首命令词（PRINTFORM / CALL / IF…）连同前后行写进 SEARCH。同一句台词在剧情分支里常出现多次，命中多处时按出现顺序逐块改，⛔ 不要用「命中几次就放行」代替唯一性。
+- 只改用户要求改的那几个字，⛔ 不顺手「统一格式」：不给 CALL 补右括号、不给地文行补「」、不批量把半角标点换成全角（Emuera 词法器只认半角，会连代码位的逗号/括号/取反一起吃掉）、不在改写处新造顿号。同一文件里同类写法不统一是上游历史事实，不是待修缺陷。
+- 动整行前先看该文件同类行的主流写法（占多数的那个），按它写；拿不准就照抄相邻行。
 
 ## 禁止事项
 - 不删除、不移动上面探测到的备份目录。
