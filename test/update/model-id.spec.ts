@@ -14,7 +14,9 @@ import {
 	deepSeekModels,
 	getDeepSeekModelInfo,
 	isBuiltinModelId,
+	isChatCapableModelId,
 	mimoDefaultModelId,
+	mimoModels,
 	modelIdBelongsToKnownCatalog,
 	modelIdToWriteOnProviderSwitch,
 	resolveCatalogModelId,
@@ -147,4 +149,47 @@ test("显示必须等于实际发送：遗留的错位状态在设置页就纠�
 		"plan" as never,
 	)
 	assert.equal(unknown.selectedModelId, "deepseek-v5", "未知但合法的新模型必须保留")
+})
+
+/**
+ * `/v1/models` 回的是「这把 key 能访问的全部模型」，小米把它按用途分三类：
+ * 语言模型 / ASR / TTS。语音模型走 `/audio/*`，选进聊天必然报错，
+ * 所以下拉里只能放对话模型。
+ *
+ * 下面的 7 个 id 是用户 2026-10-23 截图里真实同步回来的那 7 个，不是编的。
+ */
+test("对话模型判定：asr/tts 段要排除，但只能按段匹配、不能按子串误伤", () => {
+	// 语言模型：3 个
+	assert.equal(isChatCapableModelId("mimo-v2.6-flash"), true)
+	assert.equal(isChatCapableModelId("mimo-v2.6-pro"), true)
+	assert.equal(isChatCapableModelId("mimo-v2.6-pro-ultraspeed"), true)
+
+	// ASR：1 个（¥0.5/小时音频）
+	assert.equal(isChatCapableModelId("mimo-v2.5-asr"), false)
+
+	// TTS：3 个（限时免费）
+	assert.equal(isChatCapableModelId("mimo-v2.5-tts"), false)
+	assert.equal(isChatCapableModelId("mimo-v2.5-tts-voiceclone"), false)
+	assert.equal(isChatCapableModelId("mimo-v2.5-tts-voicedesign"), false)
+
+	// 大小写与空白：同步回来的大小写不保证，判据不能因此漏掉
+	assert.equal(isChatCapableModelId("MIMO-V2.5-ASR"), false)
+	assert.equal(isChatCapableModelId("  mimo-v2.5-tts  "), false)
+	assert.equal(isChatCapableModelId("  Mimo-V2.6-Pro  "), true)
+
+	// 只有整段才算：tts 出现在别的词里不能误伤，否则「未来某天的新模型」会被静默藏掉
+	assert.equal(isChatCapableModelId("mimo-ttsx-v1"), true, "tts 后面不是边界，不算语音模型")
+	assert.equal(isChatCapableModelId("mimo-v1-asrx"), true, "asr 后面不是边界，不算语音模型")
+	assert.equal(isChatCapableModelId("mimo-attest-v1"), true)
+
+	// 裸段名与空串
+	assert.equal(isChatCapableModelId("tts"), false)
+	assert.equal(isChatCapableModelId("asr"), false)
+	assert.equal(isChatCapableModelId(""), false, "空 id 不能当成对话模型")
+	assert.equal(isChatCapableModelId("   "), false)
+
+	// 结构性不变量：内置清单里绝不能混进语音模型，否则默认档可能落在一个发不出去的 id 上
+	for (const id of Object.keys(mimoModels)) {
+		assert.equal(isChatCapableModelId(id), true, `内置清单里的 ${id} 必须是对话模型`)
+	}
 })

@@ -1,4 +1,4 @@
-import { ModelInfo, mimoModels, resolveMimoModelId } from "@shared/api"
+import { isChatCapableModelId, ModelInfo, mimoModels, resolveMimoModelId } from "@shared/api"
 import { MIMO_CONSOLE_URL, MIMO_DOCS_URL, mimoBaseUrlForKey } from "@shared/mimo-request"
 import { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -62,11 +62,15 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 	// 同步失败的原因必须留痕：以前这里 catch 后什么都不说，用户看到"暂用内置清单"
 	// 根本分不清是网络问题还是密钥被拒（401），只能去翻聊天里的裸 JSON。
 	const [syncError, setSyncError] = useState<string | null>(null)
+	// 被过滤掉的语音模型数量（ASR/TTS 走 /audio/*，不能用于聊天）。
+	// 必须显示出来：静默藏掉用户"明明在控制台看到"的模型，比列出来更让人困惑。
+	const [hiddenNonChat, setHiddenNonChat] = useState(0)
 
 	const refreshModels = useCallback(async (key: string) => {
 		if (!key) {
 			setLiveModelIds(null)
 			setSyncError(null)
+			setHiddenNonChat(0)
 			return
 		}
 		setIsRefreshing(true)
@@ -76,13 +80,18 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 				baseUrl: mimoBaseUrlForKey(key),
 				apiKey: key,
 			} as any)
-			const ids = (response?.values ?? []).filter((id): id is string => !!id)
-			setLiveModelIds(ids.length > 0 ? ids : null)
-			setSyncError(ids.length > 0 ? null : "接口返回了 0 个模型（密钥有效，但账号下没有可用模型）")
+			const all = (response?.values ?? []).filter((id): id is string => !!id)
+			// /v1/models 回的是「这把 key 能访问的全部模型」，含 ASR/TTS。语音模型进聊天必然失败，
+			// 所以只把对话模型放进下拉；过滤后为空则回落内置清单（否则下拉会空掉）。
+			const chatIds = all.filter(isChatCapableModelId)
+			setHiddenNonChat(all.length - chatIds.length)
+			setLiveModelIds(chatIds.length > 0 ? chatIds : null)
+			setSyncError(all.length > 0 ? null : "接口返回了 0 个模型（密钥有效，但账号下没有可用模型）")
 		} catch (error) {
 			// 离线或 Key 无效时不打断配置流程，但要把原因显示出来
 			setLiveModelIds(null)
 			setSyncError(error instanceof Error ? error.message : String(error))
+			setHiddenNonChat(0)
 		} finally {
 			setIsRefreshing(false)
 		}
@@ -93,6 +102,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 		if (!apiKey) {
 			setLiveModelIds(null)
 			setSyncError(null)
+			setHiddenNonChat(0)
 			return
 		}
 		const timer = setTimeout(() => void refreshModels(apiKey), 800)
@@ -155,7 +165,9 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 					<div className="flex items-center justify-between mt-1">
 						<span className="text-xs text-(--vscode-descriptionForeground)">
 							{liveModelIds
-								? `已从 MiMo 同步 ${liveModelIds.length} 个模型`
+								? `已从 MiMo 同步 ${liveModelIds.length} 个对话模型${
+										hiddenNonChat > 0 ? `（另有 ${hiddenNonChat} 个语音模型不在此列）` : ""
+									}`
 								: apiKey
 									? "同步失败，暂用内置清单"
 									: "填入密钥后自动同步官方模型列表"}

@@ -696,6 +696,28 @@ export function resolveMimoModelId(modelId: string): MimoModelId | undefined {
 	return mimoModelIdsByLowerCase.get(modelId.trim().toLowerCase())
 }
 
+/**
+ * 语音类模型段：ASR（识别）/ TTS（合成）走 `/audio/*` 接口，**不能**用于 chat/completions。
+ *
+ * 依据（2026-10-23 官方定价页，把模型分成「语言模型 / ASR 系列 / TTS 系列」三类）：
+ * - 语言模型：`mimo-v2.6-flash` / `-pro` / `-pro-ultraspeed`
+ * - ASR：`mimo-v2.5-asr`（¥0.5/小时音频）
+ * - TTS：`mimo-v2.5-tts` / `-tts-voiceclone` / `-tts-voicedesign`（限时免费）
+ *
+ * `/v1/models` 只回 id，**不返回任何类型字段**，所以 id 里的 asr/tts 段是唯一可用信号。
+ * 匹配的是机器标识符里的一个**段**（前后必须是 `-` 或边界），不是人类可读文案。
+ */
+const NON_CHAT_MODEL_SEGMENT = /(^|-)(asr|tts)(-|$)/i
+
+/** 该 id 是不是对话模型（false = 语音类，选进聊天必然失败）。 */
+export function isChatCapableModelId(modelId: string): boolean {
+	const trimmed = modelId.trim()
+	if (!trimmed) {
+		return false
+	}
+	return !NON_CHAT_MODEL_SEGMENT.test(trimmed)
+}
+
 export function getMimoModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
 	const known = resolveMimoModelId(modelId)
 	if (known) {
