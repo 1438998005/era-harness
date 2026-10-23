@@ -3,6 +3,7 @@ import { memo } from "react"
 import { useTranslation } from "react-i18next"
 import CreditLimitError from "@/components/chat/CreditLimitError"
 import { ClineError, ClineErrorType } from "../../../../src/services/error/ClineError"
+import { isDuplicateErrorCode } from "../../../../src/services/error/error-code"
 
 const _errorColor = "var(--vscode-errorForeground)"
 
@@ -29,6 +30,9 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 					const requestId = clineError?._error?.request_id
 					const providerId = clineError?.providerId || clineError?._error?.providerId
 					const errorCode = clineError?._error?.code
+					// code 常常就是 status 的字符串形式（服务端回 "401"），而 message 自己也以
+					// "401 Invalid API Key" 开头 → 直接拼会渲染成 `[MIMO] 401401 Invalid API Key`。
+					const showErrorCode = !!errorCode && !isDuplicateErrorCode(clineError?._error?.status, errorCode)
 
 					if (clineError?.isErrorType(ClineErrorType.Balance)) {
 						const errorDetails = clineError._error?.details
@@ -63,7 +67,7 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 
 							<header>
 								{providerId && <span className="uppercase">[{providerId}] </span>}
-								{errorCode && <span>{errorCode}</span>}
+								{showErrorCode && <span className="mr-1">{errorCode}</span>}
 								{errorMessage}
 								{requestId && <div>Request ID: {requestId}</div>}
 							</header>
