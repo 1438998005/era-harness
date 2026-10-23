@@ -59,10 +59,14 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 	const apiKey = apiConfiguration?.mimoApiKey || ""
 	const [liveModelIds, setLiveModelIds] = useState<string[] | null>(null)
 	const [isRefreshing, setIsRefreshing] = useState(false)
+	// 同步失败的原因必须留痕：以前这里 catch 后什么都不说，用户看到"暂用内置清单"
+	// 根本分不清是网络问题还是密钥被拒（401），只能去翻聊天里的裸 JSON。
+	const [syncError, setSyncError] = useState<string | null>(null)
 
 	const refreshModels = useCallback(async (key: string) => {
 		if (!key) {
 			setLiveModelIds(null)
+			setSyncError(null)
 			return
 		}
 		setIsRefreshing(true)
@@ -74,9 +78,11 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 			} as any)
 			const ids = (response?.values ?? []).filter((id): id is string => !!id)
 			setLiveModelIds(ids.length > 0 ? ids : null)
-		} catch {
-			// 离线或 Key 无效时静默回落，不打断配置流程
+			setSyncError(ids.length > 0 ? null : "接口返回了 0 个模型")
+		} catch (error) {
+			// 离线或 Key 无效时不打断配置流程，但要把原因显示出来
 			setLiveModelIds(null)
+			setSyncError(error instanceof Error ? error.message : String(error))
 		} finally {
 			setIsRefreshing(false)
 		}
@@ -86,6 +92,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 	useEffect(() => {
 		if (!apiKey) {
 			setLiveModelIds(null)
+			setSyncError(null)
 			return
 		}
 		const timer = setTimeout(() => void refreshModels(apiKey), 800)
@@ -162,6 +169,17 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 							{isRefreshing ? "同步中…" : "刷新模型列表"}
 						</button>
 					</div>
+
+					{apiKey && syncError && (
+						<div className="mt-1" style={{ color: "var(--vscode-editorWarning-foreground)" }}>
+							<p className="text-xs m-0">同步失败原因：{syncError}</p>
+							<p className="text-xs m-0 mt-1">
+								若原因里是 401，说明这把密钥被 MiMo
+								服务端拒绝（不是插件的问题）：确认复制完整、末尾没有多余空格；Token Plan 密钥（tp- /
+								ttp-）需要已订阅套餐，否则也会 401。
+							</p>
+						</div>
+					)}
 
 					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
 

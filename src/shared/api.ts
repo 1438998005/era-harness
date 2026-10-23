@@ -784,5 +784,26 @@ export function shouldResetModelForProvider(provider: string | undefined, modelI
 	return modelIdBelongsToKnownCatalog(modelId)
 }
 
+/**
+ * 切换 provider 时要**写入**的模型 id；返回 `undefined` 表示「别动 modelId」。
+ *
+ * 为什么必须收成一个函数：这个判据原先只在设置页写了一份，底部「切换模型来源」
+ * 菜单自己另写了一遍「只改 provider」——于是从 MiMo 切到 DeepSeek 时，
+ * provider 变成了 deepseek，modelId 还留着 `mimo-v2.6-pro`。实测后果：
+ * 界面显示小米模型、请求却打到 DeepSeek 官方（402 Insufficient Balance）；
+ * 再切回 MiMo 又因为两边状态对不上，一路 401。两处必须调同一份判据。
+ */
+export function modelIdToWriteOnProviderSwitch(
+	provider: string | undefined,
+	currentModelId: string | undefined,
+): string | undefined {
+	const fallbackModelId = apiProviderDefaultModelId(provider)
+	if (!fallbackModelId) {
+		// free / openai 没有内置清单：模型 id 由用户自己填，不参与纠正
+		return undefined
+	}
+	return shouldResetModelForProvider(provider, currentModelId) ? fallbackModelId : undefined
+}
+
 // Hugging Face Inference Providers
 // https://huggingface.co/docs/inference-providers/en/index

@@ -16,6 +16,7 @@ import {
 	isBuiltinModelId,
 	mimoDefaultModelId,
 	modelIdBelongsToKnownCatalog,
+	modelIdToWriteOnProviderSwitch,
 	resolveCatalogModelId,
 	resolveDeepSeekModelId,
 	resolveMimoModelId,
@@ -75,6 +76,27 @@ test("切换 provider 只重置「明显属于别家清单」的 id", () => {
 	assert.equal(shouldResetModelForProvider("deepseek", undefined), true)
 	// 无清单的 provider 不参与纠正
 	assert.equal(shouldResetModelForProvider("openai", "deepseek-flash"), false)
+})
+
+test("切换 provider 时「要写入的模型 id」：两处 UI 共用同一份判据", () => {
+	// 别家 id 必须换掉——这正是底部快速切换漏掉的那一步：
+	// provider 改成 deepseek、modelId 还留着 mimo-v2.6-pro，请求会打到 DeepSeek 官方（402）。
+	assert.equal(modelIdToWriteOnProviderSwitch("deepseek", "mimo-v2.6-pro"), deepSeekDefaultModelId)
+	assert.equal(modelIdToWriteOnProviderSwitch("mimo", "deepseek-v4-pro"), mimoDefaultModelId)
+
+	// 本家命中 / 未知但合法 → 返回 undefined（= 别动 modelId）
+	assert.equal(modelIdToWriteOnProviderSwitch("deepseek", "DeepSeek-V4-Pro"), undefined)
+	assert.equal(modelIdToWriteOnProviderSwitch("deepseek", "deepseek-v5"), undefined)
+	assert.equal(modelIdToWriteOnProviderSwitch("mimo", "MiMo-V2.6-Pro"), undefined)
+	assert.equal(modelIdToWriteOnProviderSwitch("mimo", "mimo-v2.7-pro"), undefined)
+
+	// 空值 → 落默认（与 shouldResetModelForProvider 一致）
+	assert.equal(modelIdToWriteOnProviderSwitch("deepseek", ""), deepSeekDefaultModelId)
+
+	// 无清单的 provider 一律 undefined：模型 id 由用户自己填，谁也别替他改
+	assert.equal(modelIdToWriteOnProviderSwitch("openai", "deepseek-flash"), undefined)
+	assert.equal(modelIdToWriteOnProviderSwitch("free", "mimo-v2.6-pro"), undefined)
+	assert.equal(modelIdToWriteOnProviderSwitch(undefined, "mimo-v2.6-pro"), undefined)
 })
 
 test("设置页归一 DeepSeek 配置：大小写归一且未知 id 不被改回默认", () => {
