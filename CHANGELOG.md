@@ -3,6 +3,27 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.3 — 2026-10-23
+
+### 修复
+
+- **MiMo 请求同时带 `api-key` 与 `Authorization: Bearer`**。官方文档自相矛盾：curl 示例用 `--header "api-key: $MIMO_API_KEY"`，Python SDK 示例用 `api_key=`（SDK 只会发 `Authorization: Bearer`）。实测**无法区分**——无效 key 在「无头 / Bearer / api-key / 两者都给」四种情况下返回的错误体逐字相同，所以拿不到「服务端认哪个头」的证据。两个都带上：认哪个都能过，多一个头不会导致失败。
+  > ⚠️ **仍未证实用户那把 key 本身是否有效**。判断方法见下方「如何自查密钥」。
+- **聊天错误块渲染成 `[MIMO] 401401 Invalid API Key`**。`ErrorRow` 把 `code` 和 `message` 直接拼在一起，而服务端回的 `code` 就是 `"401"`、`message` 自己也以 `401` 开头。新增 `isDuplicateErrorCode(status, code)`，只比结构化字段（不读文案），重复时不显示 code。
+- **设置页把 401 说成「接口返回了 0 个模型」**。`refreshOpenAiModels` 原来把所有异常 `catch` 成 `values: []`，调用方只能看到空列表——于是 401、断网、账号下真没模型三者长得一模一样。现在抛出真实原因（`formatModelListError` 只读 HTTP status / axios code / 服务端 message），卡片上直接显示 `同步失败原因：401 Invalid API Key`。
+
+### 如何自查密钥（不依赖插件）
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -H "api-key: sk-你的密钥" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"mimo-v2.6-flash","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":8}' \
+  https://api.xiaomimimo.com/v1/chat/completions
+```
+
+返回 `200` = 密钥有效（那就是插件的问题，请把日志给我）；返回 `401` = 密钥被服务端拒绝（与插件无关，去控制台确认密钥是否启用/是否属于 Token Plan）。
+
 ## 3.91.2 — 2026-10-23
 
 ### 修复

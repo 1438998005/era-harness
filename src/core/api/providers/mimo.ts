@@ -88,6 +88,12 @@ export class MimoHandler implements ApiHandler {
 				this.client = createOpenAIClient({
 					baseURL: this.baseUrl,
 					apiKey: this.options.mimoApiKey,
+					// 官方文档自相矛盾：curl 示例用 `api-key: $MIMO_API_KEY`，
+					// 而 Python SDK 示例用 `api_key=`（SDK 只会发 `Authorization: Bearer`）。
+					// 实测无法区分——无效 key 在「无头 / Bearer / api-key / 两者都给」四种情况下
+					// 返回的错误体逐字相同，所以拿不到「服务端认哪个头」的证据。
+					// 这里两个都带上：认哪个都能过，不认的也不会因为多一个头而失败。
+					defaultHeaders: { "api-key": this.options.mimoApiKey },
 				})
 			} catch (error) {
 				throw new Error(`Error creating Xiaomi MiMo client: ${error instanceof Error ? error.message : error}`)

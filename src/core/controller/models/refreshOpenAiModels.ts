@@ -1,5 +1,6 @@
 import { StringArray } from "@shared/proto/cline/common"
 import { OpenAiModelsRequest } from "@shared/proto/cline/models"
+import { formatModelListError } from "@shared/utils/model-list-error"
 import type { AxiosRequestConfig } from "axios"
 import axios from "axios"
 import { getAxiosSettings } from "@/shared/net"
@@ -37,6 +38,8 @@ export async function refreshOpenAiModels(_controller: Controller, request: Open
 		return StringArray.create({ values: models })
 	} catch (error) {
 		Logger.error("Error fetching OpenAI models:", error)
-		return StringArray.create({ values: [] })
+		// 以前这里 `return values: []`，把 401 说成「没有模型」——设置页据此显示了
+		// 一句假话。抛出去，让调用方拿到真实原因（各 provider 卡片本来就都有 try/catch）。
+		throw new Error(formatModelListError(error))
 	}
 }

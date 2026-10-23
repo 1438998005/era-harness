@@ -78,7 +78,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 			} as any)
 			const ids = (response?.values ?? []).filter((id): id is string => !!id)
 			setLiveModelIds(ids.length > 0 ? ids : null)
-			setSyncError(ids.length > 0 ? null : "接口返回了 0 个模型")
+			setSyncError(ids.length > 0 ? null : "接口返回了 0 个模型（密钥有效，但账号下没有可用模型）")
 		} catch (error) {
 			// 离线或 Key 无效时不打断配置流程，但要把原因显示出来
 			setLiveModelIds(null)

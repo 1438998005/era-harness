@@ -49,6 +49,7 @@ const SPECS = [
 	"audit-redaction.spec.ts",
 	"mimo-model.spec.ts",
 	"model-id.spec.ts",
+	"error-text.spec.ts",
 ]
 
 const aliasResolverPlugin = {
