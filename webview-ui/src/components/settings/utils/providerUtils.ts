@@ -7,6 +7,7 @@ import {
 	getMimoModelInfo,
 	ModelInfo,
 	mimoDefaultModelId,
+	modelIdToWriteOnProviderSwitch,
 	openAiModelInfoSaneDefaults,
 	resolveCatalogModelId,
 	resolveMimoModelId,
@@ -33,7 +34,11 @@ export function normalizeApiConfiguration(
 	const provider =
 		(currentMode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) || "deepseek"
 
-	const modelId = currentMode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
+	const rawModelId = currentMode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
+	// 显示必须等于实际发送：历史遗留的「provider=deepseek + modelId=mimo-v2.6-pro」
+	// 在 buildApiHandler 里会被同一函数纠正成默认档（否则请求必然 4xx）。
+	// 这里先纠正，避免出现「界面显示小米模型、实际发 DeepSeek 默认档」这种更难查的错位。
+	const modelId = modelIdToWriteOnProviderSwitch(provider, rawModelId) ?? rawModelId
 
 	switch (provider) {
 		case "free":

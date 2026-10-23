@@ -118,3 +118,33 @@ test("设置页归一 DeepSeek 配置：大小写归一且未知 id 不被改回
 	assert.equal(mimo.selectedModelId, mimoDefaultModelId)
 	assert.equal(resolveMimoModelId(mimo.selectedModelId), mimoDefaultModelId)
 })
+
+test("显示必须等于实际发送：遗留的错位状态在设置页就纠正成默认档", () => {
+	// 真实踩过的状态：provider=deepseek 但 modelId 还留着小米的。
+	// buildApiHandler 会把请求改成默认档，设置页若不跟着改，就会出现
+	// 「界面显示小米模型、实际发 DeepSeek 默认档」——比原来的 4xx 更难查。
+	const bad = normalizeApiConfiguration(
+		{ planModeApiProvider: "deepseek", planModeApiModelId: "mimo-v2.6-pro" } as never,
+		"plan" as never,
+	)
+	assert.equal(bad.selectedModelId, deepSeekDefaultModelId)
+	assert.equal(bad.selectedModelInfo.outputPrice, deepSeekModels[deepSeekDefaultModelId].outputPrice, "元数据要跟着 id 走")
+
+	const badMimo = normalizeApiConfiguration(
+		{ planModeApiProvider: "mimo", planModeApiModelId: "deepseek-v4-pro" } as never,
+		"plan" as never,
+	)
+	assert.equal(badMimo.selectedModelId, mimoDefaultModelId)
+
+	// 正常状态一个都不能动
+	const ok = normalizeApiConfiguration(
+		{ planModeApiProvider: "mimo", planModeApiModelId: "mimo-v2.6-pro" } as never,
+		"plan" as never,
+	)
+	assert.equal(ok.selectedModelId, "mimo-v2.6-pro", "本家模型不能被改")
+	const unknown = normalizeApiConfiguration(
+		{ planModeApiProvider: "deepseek", planModeApiModelId: "deepseek-v5" } as never,
+		"plan" as never,
+	)
+	assert.equal(unknown.selectedModelId, "deepseek-v5", "未知但合法的新模型必须保留")
+})
