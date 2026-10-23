@@ -50,6 +50,7 @@ const SPECS = [
 	"mimo-model.spec.ts",
 	"model-id.spec.ts",
 	"error-text.spec.ts",
+	"open-folder.spec.ts",
 ]
 
 const aliasResolverPlugin = {

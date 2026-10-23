@@ -14,12 +14,38 @@ import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
+import { createOpenInOsDeps, openFolderInOs } from "./open-in-os"
 
-/** 打开诊断目录（不存在就先建）。 */
+/**
+ * 打开诊断目录（不存在就先建）。
+ *
+ * 打开方式不直接用 `vscode.env.openExternal`：它在 Windows 上打开目录会失败且
+ * 只 resolve(false)（详见 open-in-os.ts 顶部）。这里只负责「建目录 + 把失败如实告诉用户」。
+ */
 export async function openDiagnosticsFolder(): Promise<void> {
 	const dir = getDiagnosticsDir()
 	await fs.mkdir(dir, { recursive: true })
-	await vscode.env.openExternal(vscode.Uri.file(dir))
+
+	const failure = await openFolderInOs(
+		dir,
+		// vscode 返回的是 Thenable 不是 Promise，这里包一层再交给判定
+		createOpenInOsDeps(async (target) => await vscode.env.openExternal(vscode.Uri.file(target))),
+	)
+	if (!failure) {
+		return
+	}
+
+	// 打不开也得把路径交出去：用户至少能自己粘到资源管理器地址栏，
+	// 而不是像 3.91.3 那样只看到一个裸的「打开外部程序时出错」。
+	Logger.error(`[diagnostics] 打开诊断目录失败（${failure}）：${dir}`)
+	const answer = await HostProvider.window.showMessage({
+		type: ShowMessageType.ERROR,
+		message: `打不开诊断目录：${failure}。路径：${dir}`,
+		options: { items: ["复制路径"] },
+	})
+	if (answer.selectedOption === "复制路径") {
+		await vscode.env.clipboard.writeText(dir)
+	}
 }
 
 /**
