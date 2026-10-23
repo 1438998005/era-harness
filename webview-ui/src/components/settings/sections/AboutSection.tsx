@@ -1,4 +1,5 @@
 import { VSCodeButton, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { StateServiceClient, UiServiceClient } from "@/services/grpc-client"
@@ -12,6 +13,8 @@ interface AboutSectionProps {
 const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 	const { t } = useTranslation("settings")
 	const { setShowWelcome } = useExtensionState()
+	/** 只是让按钮在 gRPC 往返期间别看起来"死着"；真正的进度在右下角通知区 */
+	const [checking, setChecking] = useState(false)
 
 	const replayOnboarding = async () => {
 		try {
@@ -23,10 +26,14 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 	}
 
 	const checkForUpdates = async () => {
+		setChecking(true)
 		try {
+			// 第二步（下载安装）在扩展侧已经脱离这条链，所以这里很快就返回
 			await UiServiceClient.runCommand({ value: "era-harness.checkForUpdates" })
 		} catch (error) {
 			console.error("Failed to check for updates:", error)
+		} finally {
+			setChecking(false)
 		}
 	}
 
@@ -58,13 +65,18 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 					</p>
 
 					<div className="flex items-center gap-2">
-						<VSCodeButton appearance="secondary" onClick={checkForUpdates}>
-							检查更新
+						<VSCodeButton appearance="secondary" disabled={checking} onClick={checkForUpdates}>
+							{checking ? "已发起…" : "检查更新"}
 						</VSCodeButton>
 						<VSCodeLink href="https://github.com/1438998005/era-harness/releases/latest">Release 页面</VSCodeLink>
 					</div>
 					<p className="m-0 text-xs text-description">
-						只有你点「检查更新」才会联网检查；发现有新版本后，还要再点「下一步：下载并安装」才会下载安装，装完需重载窗口生效。启动时不会自动检查。
+						只有你点「检查更新」才会联网检查；发现有新版本后，要你自己选「直接下载」或「用镜像下载」才会下载安装，装完需重载窗口生效。启动时不会自动检查。
+					</p>
+					<p className="m-0 text-xs text-description">
+						下载进度显示在右下角通知区（百分比 / 已下多少 / 速度 /
+						约剩多久），随时可点「取消」。直连慢就在通知里改用镜像，或点「复制下载链接」用浏览器/下载器拉下来手动装。镜像地址在设置里改
+						<code className="mx-1">eraHarness.update.mirrorPrefix</code>，留空则不出现镜像选项。
 					</p>
 
 					<h3 className="text-md font-semibold mt-2">操作日志 / 排障</h3>

@@ -2,7 +2,7 @@
 	"name": "era-harness",
 	"displayName": "era harness",
 	"description": "eraTW / Emuera 脚本工程的 AI 开发助手：CP932/UTF-8 安全读写、引擎日志诊断、312 页指令手册（可在线同步）、真实启动引擎验证加载。改动先出 diff，审批后才落盘；无账号、无遥测，仅本地安装。",
-	"version": "3.91.0",
+	"version": "3.91.1",
 	"icon": "assets/icons/icon.png",
 	"workspaces": [
 		"."
@@ -380,6 +380,12 @@
 					"type": "boolean",
 					"default": true,
 					"description": "是否由 era harness 提供 .erb/.erh 的 EraBasic 补全/跳转/符号。关闭后只保留内置方法数据。语法高亮由「EraBasic 语言归属」（eraHarness.erabasic.languageOwner）控制，不在这里。"
+				},
+				"eraHarness.update.mirrorPrefix": {
+					"type": "string",
+					"default": "https://gh-proxy.com",
+					"description": "「用镜像下载」按钮背后的加速前缀。只在你于更新提示里点了「用镜像下载」时才会用到，不点就永远走 GitHub 官方地址，没有任何自动改道。留空则更新提示里不出现镜像选项（彻底不引入第三方）。镜像只负责传输，收到的字节必须通过 Release 声明的 sha256 校验才会安装；资产没有 sha256 时镜像选项也不会出现。",
+					"markdownDescription": "「用镜像下载」按钮背后的加速前缀。**只在你在更新提示里点了「用镜像下载」时才会用到**，不点就永远走 GitHub 官方地址，没有任何自动改道。留空则更新提示里不出现镜像选项（彻底不引入第三方）。镜像只负责传输，收到的字节必须通过 Release 声明的 sha256 校验才会安装；资产没有 sha256 时镜像选项也不会出现。"
 				}
 			}
 		}
