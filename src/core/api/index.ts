@@ -1,4 +1,4 @@
-import { ApiConfiguration, ModelInfo } from "@shared/api"
+import { ApiConfiguration, ModelInfo, modelIdToWriteOnProviderSwitch } from "@shared/api"
 import { Mode } from "@shared/storage/types"
 import { ClineStorageMessage } from "@/shared/messages/content"
 import { Logger } from "@/shared/services/Logger"
@@ -45,6 +45,19 @@ function createHandlerForProvider(
 	options: Omit<ApiConfiguration, "apiProvider">,
 	mode: Mode,
 ): ApiHandler {
+	// 发请求前再校验一次「模型 id 属于谁」。
+	// UI 上任何一条路径漏改都会把 A 家的模型名发到 B 家的端点：底部快速切换曾经就是这样，
+	// 结果是 provider=deepseek + model=mimo-v2.6-pro → 打到 DeepSeek 官方报 402。
+	// 判据与设置页共用 @shared/api，这里只是最后一道闸。
+	const configuredModelId = mode === "plan" ? options.planModeApiModelId : options.actModeApiModelId
+	const correctedModelId = modelIdToWriteOnProviderSwitch(apiProvider, configuredModelId)
+	if (correctedModelId) {
+		Logger.warn(
+			`[api] provider=${apiProvider} 的模型 id "${configuredModelId}" 属于别家清单，本次请求改用默认档 ${correctedModelId}`,
+		)
+	}
+	const apiModelId = correctedModelId ?? configuredModelId
+
 	switch (apiProvider) {
 		case "free":
 			// 免费模型：OpenCode Zen + Kilo + OVH 三渠道路由，零配置可用（OVH 可选填 Key 提额）
@@ -55,7 +68,9 @@ function createHandlerForProvider(
 		case "openai":
 			return new OpenAiHandler({
 				onRetryAttempt: options.onRetryAttempt,
-				openAiApiKey: options.openAiApiKey,
+				// 粘贴密钥时很容易带进首尾空白：`Bearer sk-xxx ` 会被服务端当成另一把 key（401）。
+				// 统一在入口处吃掉，别指望用户肉眼看出多了一个空格。
+				openAiApiKey: options.openAiApiKey?.trim(),
 				openAiBaseUrl: options.openAiBaseUrl,
 				openAiModelId: mode === "plan" ? options.planModeOpenAiModelId : options.actModeOpenAiModelId,
 				openAiModelInfo: mode === "plan" ? options.planModeOpenAiModelInfo : options.actModeOpenAiModelInfo,
@@ -64,16 +79,17 @@ function createHandlerForProvider(
 		case "deepseek":
 			return new DeepSeekHandler({
 				onRetryAttempt: options.onRetryAttempt,
-				deepSeekApiKey: options.deepSeekApiKey,
-				apiModelId: mode === "plan" ? options.planModeApiModelId : options.actModeApiModelId,
+				deepSeekApiKey: options.deepSeekApiKey?.trim(),
+				apiModelId,
 				deepSeekModelInfo: mode === "plan" ? options.planModeDeepSeekModelInfo : options.actModeDeepSeekModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
 			})
 		case "mimo":
 			return new MimoHandler({
 				onRetryAttempt: options.onRetryAttempt,
-				mimoApiKey: options.mimoApiKey,
-				apiModelId: mode === "plan" ? options.planModeApiModelId : options.actModeApiModelId,
+				// 基址由密钥前缀（sk- / tp- / ttp-）决定，空白会让前缀判定和请求头一起错。
+				mimoApiKey: options.mimoApiKey?.trim(),
+				apiModelId,
 				mimoModelInfo: mode === "plan" ? options.planModeMimoModelInfo : options.actModeMimoModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
 			})
@@ -84,8 +100,8 @@ function createHandlerForProvider(
 			}
 			return new DeepSeekHandler({
 				onRetryAttempt: options.onRetryAttempt,
-				deepSeekApiKey: options.deepSeekApiKey,
-				apiModelId: mode === "plan" ? options.planModeApiModelId : options.actModeApiModelId,
+				deepSeekApiKey: options.deepSeekApiKey?.trim(),
+				apiModelId,
 				deepSeekModelInfo: mode === "plan" ? options.planModeDeepSeekModelInfo : options.actModeDeepSeekModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
 			})

@@ -1,7 +1,13 @@
-import { deepSeekDefaultModelId, deepSeekModels } from "@shared/api"
+import {
+	deepSeekDefaultModelId,
+	deepSeekModels,
+	mimoDefaultModelId,
+	mimoModels,
+	modelIdToWriteOnProviderSwitch,
+} from "@shared/api"
 import { DEEPSEEK_PEAK_MULTIPLIER, isDeepSeekPeakHour } from "@shared/deepseekPricing"
 import type { Mode } from "@shared/storage/types"
-import { Brain, Check, Settings2, Zap } from "lucide-react"
+import { Brain, Check, Settings2, Smartphone, Zap } from "lucide-react"
 import type React from "react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -18,7 +24,7 @@ interface ModelQuickSwitchMenuProps {
 }
 
 interface QuickSwitchEntry {
-	provider: "free" | "deepseek" | "openai"
+	provider: "free" | "deepseek" | "mimo" | "openai"
 	label: string
 	icon: React.ReactNode
 	iconColor: string
@@ -41,7 +47,7 @@ interface QuickSwitchEntry {
 export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode, trigger }) => {
 	const { t } = useTranslation("common")
 	const { apiConfiguration, navigateToSettingsModelPicker } = useExtensionState()
-	const { handleModeFieldChange } = useApiConfigurationHandlers()
+	const { handleModeFieldsChange } = useApiConfigurationHandlers()
 	// 受控开合：任何跳转/切换前显式关闭，避免浮层（Portal）残留延续到后续视图
 	const [open, setOpen] = useState(false)
 
@@ -54,6 +60,11 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 	const deepSeekMultiplier = deepSeekPeak ? DEEPSEEK_PEAK_MULTIPLIER : 1
 	const fmtDeepSeekPrice = (n?: number) => Number(((n ?? 0) * deepSeekMultiplier).toFixed(4)).toString()
 	const deepSeekPrice = `输入 ¥${fmtDeepSeekPrice(deepSeekInfo.cacheReadsPrice)}–${fmtDeepSeekPrice(deepSeekInfo.cacheWritesPrice)} / 输出 ¥${fmtDeepSeekPrice(deepSeekInfo.outputPrice)}`
+
+	// MiMo 无峰谷倍率，价格取默认档（flash）。字段口径与 DeepSeek 相同：
+	// cacheReadsPrice = 输入命中、cacheWritesPrice = 输入未命中（不是缓存写入费）。
+	const mimoInfo = mimoModels[mimoDefaultModelId]
+	const mimoPrice = `输入 ¥${mimoInfo.cacheReadsPrice}–${mimoInfo.cacheWritesPrice} / 输出 ¥${mimoInfo.outputPrice}`
 
 	const entries: QuickSwitchEntry[] = [
 		{
@@ -81,6 +92,16 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			hint: deepSeekPeak ? t("chat.deepseekPriceHintPeak") : t("chat.deepseekPriceHint"),
 		},
 		{
+			provider: "mimo",
+			label: "小米 MiMo",
+			icon: <Smartphone size={13} />,
+			iconColor: "var(--vscode-foreground, #E7E7E7)",
+			badgeBg: "transparent",
+			badgeFg: "inherit",
+			priceText: mimoPrice,
+			priceColor: "var(--vscode-foreground, #E7E7E7)",
+		},
+		{
 			provider: "openai",
 			label: t("chat.openaiCustom"),
 			icon: <Settings2 size={13} />,
@@ -97,7 +118,31 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 		if (provider === selectedProvider) {
 			return
 		}
-		await handleModeFieldChange({ plan: "planModeApiProvider", act: "actModeApiProvider" }, provider, mode)
+
+		// provider 与 modelId 必须同批原子写入，且必须调设置页那份判据（@shared/api）。
+		// 只改 provider 会把上一家的模型 id 留在原地：从 MiMo 切到 DeepSeek 后，
+		// 界面显示小米模型、请求却打到 DeepSeek 官方（实测 402），是真实踩过的坑。
+		const targetModelId =
+			provider === "openai"
+				? mode === "plan"
+					? apiConfiguration?.planModeOpenAiModelId
+					: apiConfiguration?.actModeOpenAiModelId
+				: mode === "plan"
+					? apiConfiguration?.planModeApiModelId
+					: apiConfiguration?.actModeApiModelId
+		const modelIdToWrite = modelIdToWriteOnProviderSwitch(provider, targetModelId)
+
+		await handleModeFieldsChange(
+			{
+				provider: { plan: "planModeApiProvider", act: "actModeApiProvider" },
+				...(modelIdToWrite ? { modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" } } : {}),
+			},
+			{
+				provider,
+				...(modelIdToWrite ? { modelId: modelIdToWrite } : {}),
+			},
+			mode,
+		)
 	}
 
 	const handleOpenSettings = () => {

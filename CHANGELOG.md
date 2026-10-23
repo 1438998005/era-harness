@@ -5,18 +5,20 @@
 
 ## 3.91.2 — 2026-10-23
 
-### 无功能改动
+### 修复
 
-**这个版本除版本号外没有任何代码改动。** 它存在的唯一目的是当「更新靶子」。
+- **底部「切换模型来源」菜单里没有小米 MiMo**。菜单的条目是硬编码的 `free / deepseek / openai` 三项，MiMo 加进来时只接了设置页，没接这里。现在补上，排在 DeepSeek 之后（付费区）。
+- **点 DeepSeek 会「切到小米」——其实是切了 provider 但没换模型 id**。快速切换只写 `planModeApiProvider / actModeApiProvider`，把上一家的模型 id 原样留在原地；设置页那套「只纠正明显属于别家清单的 id」的判据（`shouldResetModelForProvider`）根本没被调用。
+  - **实测后果**（`task_metadata.json` + `ui_messages.json` 硬证据）：`provider=deepseek` + `model=mimo-v2.6-pro` → 请求打到 **DeepSeek 官方**，回 `402 Insufficient Balance`；再切回 MiMo 后又一路 `401`。
+  - **修法**：判据收成 `modelIdToWriteOnProviderSwitch(provider, currentModelId)` 放进 `@shared/api`，设置页与快速切换**调同一个函数**，且 provider 与 modelId 同批原子写入。这是本项目第 5 次栽在「同一判据写了两份，只改了一份」上。
+  - **再加一道闸**：`createHandlerForProvider` 在发请求前用同一函数再校验一次，命中就在日志里写明「模型 id 属于别家，本次改用默认档」。UI 哪条路径再漏改，也不会把 A 家的模型名发到 B 家的端点。
+- **密钥首尾空白统一吃掉**。粘贴时很容易带进空格，`Bearer sk-xxx ` 会被服务端当成另一把 key（401）。在 `buildApiHandler` 入口处对 DeepSeek / MiMo / OpenAI 兼容三家的 key 统一 `trim()`。MiMo 的基址还由密钥前缀（`sk-` / `tp-` / `ttp-`）决定，空白会让前缀判定和请求头一起错。
+  - 注：**没有证据表明这就是本次 401 的原因**，属于防御性收口；真实原因待用户核对密钥后确认。
+- **MiMo 设置卡片不再静默吞掉同步失败**。以前 `catch {}` 之后只显示「同步失败，暂用内置清单」，用户分不清是断网还是密钥被拒。现在把真实原因打出来，并在 401 时给出可操作提示（确认复制完整、末尾无空格；Token Plan 密钥需已订阅套餐）。
 
-3.91.1 里新的更新器（进度条 / 三档超时 / 可选镜像）是装上去之后才开始工作的，但 `releases/latest` 当时也停在 3.91.1 —— 装好之后没有更高的版本可下，新更新器一次都跑不起来。发 3.91.2 是为了让它第一次真正执行，验证下面这些**目前零运行时覆盖**的胶水层：
+### 说明
 
-- `vscode.window.withProgress` 的进度条是否会压在「发现新版本」对话框上
-- `installExtension` 装正在运行的扩展时，90 秒 race 是否真能兜住
-- `token.onCancellationRequested` 点「取消」后能否真的掐断 undici 的 reader
-- 通知栏 `[直接下载] [用镜像下载] [复制下载链接]` 的返回值映射
-
-纯函数层（`pickDownloadUrl` / sha256 校验 / 流式落盘 / 超时判定）在 3.91.1 已有 385 例覆盖，本版未改动其中任何一行。
+本版同时充当**更新靶子**：3.91.1 的新更新器（进度条 / 三档超时 / 可选镜像）是装上去之后才开始工作的，`releases/latest` 若仍停在 3.91.1，它一次都跑不起来。发 3.91.2 才能让它第一次真正执行，顺带验证 `withProgress` 进度条位置、`installExtension` 的 90 秒 race、取消能否掐断 undici reader、以及三个下载按钮的返回值映射。
 
 ## 3.91.1 — 2026-10-22
 
