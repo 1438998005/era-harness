@@ -3,6 +3,24 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.4 — 2026-10-23
+
+### 修复
+
+- **MiMo 一次同步回来 7 个模型，其中 4 个根本不能聊天**。`/v1/models` 回的是「这把密钥能访问的全部模型」，小米按用途分成三类：语言模型 3 个（`mimo-v2.6-flash` / `-pro` / `-pro-ultraspeed`）、ASR 1 个（`mimo-v2.5-asr`，¥0.5/小时音频）、TTS 3 个（`mimo-v2.5-tts` / `-tts-voiceclone` / `-tts-voicedesign`，限时免费）。语音模型走 `/audio/*`，选进聊天必然报错。
+  - `/v1/models` **只回 id、不返回任何类型字段**，所以只能用 id 里的 `asr` / `tts` **段**判断（前后必须是 `-` 或边界，不是子串匹配——否则将来叫 `xxx-ttsx` 的新模型会被误藏）。判据收成 `isChatCapableModelId()`。
+  - 卡片文案改成「已从 MiMo 同步 3 个对话模型（另有 4 个语音模型不在此列）」。**不静默藏**：用户在控制台明明看到 7 个，下拉里只剩 3 个却没人解释，比列出来更让人困惑。
+- **点「打开诊断目录」弹出「打开外部程序时出错 / Failed to open: 系统找不到指定的文件。(0x2)」**。命令确实执行了（`[runCommand] era-harness.openDiagnosticsFolder` 在日志里），目录也确实建好了（`<globalStorage>/diagnostics` 里有 audit 文件），失败在最后一步 `vscode.env.openExternal(vscode.Uri.file(dir))`。
+  - **实测证据**：同一路径 `explorer.exe <dir>`、`cmd start "" <dir>` 都能正常打开；目录存在且有内容。所以不是路径问题，是 VS Code 打开**目录**时底层 ShellExecute 拿到了 0x2（该用户目录是 `C:\Users\周远航`，含中文，怀疑是原生层传路径丢了编码）。
+  - **真正让这个 bug 变难查的是我们自己**：`openExternal` 失败时**不抛错、只 `resolve(false)`**，老代码 `await` 完就当成功了，既没打开、也没有任何我们自己的提示，用户只看到 VS Code 弹的裸错误框。
+  - **修法**：Windows 上直接起 `explorer.exe`（路径由 Node 以 UTF-16 传给 CreateProcess，不经过 VS Code 的 opener）；起不来才退回 `openExternal`，并**检查它的返回值**；两条都失败就把路径显示出来、给一个「复制路径」。判定收在 `open-in-os.ts` 的 `openFolderInOs()`，只写一份。
+  - 只看 `spawn` 事件、**不看退出码**：explorer.exe 即使成功也常返回 1。
+
+### 验证
+
+- `test/update` 397/397（新增 8 例：7 个真实模型 id 的对话/语音判定 + 打开目录的 4 条分支）
+- 变异检验：① 判定恒为 `true` → 红；② 去掉 `asr|tts` 段边界 → 红；③ 把 `openExternal` 的 `false` 当成功 → 2 例红；④ 去掉 Windows 走 explorer 的分支 → 红
+
 ## 3.91.3 — 2026-10-23
 
 ### 修复
