@@ -213,17 +213,28 @@ interface VscodeConfigBlock {
   properties: Record<string, { type?: string; default?: unknown; description?: string; enum?: unknown[] }>;
 }
 
+/**
+ * 抽 VS Code 配置项。
+ *
+ * 同时回报 `skipped`：**只写 `markdownDescription` 不写 `description` 的配置项会被这里静默丢掉**，
+ * 而 `--check` 只看「生成物是否过期」，发现不了这种漏项。所以跳过清单必须显式暴露给调用方，
+ * 让门禁能判红——否则"设置自述"会漏讲一个用户真能改的开关。
+ */
 function extractVscodeConfig(pkg: {
   contributes?: { configuration?: VscodeConfigBlock | VscodeConfigBlock[] };
-}): Array<{ key: string; title: string; summary: string; valueType: string; category: string }> {
+}): { records: Array<{ key: string; title: string; summary: string; valueType: string; category: string }>; skipped: string[] } {
   const raw = pkg.contributes?.configuration;
-  if (!raw) return [];
+  if (!raw) return { records: [], skipped: [] };
   const blocks = Array.isArray(raw) ? raw : [raw];
   const out: Array<{ key: string; title: string; summary: string; valueType: string; category: string }> = [];
+  const skipped: string[] = [];
   for (const block of blocks) {
     for (const [key, schema] of Object.entries(block.properties ?? {})) {
       const description = schema.description?.trim();
-      if (!description) continue;
+      if (!description) {
+        skipped.push(key);
+        continue;
+      }
       const enumHint = Array.isArray(schema.enum) ? schema.enum.map((v) => JSON.stringify(v)).join(' | ') : undefined;
       out.push({
         key,
@@ -234,7 +245,7 @@ function extractVscodeConfig(pkg: {
       });
     }
   }
-  return out;
+  return { records: out, skipped };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -388,7 +399,8 @@ async function main(): Promise<void> {
     );
   }
 
-  const vscodeRecords: SettingRecord[] = extractVscodeConfig(JSON.parse(pkgSrc)).map((item) => ({
+  const vscodeExtract = extractVscodeConfig(JSON.parse(pkgSrc));
+  const vscodeRecords: SettingRecord[] = vscodeExtract.records.map((item) => ({
     key: item.key,
     title: item.title,
     summary: item.summary,
@@ -470,6 +482,12 @@ async function main(): Promise<void> {
       for (const file of stale) console.error(`  - ${file}`);
       console.error('  改了 FeatureSettingsSection / locales / state-keys / AutoApprovalSettings / package.json 之后必须重跑：');
       console.error('  cd packages/era-harness-core && npm run build:settings');
+      process.exit(1);
+    }
+    if (vscodeExtract.skipped.length > 0) {
+      console.error('[build-settings-catalog] 有配置项没写 description，被静默排除出目录：');
+      for (const key of vscodeExtract.skipped) console.error(`  - ${key}`);
+      console.error('  这些开关用户真能改，「设置自述」却不会讲到它们。请补 description（⛔ 不要为了过检而删配置）。');
       process.exit(1);
     }
     console.log(
