@@ -344,3 +344,16 @@ export function groupConflicts(entries: PlanEntry[]): ConflictGroup[] {
 	fileGroups.sort((a, b) => (a.key < b.key ? -1 : 1))
 	return [...groups, ...fileGroups]
 }
+
+/**
+ * 计划指纹：判断「用户点过确认的计划」和「实际要执行的计划」是不是同一份（U3）。
+ *
+ * 二次 runUpdate 会重新联网、重新扫盘、重建计划；期间社区推了新版本或本地文件
+ * 被动过，写盘的文件集合就可能和用户确认过的不同。只取**影响写盘内容**的字段：
+ * 条目的路径/动作/原因/目标内容指纹。顺序不敏感（重建计划的条目顺序理论上稳定，
+ * 但这里不赌）。闸门警告、迁移提醒等纯展示字段不参与。
+ */
+export function planFingerprint(plan: UpdatePlan): string {
+	const entries = plan.entries.map((e) => `${e.action}:${e.path}:${e.reason}:${e.theirsSha1 ?? ""}`).sort()
+	return JSON.stringify({ mode: plan.mode, summary: plan.summary, entries })
+}

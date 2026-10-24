@@ -190,6 +190,13 @@ export interface DescribeResultOptions {
 	merged?: number
 	/** 保留了几个本地改过的文件 */
 	keptLocal?: number
+	/**
+	 * 自动回滚是否完全成功（failed 时用；缺省视为已完全恢复，与旧行为一致）。
+	 * false = 磁盘可能停在半更新状态，文案必须让用户手动处理，不能说"什么都没变"。
+	 */
+	rolledBack?: boolean
+	/** 写后校验发现内容不符的文件路径（applied 时用；非空 = 有文件没写对） */
+	verifyMismatches?: string[]
 }
 
 /**
@@ -227,6 +234,23 @@ export function describeResult(
 	}
 
 	if (status === "applied") {
+		// 写后校验发现内容不符：不能照常报"更新完成"——用户有权知道哪些文件可疑（U4）
+		const mismatched = opts.verifyMismatches ?? []
+		if (mismatched.length > 0) {
+			const title = `更新完成，但有 ${mismatched.length} 个文件没写对`
+			const lines = [
+				"下面这些文件写完后的内容和应该写入的不一致（可能被杀毒软件或其他程序动了）：",
+				...mismatched.slice(0, 5).map((p) => `· ${p}`),
+			]
+			if (mismatched.length > 5) {
+				lines.push(`· ……还有 ${mismatched.length - 5} 个`)
+			}
+			if (backupDir) {
+				lines.push(`备份还在：${backupDir}，不放心可以手动对照。`)
+			}
+			lines.push("建议重跑一次更新；重跑前最好先手动备份游戏文件夹。")
+			return { title, lines, text: [title, ...lines].join("\n"), backupDir }
+		}
 		const lines = ["什么都没丢，你改过的地方都留着。"]
 		if (opts.merged && opts.merged > 0) {
 			lines.push(`其中 ${opts.merged} 个文件是把你和社区的改动合在一起的，建议进游戏看一眼。`)
@@ -253,6 +277,19 @@ export function describeResult(
 	if (status === "cancelled") {
 		const title = "已取消，什么都没改"
 		return { title, lines: ["磁盘上的文件一个都没动。"], text: `${title}\n磁盘上的文件一个都没动。`, backupDir: null }
+	}
+
+	// 回滚没跑干净时不能谎报"什么都没变"——磁盘可能停在半更新状态，必须让用户手动处理
+	if (opts.rolledBack === false) {
+		const title = "更新没成功，而且没能完全恢复原样"
+		const lines = [
+			"有些文件可能停在更新到一半的状态，需要手动处理。",
+			backupDir ? `更新前的备份还在：${backupDir}` : "更新前的备份在游戏目录下的「_备份」文件夹里。",
+		]
+		if (opts.error) {
+			lines.unshift(`原因：${opts.error}`)
+		}
+		return { title, lines, text: [title, ...lines].join("\n"), backupDir }
 	}
 
 	const title = "更新没成功，已经恢复到更新前的样子，什么都没变"

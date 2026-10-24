@@ -21,6 +21,7 @@ import {
 	readNowVersion,
 } from "@core/update/discover"
 import { resolveConflictsViaWorkbench } from "@core/update/mergeResolve"
+import { planFingerprint } from "@core/update/plan"
 import type { MergeReaders, RunUpdateResult, UpdateEvent, UpdateSourceInput } from "@core/update/service"
 import { runUpdate } from "@core/update/service"
 import type { ConflictGroup, UpdatePlan } from "@core/update/types"
@@ -291,6 +292,27 @@ function workbenchStamp(): string {
 	return new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")
 }
 
+/**
+ * 二次执行的确认回调（U3）：用户点过的计划必须就是实际执行的计划。
+ *
+ * 确认之后还要重新联网取最新、重新扫盘、重建计划，中间可能隔着一整段对话式合并。
+ * 期间社区推了新版本、或本地文件被动过，写盘集合就会和确认过的不同——
+ * 所以这里比对计划指纹：一致直接放行，漂移了就把**新**清单再弹一次给用户拍板。
+ */
+async function confirmRebuiltPlan(rebuilt: UpdatePlan, confirmed: UpdatePlan): Promise<boolean> {
+	if (planFingerprint(rebuilt) === planFingerprint(confirmed)) {
+		return true
+	}
+	const narrative = describePlan(rebuilt)
+	const choice = await vscode.window.showWarningMessage(
+		"刚才确认之后，要更新的内容又有变化。下面是最新的改动清单。",
+		{ modal: true, detail: narrative.lines.join("\n") },
+		"按新清单继续",
+		"取消更新",
+	)
+	return choice === "按新清单继续"
+}
+
 async function updateOne(root: string, controller?: Controller): Promise<void> {
 	const planned = await planFor(root)
 	if (!planned) {
@@ -371,7 +393,7 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 			runUpdate({
 				root,
 				source: planned.source,
-				confirm: () => true,
+				confirm: (rebuilt) => confirmRebuiltPlan(rebuilt, planned.result.plan),
 				merge:
 					resolveConflicts || !ask
 						? undefined
@@ -393,6 +415,9 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		keptLocal,
 		backupDir: result.report?.backupDir ?? null,
 		error: result.error,
+		// 回滚没跑干净时明说；写后校验没过的文件点名（这两个字段只在对应状态有值）
+		rolledBack: result.report?.rolledBack,
+		verifyMismatches: result.verify?.mismatches.map((m) => m.path) ?? [],
 	})
 
 	// 对话工作台的备注（有几个窗口没交、AI 有没有动工作台之外的文件）：
