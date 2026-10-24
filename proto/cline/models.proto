@@ -559,6 +559,8 @@ message ModelsApiConfiguration {
   optional string wandb_api_key = 87;
   // era harness：OVHcloud AI Endpoints（免费模型第三渠道）可选 API Key；有 key 400rpm，无 key 匿名 2rpm
   optional string ovh_ai_endpoints_api_key = 89;
+  // era harness：免费池隐私开关。true = 仅路由到不收集提示词的渠道（排除 Kilo 明文收集，仅剩 OVH）
+  optional bool free_exclude_collecting = 90;
 
   // Plan mode configurations
   optional ApiProvider plan_mode_api_provider = 100;

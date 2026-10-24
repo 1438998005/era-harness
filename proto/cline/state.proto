@@ -132,6 +132,7 @@ message Settings {
   optional OpenRouterModelInfo act_mode_deep_seek_model_info = 189;
   optional OpenRouterModelInfo plan_mode_mimo_model_info = 190;
   optional OpenRouterModelInfo act_mode_mimo_model_info = 191;
+  optional bool free_exclude_collecting = 192;
 }
 
 message State {

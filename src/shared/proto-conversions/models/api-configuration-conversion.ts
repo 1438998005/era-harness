@@ -178,6 +178,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		deepSeekApiKey: config.deepSeekApiKey,
 		mimoApiKey: config.mimoApiKey,
 		ovhAiEndpointsApiKey: config.ovhAiEndpointsApiKey,
+		freeExcludeCollecting: config.freeExcludeCollecting,
 		requestTimeoutMs: config.requestTimeoutMs,
 
 		// Plan mode configurations
@@ -211,6 +212,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		deepSeekApiKey: protoConfig.deepSeekApiKey,
 		mimoApiKey: protoConfig.mimoApiKey,
 		ovhAiEndpointsApiKey: protoConfig.ovhAiEndpointsApiKey,
+		freeExcludeCollecting: protoConfig.freeExcludeCollecting,
 		requestTimeoutMs: protoConfig.requestTimeoutMs,
 
 		// Plan mode configurations
