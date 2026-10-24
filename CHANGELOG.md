@@ -3,6 +3,25 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.8 — 2026-10-24
+
+### 修复
+
+- **DeepSeek V4 官方直连的「工具调用泄漏 + 输出畸形」根因修复（移植上游 cline PR #11392，修 cline#11339）**。旧实现把「响应流思考行为」与「R1 历史思考回放」绑在同一个判定上，V4 系（deepseek-flash / deepseek-v4*）也被套上 R1 回放——上游已实锤这会把 V4 的输出带歪（原生 DSML 工具标记泄漏进正文、输出不可解析）。现拆成两个独立判定（`shared/deepseek-request.ts`，`test:deepseek` 锁定）：V4 保留思考流（温度/reasoning_effort/reasoning_content）但不再回放历史思考；同一 delta 内 reasoning 先于 text 产出。旧 `deepseek-reasoner` 行为不变；MiMo 路径不受影响（官方硬性要求回传）。
+- **MiMo 官方训练模板方言完整支持**。小米官方模板的工具调用格式是 `<tool_call><function=名><parameter=参数>值</parameter></function></tool_call>`（等号、无引号）——此前解析器只认 `<parameter name="X">`，模型一旦输出「母语」参数会整体丢失。现归一器接受 `<parameter=X>` 等号形式与 `</function>` 收工具口，成对 `</tool_call>` 闭包裹一并清理。同时**收紧激活条件**为方言包裹证据（`<tool_call>`/`<function=`/dots 包裹），无包裹正文里的合法 `<parameter name="...">` 文件内容不再被误改（新增防腐蚀回归）。
+- **路径守卫扩展到全部文件类工具**。方言残片混入路径（如 `_tmp_scan.py</path`）此前只在 write_to_file 有防线，EINVAL 天书会从其他工具冒出；read_file / search_files / list_files / apply_patch 现统一拦截含 `<`/`>` 的路径并返回可读错误（apply_patch 只查 patch 头部的文件路径，正文合法尖括号不受影响）。
+- **熔断「仍然继续」真正有效**。循环检测升级触发的熔断，此前点「继续」只重置计数——模型原样重犯、再升级、再熔断（实测评测任务死循环）。现「继续」且未附文字时向下一轮注入换策略提示（明示必须换工具/换目标/换拆解）；附文字反馈的路径不变。
+
+### 改进
+
+- **search_files 上下文 1 → 2 行（对齐上游 cline#13384）**。此前实际只带 1 行上下文（注释一直写着 2），实测是模型抱怨「上下文不够」转而自写临时 py 脚本检索的诱因之一。
+- **审计 taskId 口径统一**。ReadFileToolHandler / GlobalMemoryToolHandler 共 5 处审计此前用 ULID，与其余路径的数字 taskId 分裂，导致诊断包按任务聚合时记录错分；现全仓统一为数字 taskId。
+
+### 验证
+
+- `test:deepseek` 4/4（新增）；`test:toolcall` 25/25（新增 3 例：MiMo 官方模板等号形式、无包裹 `<parameter>` 正文原样保留、无包裹孤儿 `</invoke>` 原样保留）；`test:update` 416/416；`test:free` 26/26；双侧 typecheck 绿；esbuild --production 重打包
+- 双真实故障任务 replay 无回退：MiMo 方言任务 8/8 回合还原为可执行工具；DeepSeek 任务 58 回合照旧解析
+
 ## 3.91.7 — 2026-10-24
 
 ### 新增
