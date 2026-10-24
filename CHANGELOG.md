@@ -3,6 +3,22 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.7 — 2026-10-24
+
+### 新增
+
+- **免费池隐私开关「仅使用不收集信息的模型」**。设置 → API 配置 → 免费模型卡片新增复选框：勾选后路由链先于 listing 门控剔除所有收集提示词的渠道（当前即 Kilo「明文收集」），仅剩 OVHcloud（欧盟托管、零数据保留、不用于训练）；开启时连 Kilo 清单拉取也一并跳过（省一次网络请求），表格中被排除渠道行降透明度并挂「已排除」徽标。贯通链与 OVH Key 同构：state-keys → proto（Settings 192 / ApiConfiguration 90）→ 转换 → handler → 链组装；候选全空时报错文案区分「隐私开关导致」与普通失败。注意：开启后仅剩 OVH 匿名约 2 次/分钟，可用模型减少、更易触发限流。
+
+### 池维护
+
+- **移除已死的免费候选（17 → 15 项）**。执行前实拉 Kilo listing（402 行）实证：`Inkling Small` 免费版 2026-10-23 终止（仅存付费行 $0.45/$1.00）；`Ling 3.0 Flash Sante` 彻底下线（kilo.ai 模型页 404 / listing 无行 / 镜像全无）。池内其余 5 个 Kilo 候选全部健在。基础版 `ling-3.0-flash` 在 listing 为付费行（kilo.ai 官网页虽标免费，但 `:free` 变体不在 API 清单）→ 补位不成立（收录即路由到付费模型），不补。vision 链首选顺延 Dots3-Note；`listingMatch` 机制随唯一使用者消亡休眠保留。
+- **核查留档**：OVH 的 Mistral-7B-Instruct-v0.3 已于 2026-10-01 移除（官方 lifecycle：07-02 公告 / 10-01 移除，实拉 `/v1/models` 22 项无此 ID）——该模型从未入池，无物可移；池内 Mistral Small 3.2 / Mistral Nemo 已被 OVH 列入退役表（2026-11-04 移除），宽限期内仍可调用，届时须复检移除。
+
+### 验证
+
+- `test:free` 26/26（新增 3 例：隐私开关链组装剔除 / 带图仅剩 Qwen2.5-VL / handler 不拉 listing 且 Kilo 零调用）；`test:toolcall` 18/18；`test:update` 416/416
+- 双侧 typecheck 绿；`esbuild --production` 与 webview 构建重打包；bundle 校验：死模型 ID 0 命中、开关字段（host 侧）与 UI 文案（webview 侧）均在
+
 ## 3.91.6 — 2026-10-24
 
 ### 修复
