@@ -3,6 +3,23 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.9 — 2026-10-24
+
+### 修复
+
+- **search_files 匹配行带行号（根治「模型自写 python 脚本取行号」的螺旋）**。同题实弹取证（三模型对比）实锤：匹配行无行号是模型绕开工具自建 `python -c` 流水线的第一诱因（deepseek 单 4 次命令、Qwen 单 5 版临时脚本全为此）。输出从 `│原文` 改为 `│{行号} | {原文}`（对齐 read_file 的 `N | text` 风格），上下文行保持裸文本。顺带三处截断治理：ripgrep 行数上限按 8 行/结果估算（`--json` + `--context 2` 下每结果约 7 行，旧按 5 行估算会在 ~350 结果处提前掐断）；行数上限截断尾部可见（不再静默）；字节超限提示改为预算预扣——旧实现只在「恰好装得下」时追加，紧贴上限时提示本身被静默丢弃。纯函数抽到 `ripgrep/format.ts`，新增 `test:ripgrep` 8 例。上游 cline#8659 / #14747 未修（主动分叉）；cline#13771 报的「每文件只留 1 条匹配」经核对不存在于本实现。
+- **Windows 终端 python 输出乱码根治**。python 在 Windows 管道下 stdout 默认按 cp936 编码，而宿主按 UTF-8 解读——含中日文的命令输出变成 `EXTRA??????ݮ` 式乱码（纯 ASCII 行不乱，故「同一份输出有乱有不乱」），实测反复诱导模型误判文件编码、加参数重跑命令。终端创建时 env 注入 `PYTHONUTF8=1`（等效模型侧摸索出的 `-X utf8` / `sys.stdout.reconfigure` 修法，对 POSIX 无副作用）。上游 cline#10378 未修。
+- **task_progress 清单复读止血**。实测 deepseek-flash 32 轮复读同一份清单 60 次（独立任务 42 轮 74 次）、输出 31.6k token（¥0.21）；MiMo 0 次复读同样答对（2.2k / ¥0.04）。提示词明确：仅清单实际变化（新增/完成/改写/重排）时携带 task_progress 参数，无变化时完全省略、禁止复读同一清单。
+
+### 已知问题（取证在案，裁定缓修）
+
+- 命令输出双份计入 api 历史：工具结果（`Output:\n...`）与下一条请求的 environment_details（`### New Output`）各带一份；`getUnretrievedOutput` 的 `lastRetrievedIndex` 在完成事件后的迟到块不推进所致。每命令一次性重复、其后进 prompt cache，量级几百 token；执行链核心路径 + 双路径时序变体，风险大于收益（上游 cline#5176 未修）。详见知识库 12 §12.24.4 / 21。
+
+### 验证
+
+- `test:ripgrep` 8/8（新增）；`test:toolcall` 25/25；`test:update` 416/416；`test:free` 26/26；`test:deepseek` 4/4；双侧 typecheck 绿；核心库 130 测试绿；esbuild --production 重打包
+- v3.91.8 实弹复测（同题三模型，`08` #38–41）：两个 deepseek 会话（32/42 轮）原始方言 token 泄漏 **0**（修复前基准 16/58 = 27.6%，#38 销项）；MiMo 全程无假工具调用（#39 部分正面）；#40 根因改判（无行号而非上下文不足）；#41 未触发待测
+
 ## 3.91.8 — 2026-10-24
 
 ### 修复
