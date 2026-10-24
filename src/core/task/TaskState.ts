@@ -66,6 +66,11 @@ export class TaskState {
 
 	// Error tracking
 	consecutiveMistakeCount = 0
+	// 本次熔断是否由循环检测升级直接拉满计数触发（ToolExecutor 的 escalate 路径）。
+	// 用途：用户点「仍然继续」却不带文字时，据此注入一条「必须换策略」的提示——
+	// 只重置计数会让模型重犯同一策略，形成「重置→重犯→再升级」死循环（2026-10-24
+	// 真实任务 1792824640404 取证，见 知识库/12 §12.23）。在熔断处理处消费后复位。
+	fuseArmedByLoopEscalation = false
 	doubleCheckCompletionPending = false
 	didAutomaticallyRetryFailedApiRequest = false
 	checkpointManagerErrorMessage?: string

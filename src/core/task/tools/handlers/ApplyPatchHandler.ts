@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { resolve as resolvePath } from "node:path"
 import type { ToolUse } from "@core/assistant-message"
 import { diffErbStructure, formatErbStructureWarning, isErbLikePath } from "@core/era/erb-check"
+import { formatResponse } from "@core/prompts/responses"
 import { resolveWorkspacePath } from "@core/workspace"
 import { processFilesIntoText } from "@integrations/misc/extract-text"
 import type { ClineSayTool } from "@shared/ExtensionMessage"
@@ -215,6 +216,17 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 		if (!rawInput) {
 			config.taskState.consecutiveMistakeCount++
 			return await config.callbacks.sayAndCreateMissingParamError(block.name, "input")
+		}
+
+		// era harness（2026-10-24 同类扫描）：方言残片混进 patch 头部的文件路径
+		// （如 `*** Update File: x</path>`）要到写盘阶段才炸出难懂的 EINVAL。
+		// patch 正文合法地大量含尖括号，所以只查**头部提取出的文件路径**。
+		const dirtyPath = this.extractAllFiles(rawInput).find((p) => /[<>]/.test(p))
+		if (dirtyPath) {
+			config.taskState.consecutiveMistakeCount++
+			return formatResponse.toolError(
+				`Invalid path '${dirtyPath}' in patch input: it contains '<' or '>' (usually a leftover from malformed tool-call markup). Re-issue the patch with clean file paths.`,
+			)
 		}
 
 		config.taskState.consecutiveMistakeCount = 0

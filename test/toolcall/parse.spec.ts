@@ -12,8 +12,8 @@ type Case = {
 	raw: string
 	expectTools?: ExpectTool[]
 	expectNoTools?: boolean
-	expectTextContains?: string
-	expectTextNotContains?: string
+	expectTextContains?: string | string[]
+	expectTextNotContains?: string | string[]
 }
 
 const cases: Case[] = (fixtures as { cases: Case[] }).cases
@@ -33,17 +33,20 @@ for (const c of cases) {
 			.join("")
 
 		if (c.expectTextContains) {
-			assert.ok(
-				joinedText.includes(c.expectTextContains),
-				`正文应包含 "${c.expectTextContains}"，实际: ${JSON.stringify(joinedText)}`,
-			)
+			const needles = Array.isArray(c.expectTextContains) ? c.expectTextContains : [c.expectTextContains]
+			for (const needle of needles) {
+				assert.ok(joinedText.includes(needle), `正文应包含 "${needle}"，实际: ${JSON.stringify(joinedText)}`)
+			}
 		}
 
 		if (c.expectTextNotContains) {
-			assert.ok(
-				!joinedText.includes(c.expectTextNotContains),
-				`正文不应包含 "${c.expectTextNotContains}"（应被剥离），实际: ${JSON.stringify(joinedText)}`,
-			)
+			const needles = Array.isArray(c.expectTextNotContains) ? c.expectTextNotContains : [c.expectTextNotContains]
+			for (const needle of needles) {
+				assert.ok(
+					!joinedText.includes(needle),
+					`正文不应包含 "${needle}"（应被剥离），实际: ${JSON.stringify(joinedText)}`,
+				)
+			}
 		}
 
 		if (c.expectTools) {

@@ -119,7 +119,7 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 				const result = await upsertGlobalMemoryEntry({ text, tags, source: "model" })
 				recordAudit({
 					event: "memory",
-					taskId: config.ulid,
+					taskId: config.taskId,
 					action: "add",
 					target: result.entry.id,
 					outcome: "ok",
@@ -154,7 +154,7 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 				const result = await upsertGlobalMemoryEntry({ id: entryId, text, tags, source: "model" })
 				recordAudit({
 					event: "memory",
-					taskId: config.ulid,
+					taskId: config.taskId,
 					action: "update",
 					target: result.entry.id,
 					outcome: "ok",
@@ -174,7 +174,7 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 				const document = await removeGlobalMemoryEntry(entryId)
 				recordAudit({
 					event: "memory",
-					taskId: config.ulid,
+					taskId: config.taskId,
 					action: "remove",
 					target: entryId,
 					outcome: "ok",
@@ -193,7 +193,7 @@ export class GlobalMemoryToolHandler implements IFullyManagedTool {
 			const message = error instanceof Error ? error.message : String(error)
 			recordAudit({
 				event: "memory",
-				taskId: config.ulid,
+				taskId: config.taskId,
 				action: requestedMode,
 				outcome: "error",
 				message,

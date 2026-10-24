@@ -219,6 +219,15 @@ export class SearchFilesToolHandler implements IFullyManagedTool {
 			return await config.callbacks.sayAndCreateMissingParamError(this.name, "path")
 		}
 
+		// era harness（2026-10-24 同类扫描）：与 WriteToFileToolHandler 同款防线——尖括号
+		// 混进搜索路径不会报错，只会静默搜出空结果，模型误以为「没有匹配」后反复重搜。
+		if (/[<>]/.test(relDirPath!)) {
+			config.taskState.consecutiveMistakeCount++
+			return formatResponse.toolError(
+				`Invalid path '${relDirPath}': the ${block.name} path contains '<' or '>' (usually a leftover from malformed tool-call markup). Re-issue the call with a clean <path>...</path> value.`,
+			)
+		}
+
 		if (!regex) {
 			config.taskState.consecutiveMistakeCount++
 			return await config.callbacks.sayAndCreateMissingParamError(this.name, "regex")

@@ -688,6 +688,9 @@ export class ToolExecutor {
 			})
 			if (escalate) {
 				this.taskState.consecutiveMistakeCount = this.stateManager.getGlobalSettingsKey("maxConsecutiveMistakes")
+				// 标记熔断来源：用户点「仍然继续」时据此注入换策略提示（task/index.ts），
+				// 否则只重置计数会回到同一个死循环。
+				this.taskState.fuseArmedByLoopEscalation = true
 			}
 
 			// Update state AFTER comparison

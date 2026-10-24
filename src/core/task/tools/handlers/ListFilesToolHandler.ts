@@ -75,6 +75,15 @@ export class ListFilesToolHandler implements IFullyManagedTool {
 			return await config.callbacks.sayAndCreateMissingParamError(this.name, "path")
 		}
 
+		// era harness（2026-10-24 同类扫描）：与 WriteToFileToolHandler 同款防线——方言残片
+		// 混入尖括号的目录在 Windows 上必然列不出来，fs 只会抛出难懂的 EINVAL。
+		if (/[<>]/.test(relDirPath!)) {
+			config.taskState.consecutiveMistakeCount++
+			return formatResponse.toolError(
+				`Invalid path '${relDirPath}': the ${block.name} path contains '<' or '>' (usually a leftover from malformed tool-call markup). Re-issue the call with a clean <path>...</path> value.`,
+			)
+		}
+
 		// Check clineignore access before performing any IO.
 		// Increment the counter so repeated attempts at blocked paths
 		// accumulate toward the yolo-mode mistake limit.

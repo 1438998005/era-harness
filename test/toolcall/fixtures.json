@@ -226,6 +226,113 @@
 			"name": "muse-spark 形态：dots 包裹但内层是规范 Cline XML（曾可解析，工具 partial 放行）→ 归一化后不得更坏，正文无包裹残留",
 			"raw": "<dots_function_call>\n<list_files>\n<path>d:\\game\\eratw-sub-modding-main</path>\n<recursive>false</recursive>\n</list</dots_function_call>",
 			"expectTextNotContains": "dots_function_call"
+		},
+		{
+			"name": "MiMo/Qwen 方言混合：<tool_call><function=NAME> 包裹 + </parameter> 错配闭合（2026-10-24 真实任务取证，已脱敏）→ 应还原 search_files",
+			"raw": "\n<tool_call><function=search_files>\n<path>CSV</path>\n<regex>素材A</parameter>\n<parameter name=\"task_progress\">\n- [x] 定位素材A的定义\n- [ ] 汇总回答\n</parameter>\n</invoke>\n</parameter>\n</function>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "CSV",
+						"regex": "素材A"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"tool_call",
+				"parameter",
+				"invoke",
+				"function="
+			]
+		},
+		{
+			"name": "MiMo/Qwen 方言：tool_call 包裹 + task_progress 混排（真实任务第 3-8 回合主形态，已脱敏）→ 应还原 search_files 且正文无方言残留",
+			"raw": "\n<tool_call><function=search_files>\n<path>CSV</path>\n<regex>素材A</regex>\n<task_progress>\n- [x] 定位素材A的定义\n- [ ] 汇总回答\n</parameter>\n</invoke>\n</task_progress>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "CSV",
+						"regex": "素材A"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"tool_call",
+				"parameter",
+				"invoke"
+			]
+		},
+		{
+			"name": "DSML 参数开标签缺右引号（name=\"path>，2026-10-24 真实任务取证，已脱敏）→ path 不应丢失",
+			"raw": "\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"write_to_file\">\n<｜｜DSML｜｜ parameter name=\"path>_tmp_scan.py</path>\n<content>print(1)\n</content>\n<task_progress>\n- [x] step\n</task_progress>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "_tmp_scan.py",
+						"content": "print(1)"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"DSML"
+			]
+		},
+		{
+			"name": "参数顺序错乱：content 在前 path 在后（真实任务取证，已脱敏）→ 双参数都应完整（回归保护）",
+			"raw": "\n<write_to_file>\n<content>print(1)\n</content>\n<path>_tmp_scan.py</path>\n<task_progress>\n- [x] step\n</task_progress>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "_tmp_scan.py",
+						"content": "print(1)"
+					}
+				}
+			]
+		},
+		{
+			"name": "MiMo 官方训练模板：<tool_call><function=NAME> + <parameter=X> 等号形式 + </function> 收口（知识库 18 §18.15）→ 应还原 search_files",
+			"raw": "<tool_call>\n<function=search_files>\n<parameter=path>CSV</parameter>\n<parameter=regex>素材A</parameter>\n</function>\n</tool_call>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "CSV",
+						"regex": "素材A"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"tool_call",
+				"parameter",
+				"function"
+			]
+		},
+		{
+			"name": "防腐蚀：无方言包裹的正文里 <parameter name=\"path\"> 必须原样保留（不得激活归一化）",
+			"raw": "<write_to_file><path>doc.md</path><content>用法示例：<parameter name=\"path\">值</parameter>，按需替换。</content></write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "doc.md",
+						"content": "用法示例：<parameter name=\"path\">值</parameter>，按需替换。"
+					}
+				}
+			]
+		},
+		{
+			"name": "防腐蚀：无方言包裹的孤儿 </invoke> 正文必须原样保留（宁可漏救也不腐蚀）",
+			"raw": "这是正文里的示例。</invoke>\n继续说明。",
+			"expectNoTools": true,
+			"expectTextContains": [
+				"这是正文里的示例。",
+				"</invoke>",
+				"继续说明。"
+			]
 		}
 	]
 }

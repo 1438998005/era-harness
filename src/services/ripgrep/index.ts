@@ -117,7 +117,9 @@ export async function regexSearchFiles(
 	filePattern?: string,
 	clineIgnoreController?: ClineIgnoreController,
 ): Promise<string> {
-	const args = ["--json", "-e", regex, "--glob", filePattern || "*", "--context", "1", directoryPath]
+	// 上游对齐（cline#13384 记载的 fast path 即 2 行上下文；本文件头部注释也一直写着 2）：
+	// 曾被改成 1，实测上下文不足是模型转向自写临时脚本检索的诱因之一（2026-10-24 取证）。
+	const args = ["--json", "-e", regex, "--glob", filePattern || "*", "--context", "2", directoryPath]
 
 	let output: string
 	try {

@@ -2481,8 +2481,16 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				}
 
 				userContent = feedbackUserContent
+			} else if (this.taskState.fuseArmedByLoopEscalation) {
+				// era harness：「仍然继续」没带文字时，若熔断由循环检测升级触发，注入换策略提示。
+				// 只重置计数等于让模型原样重犯（真实任务取证：proceed 后立刻再升级）。
+				userContent.push({
+					type: "text",
+					text: formatResponse.proceedAfterLoopEscalation(),
+				})
 			}
 			this.taskState.consecutiveMistakeCount = 0
+			this.taskState.fuseArmedByLoopEscalation = false
 			this.taskState.autoRetryAttempts = 0 // need to reset this if the user chooses to manually retry after the mistake limit is reached
 			// Reset loop detection state so it can re-arm if the model continues looping
 			this.taskState.consecutiveIdenticalToolCount = 0

@@ -45,6 +45,11 @@ Otherwise, if you have not completed the task and do not need additional informa
 	tooManyMistakes: (feedback?: string) =>
 		`You seem to be having trouble proceeding. The user has provided the following feedback to help guide you:\n<feedback>\n${feedback}\n</feedback>`,
 
+	// era harness：用户对循环升级型熔断点了「仍然继续」但未附文字时注入。
+	// 只重置计数会让模型重犯同一策略（真实任务取证：重置→重犯→再升级死循环）。
+	proceedAfterLoopEscalation: () =>
+		`Your previous approach was interrupted because it was judged as a repetitive loop (the same tool call kept repeating with the same result). Merely retrying the same approach will hit the limit again. Before continuing, change strategy: use a different tool, a different target file/directory, or break the task into different steps than before.`,
+
 	missingToolParameterError: (paramName: string) =>
 		`Missing value for required parameter '${paramName}'. Please retry with complete response.\n\n${toolUseInstructionsReminder}`,
 

@@ -207,6 +207,16 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			return await config.callbacks.sayAndCreateMissingParamError(this.name, "path")
 		}
 
+		// era harness（2026-10-24 同类扫描）：与 WriteToFileToolHandler 同款防线——方言残片
+		// 混入尖括号的路径在 Windows 上必然打不开，fs 只会抛出难懂的 EINVAL；这里给可读
+		// 错误让模型重发干净参数。
+		if (/[<>]/.test(relPath!)) {
+			config.taskState.consecutiveMistakeCount++
+			return formatResponse.toolError(
+				`Invalid path '${relPath}': the ${block.name} path contains '<' or '>' (usually a leftover from malformed tool-call markup). Re-issue the call with a clean <path>...</path> value.`,
+			)
+		}
+
 		// Check clineignore access
 		const accessValidation = this.validator.checkClineIgnorePath(relPath!)
 		if (!accessValidation.ok) {
@@ -350,7 +360,7 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			// 审计：排障时最关键的一条——「第几次读同一区间、命中了缓存没有」。
 			recordAudit({
 				event: "tool",
-				taskId: config.ulid,
+				taskId: config.taskId,
 				turn: config.taskState.apiRequestCount,
 				tool: block.name,
 				target: displayPath,

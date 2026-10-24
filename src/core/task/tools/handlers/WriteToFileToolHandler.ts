@@ -149,6 +149,18 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			)
 		}
 
+		// era harness（2026-10-24 真实任务取证）：模型方言残片或流式截断会让 path 混入
+		// `<`/`>`（实测 `_tmp_scan.py</path`——dirname 会把 `_tmp_scan.py<` 当目录名传给
+		// mkdir，报 EINVAL 且用户看不懂）。含尖括号的路径在 Windows 上必然非法，与其让
+		// fs 抛系统错误，不如在这里给出可读错误让模型重发干净参数。
+		if (/[<>]/.test(rawRelPath)) {
+			config.taskState.consecutiveMistakeCount++
+			await config.services.diffViewProvider.reset()
+			return formatResponse.toolError(
+				`Invalid path '${rawRelPath}': the ${block.name} path contains '<' or '>' (usually a leftover from malformed tool-call markup). Re-issue the call with a clean <path>...</path> value.`,
+			)
+		}
+
 		if (block.name === "replace_in_file" && !rawDiff) {
 			config.taskState.consecutiveMistakeCount++
 			await config.services.diffViewProvider.reset()

@@ -1,4 +1,5 @@
 import { DeepSeekModelId, deepSeekDefaultModelId, getDeepSeekModelInfo, ModelInfo, resolveDeepSeekModelId } from "@shared/api"
+import { deepSeekStreamsReasoning, deepSeekUsesR1Replay } from "@shared/deepseek-request"
 import { calculateDeepSeekCost } from "@shared/deepseekPricing"
 import OpenAI from "openai"
 import type { ChatCompletionTool as OpenAITool } from "openai/resources/chat/completions"
@@ -102,16 +103,19 @@ export class DeepSeekHandler implements ApiHandler {
 		const client = this.ensureClient()
 		const model = this.getModel()
 
-		// V4 起不再用模型名区分思考能力（旧名 deepseek-reasoner 已停用），
-		// 用前缀匹配以兼容在线同步回来的带日期后缀的 id。
-		const isDeepSeekThinkingModel =
-			model.id.includes("deepseek-flash") || model.id.includes("deepseek-v4") || model.id.includes("deepseek-reasoner")
+		// 上游 PR #11392（cline#11339 修复）：把「一个标志管两件事」拆开——
+		// streamsReasoning 管响应流行为（温度、reasoning_effort、reasoning_content 流），
+		// usesR1Replay 管请求侧是否做 R1 历史思考回放。旧实现把 R1 回放也套在 V4 上，
+		// 把输出带歪（原生工具调用标记泄漏成正文、输出畸形）。判据与反例如
+		// @shared/deepseek-request 的注释；MiMo 相反（必须回传），两者不要合并。
+		const streamsReasoning = deepSeekStreamsReasoning(model.id)
+		const usesR1Replay = deepSeekUsesR1Replay(model.id)
 
 		// 思维强度：只在思考模型上传；未设置时交给官方默认（high）
-		const reasoningEffort = isDeepSeekThinkingModel ? deepSeekReasoningEffort(this.options.reasoningEffort) : undefined
+		const reasoningEffort = streamsReasoning ? deepSeekReasoningEffort(this.options.reasoningEffort) : undefined
 
 		const convertedMessages = convertToOpenAiMessages(messages)
-		const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = isDeepSeekThinkingModel
+		const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = usesR1Replay
 			? [{ role: "system", content: systemPrompt }, ...addReasoningContent(convertedMessages, messages)]
 			: [{ role: "system", content: systemPrompt }, ...convertedMessages]
 
@@ -124,7 +128,7 @@ export class DeepSeekHandler implements ApiHandler {
 			stream: true,
 			stream_options: { include_usage: true },
 			// Only set temperature for non-thinking models
-			...(isDeepSeekThinkingModel ? {} : { temperature: 0 }),
+			...(streamsReasoning ? {} : { temperature: 0 }),
 			...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 			...getOpenAIToolParams(tools),
 		} as OpenAI.Chat.ChatCompletionCreateParamsStreaming
@@ -134,6 +138,15 @@ export class DeepSeekHandler implements ApiHandler {
 
 		for await (const chunk of stream) {
 			const delta = chunk.choices?.[0]?.delta
+			// 上游 #11392：同一 delta 里 reasoning 先于 content 产出——模型本就先思考后作答，
+			// 顺序反了思考块会被插到可见回答之后，流式渲染错位。
+			if (delta && "reasoning_content" in delta && delta.reasoning_content) {
+				yield {
+					type: "reasoning",
+					reasoning: (delta.reasoning_content as string | undefined) || "",
+				}
+			}
+
 			if (delta?.content) {
 				yield {
 					type: "text",
@@ -143,13 +156,6 @@ export class DeepSeekHandler implements ApiHandler {
 
 			if (delta?.tool_calls) {
 				yield* toolCallProcessor.processToolCallDeltas(delta.tool_calls)
-			}
-
-			if (delta && "reasoning_content" in delta && delta.reasoning_content) {
-				yield {
-					type: "reasoning",
-					reasoning: (delta.reasoning_content as string | undefined) || "",
-				}
 			}
 
 			if (chunk.usage) {
