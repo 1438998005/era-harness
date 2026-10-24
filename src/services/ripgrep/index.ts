@@ -1,9 +1,9 @@
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
 import * as childProcess from "child_process"
-import * as path from "path"
 import * as readline from "readline"
 import { Logger } from "@/shared/services/Logger"
 import { getBinaryLocation } from "@/utils/fs"
+import { formatResults, MAX_RESULTS, type SearchResult } from "./format"
 
 /*
 This file provides functionality to perform regex searches on files using ripgrep.
@@ -18,11 +18,15 @@ Key components:
      * regex: The regular expression to search for (Rust regex syntax)
      * filePattern: Optional glob pattern to filter files (default: '*')
    - Returns: A formatted string containing search results with context
+     (formatting lives in ./format.ts — pure and unit-tested)
 
 The search results include:
 - Relative file paths
 - 2 lines of context before and after each match
-- Matches formatted with pipe characters for easy reading
+- Match lines prefixed with their 1-based line number (`│{line} | {text}`),
+  context lines bare — so the model can cite/read_file by line number directly
+  (2026-10-24: missing line numbers were driving models to spawn `python -c`
+  commands just to obtain them; see 知识库 12 §12.24)
 
 Usage example:
 const results = await regexSearchFiles('/path/to/cwd', '/path/to/search', 'TODO:', '*.ts');
@@ -31,7 +35,7 @@ rel/path/to/app.ts
 │----
 │function processData(data: any) {
 │  // Some processing logic here
-│  // TODO: Implement error handling
+│34 |   // TODO: Implement error handling
 │  return processedData;
 │}
 │----
@@ -40,26 +44,17 @@ rel/path/to/helper.ts
 │----
 │  let result = 0;
 │  for (let i = 0; i < input; i++) {
-│    // TODO: Optimize this function for performance
+│56 |     // TODO: Optimize this function for performance
 │    result += Math.pow(i, 2);
 │  }
 │----
 */
 
-interface SearchResult {
-	filePath: string
-	line: number
-	column: number
-	match: string
-	beforeContext: string[]
-	afterContext: string[]
-}
+// --json 模式下每个结果约占 7 行 JSON（begin + 2×context + match + 2×context + end），
+// 旧的上限按 5 行/结果估算（上游遗留），--context 2 会在 ~350 结果处提前静默截断。
+const MAX_LINES_PER_RESULT = 8
 
-// eraTW 工程近 9800 个 ERB，同一标识符常有大量调用点；300 条会在排查
-// 全局调用关系时被截断，因此提高到 500。
-const MAX_RESULTS = 500
-
-async function execRipgrep(args: string[]): Promise<string> {
+async function execRipgrepInternal(args: string[]): Promise<{ output: string; lineTruncated: boolean }> {
 	const binPath: string = await getBinaryLocation("rg")
 
 	return new Promise((resolve, reject) => {
@@ -72,13 +67,15 @@ async function execRipgrep(args: string[]): Promise<string> {
 
 		let output = ""
 		let lineCount = 0
-		const maxLines = MAX_RESULTS * 5 // limiting ripgrep output with max lines since there's no other way to limit results. it's okay that we're outputting as json, since we're parsing it line by line and ignore anything that's not part of a match. This assumes each result is at most 5 lines.
+		let lineTruncated = false
+		const maxLines = MAX_RESULTS * MAX_LINES_PER_RESULT
 
 		rl.on("line", (line) => {
 			if (lineCount < maxLines) {
 				output += line + "\n"
 				lineCount++
 			} else {
+				lineTruncated = true
 				rl.close()
 				rgProcess.kill()
 			}
@@ -92,13 +89,18 @@ async function execRipgrep(args: string[]): Promise<string> {
 			if (errorOutput) {
 				reject(new Error(`ripgrep process error: ${errorOutput}`))
 			} else {
-				resolve(output)
+				resolve({ output, lineTruncated })
 			}
 		})
 		rgProcess.on("error", (error) => {
 			reject(new Error(`ripgrep process error: ${error.message}`))
 		})
 	})
+}
+
+async function execRipgrep(args: string[]): Promise<string> {
+	const { output } = await execRipgrepInternal(args)
+	return output
 }
 
 /**
@@ -122,8 +124,11 @@ export async function regexSearchFiles(
 	const args = ["--json", "-e", regex, "--glob", filePattern || "*", "--context", "2", directoryPath]
 
 	let output: string
+	let lineTruncated = false
 	try {
-		output = await execRipgrep(args)
+		const rg = await execRipgrepInternal(args)
+		output = rg.output
+		lineTruncated = rg.lineTruncated
 	} catch (error) {
 		throw Error("Error calling ripgrep", { cause: error })
 	}
@@ -168,128 +173,5 @@ export async function regexSearchFiles(
 		? results.filter((result) => clineIgnoreController.validateAccess(result.filePath))
 		: results
 
-	return formatResults(filteredResults, cwd)
-}
-
-const MAX_RIPGREP_MB = 0.25
-const MAX_BYTE_SIZE = MAX_RIPGREP_MB * 1024 * 1024 // 0./25MB in bytes
-
-function formatResults(results: SearchResult[], cwd: string): string {
-	const groupedResults: { [key: string]: SearchResult[] } = {}
-
-	let output = ""
-	if (results.length >= MAX_RESULTS) {
-		output += `Showing first ${MAX_RESULTS} of ${MAX_RESULTS}+ results. Use a more specific search if necessary.\n\n`
-	} else {
-		output += `Found ${results.length === 1 ? "1 result" : `${results.length.toLocaleString()} results`}.\n\n`
-	}
-
-	// Group results by file name
-	results.slice(0, MAX_RESULTS).forEach((result) => {
-		const relativeFilePath = path.relative(cwd, result.filePath)
-		if (!groupedResults[relativeFilePath]) {
-			groupedResults[relativeFilePath] = []
-		}
-		groupedResults[relativeFilePath].push(result)
-	})
-
-	// Track byte size
-	let byteSize = Buffer.byteLength(output, "utf8")
-	let wasLimitReached = false
-
-	for (const [filePath, fileResults] of Object.entries(groupedResults)) {
-		// Check if adding this file's path would exceed the byte limit
-		const filePathString = `${filePath.toPosix()}\n│----\n`
-		const filePathBytes = Buffer.byteLength(filePathString, "utf8")
-
-		if (byteSize + filePathBytes >= MAX_BYTE_SIZE) {
-			wasLimitReached = true
-			break
-		}
-
-		output += filePathString
-		byteSize += filePathBytes
-
-		for (let resultIndex = 0; resultIndex < fileResults.length; resultIndex++) {
-			const result = fileResults[resultIndex]
-			const allLines = [...result.beforeContext, result.match, ...result.afterContext]
-
-			// Calculate bytes in all lines for this result
-			let resultBytes = 0
-			const resultLines: string[] = []
-
-			for (const line of allLines) {
-				const trimmedLine = line?.trimEnd() ?? ""
-				const lineString = `│${trimmedLine}\n`
-				const lineBytes = Buffer.byteLength(lineString, "utf8")
-
-				// Check if adding this line would exceed the byte limit
-				if (byteSize + resultBytes + lineBytes >= MAX_BYTE_SIZE) {
-					wasLimitReached = true
-					break
-				}
-
-				resultLines.push(lineString)
-				resultBytes += lineBytes
-			}
-
-			// If we hit the limit in the middle of processing lines, break out of the result loop
-			if (wasLimitReached) {
-				break
-			}
-
-			// Add all lines for this result to the output
-			resultLines.forEach((line) => {
-				output += line
-			})
-			byteSize += resultBytes
-
-			// Add separator between results if needed
-			if (resultIndex < fileResults.length - 1) {
-				const separatorString = "│----\n"
-				const separatorBytes = Buffer.byteLength(separatorString, "utf8")
-
-				if (byteSize + separatorBytes >= MAX_BYTE_SIZE) {
-					wasLimitReached = true
-					break
-				}
-
-				output += separatorString
-				byteSize += separatorBytes
-			}
-
-			// Check if we've hit the byte limit
-			if (byteSize >= MAX_BYTE_SIZE) {
-				wasLimitReached = true
-				break
-			}
-		}
-
-		// If we hit the limit, break out of the file loop
-		if (wasLimitReached) {
-			break
-		}
-
-		const closingString = "│----\n\n"
-		const closingBytes = Buffer.byteLength(closingString, "utf8")
-
-		if (byteSize + closingBytes >= MAX_BYTE_SIZE) {
-			wasLimitReached = true
-			break
-		}
-
-		output += closingString
-		byteSize += closingBytes
-	}
-
-	// Add a message if we hit the byte limit
-	if (wasLimitReached) {
-		const truncationMessage = `\n[Results truncated due to exceeding the ${MAX_RIPGREP_MB}MB size limit. Please use a more specific search pattern.]`
-		// Only add the message if it fits within the limit
-		if (byteSize + Buffer.byteLength(truncationMessage, "utf8") < MAX_BYTE_SIZE) {
-			output += truncationMessage
-		}
-	}
-
-	return output.trim()
+	return formatResults(filteredResults, cwd, lineTruncated)
 }

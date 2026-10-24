@@ -423,6 +423,7 @@
 		"test:toolcall": "node test/toolcall/run.mjs",
 		"test:free": "node test/free/run.mjs",
 		"test:deepseek": "node test/deepseek/run.mjs",
+		"test:ripgrep": "node test/ripgrep/run.mjs",
 		"replay:task": "node test/toolcall/run.mjs replay",
 		"prepare": "npx husky",
 		"test:update": "node test/update/run.mjs",

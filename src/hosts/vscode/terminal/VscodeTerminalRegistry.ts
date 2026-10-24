@@ -27,6 +27,10 @@ export class TerminalRegistry {
 			iconPath: new vscode.ThemeIcon("cline-icon"),
 			env: {
 				CLINE_ACTIVE: "true",
+				// Windows 控制台默认 cp936：python 管道输出按它编码，而宿主按 UTF-8 解读 →
+				// 含中日文的行变乱码，模型误判文件编码后反复重试（2026-10-24 两单实弹取证，
+				// 上游 cline#10378 未修）。等效模型侧 `-X utf8` 的实证修法；对 POSIX 无副作用。
+				PYTHONUTF8: "1",
 			},
 		}
 

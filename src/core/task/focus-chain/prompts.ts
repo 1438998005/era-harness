@@ -33,6 +33,10 @@ const listInstructionsRecommended = `
 2. Create a comprehensive checklist of all steps needed
 3. Use markdown format: - [ ] for incomplete, - [x] for complete
 
+**When to update (important — saves output tokens):**
+	- Include task_progress ONLY when the list actually changes: new items added, items completed, items rewritten or reordered
+	- If nothing changed since your last task_progress, omit the parameter entirely — never repeat an identical list
+
 **Benefits of creating a todo/task_progress list now:**
 	- Clear roadmap for implementation
 	- Progress tracking throughout the task
@@ -60,6 +64,8 @@ const reminder = `
 		- Add any new steps you've discovered
 		- Reorder if the sequence has changed
 4. Ensure the list accurately reflects the current state
+
+**Only send the list when it actually changed.** If nothing changed since your last task_progress, omit the parameter entirely — repeating an identical list wastes output tokens on every request.
 
 **Remember:** Keeping the task_progress list updated helps track progress and ensures nothing is missed.`
 
