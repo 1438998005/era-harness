@@ -60,10 +60,12 @@ function createHandlerForProvider(
 
 	switch (apiProvider) {
 		case "free":
-			// 免费模型：OpenCode Zen + Kilo + OVH 三渠道路由，零配置可用（OVH 可选填 Key 提额）
+			// 免费模型：OpenCode Zen + Kilo + OVH 三渠道路由，零配置可用（OVH 可选填 Key 提额；
+			// 隐私开关开启时仅路由不收集提示词的渠道）
 			return new FreeModelHandler({
 				onRetryAttempt: options.onRetryAttempt,
 				ovhApiKey: options.ovhAiEndpointsApiKey,
+				excludeCollecting: options.freeExcludeCollecting,
 			})
 		case "openai":
 			return new OpenAiHandler({

@@ -4,7 +4,7 @@
  * 保留休眠（链上无 zen 候选即永不触发），待未来按「免费门三要素」恢复（判据见 free-lanes.ts 顶部注释）。
  *
  * 每次 createMessage：
- * 1. 多模态硬过滤（带图只留 vision 候选）+ Kilo listing 门控；
+ * 1. 多模态硬过滤（带图只留 vision 候选）+ 隐私开关（剔除收集渠道）+ Kilo listing 门控；
  * 2. 池内按序号依次尝试，直到「流出内容」为止；
  * 3. 失败分类：上下文超限上抛（Task 层截断重试）；（Zen 恢复后）免费门触发车道级冷却；
  *    限流（含 OVH 匿名 2rpm）/区域/传输/5xx/空停 → 换下一个；用户中止 → 直接抛；
@@ -49,6 +49,8 @@ interface FreeModelHandlerOptions extends CommonApiHandlerOptions {
 	kiloFreeRows?: KiloFreeRow[]
 	/** OVHcloud AI Endpoints 可选 API Key（用户设置页选填；留空走匿名 2rpm） */
 	ovhApiKey?: string
+	/** 隐私开关：true = 仅路由不收集提示词的渠道（排除 Kilo；此时 Kilo listing 也不拉取） */
+	excludeCollecting?: boolean
 }
 
 /**
@@ -124,14 +126,20 @@ export class FreeModelHandler implements ApiHandler {
 		this.zen = ensureFreshZenClient(this.zen)
 
 		const hasImages = messagesHaveImages(messages)
-		const kiloFreeRows = this.options.kiloFreeRows ?? (await fetchKiloFreeModels())
-		const chain = buildFreeCandidateChain({ hasImages, kiloFreeRows })
+		const excludeCollecting = this.options.excludeCollecting === true
+		// 隐私开关开启时 Kilo 必然被链组装剔除，listing 拉取纯属一次白等的网络请求
+		const kiloFreeRows = this.options.kiloFreeRows ?? (excludeCollecting ? [] : await fetchKiloFreeModels())
+		const chain = buildFreeCandidateChain({ hasImages, kiloFreeRows, excludeCollecting })
 
 		if (chain.length === 0) {
 			throw new Error(
 				hasImages
-					? "免费模型当前没有支持图片输入的候选模型。请移除图片重试，或在 API 设置中切换 Provider。"
-					: "免费候选当前全部在冷却中或不可用，请稍后重试，或在 API 设置中配置 DeepSeek API Key。",
+					? excludeCollecting
+						? "隐私开关已开启，且免费池中不收集信息的渠道没有支持图片输入的候选模型。请移除图片重试，或关闭「仅使用不收集信息的模型」，或在 API 设置中切换 Provider。"
+						: "免费模型当前没有支持图片输入的候选模型。请移除图片重试，或在 API 设置中切换 Provider。"
+					: excludeCollecting
+						? "隐私开关已开启，但免费池中不收集信息的渠道当前全部不可用。请稍后重试，关闭该开关，或在 API 设置中配置 DeepSeek API Key。"
+						: "免费候选当前全部在冷却中或不可用，请稍后重试，或在 API 设置中配置 DeepSeek API Key。",
 			)
 		}
 

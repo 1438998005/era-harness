@@ -1,7 +1,10 @@
 import { type FreeCandidate, type FreeLane, getAllFreeCandidates, LANE_META } from "@shared/free-pools"
 import type { Mode } from "@shared/storage/types"
+import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import type React from "react"
 import { useTranslation } from "react-i18next"
+import { useExtensionState } from "@/context/ExtensionStateContext"
+import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 interface FreeModelProviderProps {
 	showModelOptions: boolean
@@ -42,10 +45,13 @@ function badge(backgroundColor: string, color: string, label: string, title?: st
 	)
 }
 
-const FreePoolTable: React.FC<{ candidates: FreeCandidate[] }> = ({ candidates }) => {
+const FreePoolTable: React.FC<{ candidates: FreeCandidate[]; excludeCollecting: boolean }> = ({
+	candidates,
+	excludeCollecting,
+}) => {
 	const { t } = useTranslation("settings")
 	return (
-		// 池已收敛为两渠道 16-17 项，取消固定 300px 内滚：整表自然展开、由设置页外层滚动容器
+		// 池已收敛为两渠道 15 项，取消固定 300px 内滚：整表自然展开、由设置页外层滚动容器
 		// （TabContent flex-1 overflow-auto）兜底，避免「下方大片空白 + 表内滚动条」并存。
 		<div className="overflow-x-hidden">
 			<table className="w-full text-xs border-collapse">
@@ -66,42 +72,54 @@ const FreePoolTable: React.FC<{ candidates: FreeCandidate[] }> = ({ candidates }
 					</tr>
 				</thead>
 				<tbody>
-					{candidates.map((candidate) => (
-						<tr
-							className="border-t border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground) transition-colors"
-							key={candidate.id || candidate.displayName}>
-							<td className="py-1 pr-2">
-								<span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-									{candidate.displayName}
-									{candidate.needsProxy &&
-										badge(
-											"rgba(204,167,0,0.15)",
-											"#CCA700",
-											t("settings.freePoolProxy"),
-											t("settings.freePoolProxyTip"),
-										)}
-									{LANE_META[candidate.lane].collectsData &&
-										badge(
-											"rgba(241,76,76,0.12)",
-											"var(--vscode-errorForeground, #F14C4C)",
-											t("settings.freePoolCollect"),
-											t("settings.freePoolCollectTip"),
-										)}
-								</span>
-							</td>
-							<td className="py-1">
-								<span
-									className="rounded-full px-1.5 py-px text-[10px] leading-none"
-									style={LANE_BADGE_STYLE[candidate.lane]}>
-									{LANE_LABEL[candidate.lane]}
-								</span>
-							</td>
-							<td className="py-1 text-right" style={{ color: dimColor }}>
-								{formatContextWindow(candidate.contextWindow)}
-							</td>
-							<td className="py-1 text-right">{candidate.vision ? "✓" : "—"}</td>
-						</tr>
-					))}
+					{candidates.map((candidate) => {
+						// 隐私开关开启时，收集渠道行降透明度示意「已被排除」（实际路由按 LANE_META 过滤）
+						const excluded = excludeCollecting && LANE_META[candidate.lane].collectsData
+						return (
+							<tr
+								className="border-t border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground) transition-colors"
+								key={candidate.id || candidate.displayName}
+								style={excluded ? { opacity: 0.45 } : undefined}>
+								<td className="py-1 pr-2">
+									<span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+										{candidate.displayName}
+										{excluded &&
+											badge(
+												"rgba(120,120,120,0.15)",
+												"var(--vscode-descriptionForeground, #AAAAAA)",
+												t("settings.freePoolExcluded"),
+												t("settings.freePoolExcludedTip"),
+											)}
+										{candidate.needsProxy &&
+											badge(
+												"rgba(204,167,0,0.15)",
+												"#CCA700",
+												t("settings.freePoolProxy"),
+												t("settings.freePoolProxyTip"),
+											)}
+										{LANE_META[candidate.lane].collectsData &&
+											badge(
+												"rgba(241,76,76,0.12)",
+												"var(--vscode-errorForeground, #F14C4C)",
+												t("settings.freePoolCollect"),
+												t("settings.freePoolCollectTip"),
+											)}
+									</span>
+								</td>
+								<td className="py-1">
+									<span
+										className="rounded-full px-1.5 py-px text-[10px] leading-none"
+										style={LANE_BADGE_STYLE[candidate.lane]}>
+										{LANE_LABEL[candidate.lane]}
+									</span>
+								</td>
+								<td className="py-1 text-right" style={{ color: dimColor }}>
+									{formatContextWindow(candidate.contextWindow)}
+								</td>
+								<td className="py-1 text-right">{candidate.vision ? "✓" : "—"}</td>
+							</tr>
+						)
+					})}
 				</tbody>
 			</table>
 		</div>
@@ -111,11 +129,14 @@ const FreePoolTable: React.FC<{ candidates: FreeCandidate[] }> = ({ candidates }
 /**
  * 免费模型配置卡片：两渠道（Kilo / OVHcloud AI Endpoints）单一优先级池清单（Zen 已暂时移出池，
  * 代码保留待恢复）；模型池表格内部滚动。零配置开箱即用——无 API Key 输入框、无模型下拉
- * （路由自动选模型，呼应「不可选」）。
+ * （路由自动选模型，呼应「不可选」）。附隐私开关：仅路由不收集提示词的渠道。
  */
 export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const { t } = useTranslation("settings")
+	const { apiConfiguration } = useExtensionState()
+	const { handleFieldChange } = useApiConfigurationHandlers()
 
+	const excludeCollecting = apiConfiguration?.freeExcludeCollecting === true
 	const candidates = getAllFreeCandidates()
 
 	return (
@@ -124,9 +145,20 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 				{t("settings.freeModelDesc")}
 			</p>
 
+			<div>
+				<VSCodeCheckbox
+					checked={excludeCollecting}
+					onChange={() => handleFieldChange("freeExcludeCollecting", !excludeCollecting)}>
+					{t("settings.freePrivacyToggle")}
+				</VSCodeCheckbox>
+				<div className="text-xs text-description mt-0.5">
+					{excludeCollecting ? t("settings.freePrivacyHintOn") : t("settings.freePrivacyHintOff")}
+				</div>
+			</div>
+
 			<div className="flex flex-col gap-1">
 				<span className="text-xs font-medium">{t("settings.freePoolTitle")}</span>
-				<FreePoolTable candidates={candidates} />
+				<FreePoolTable candidates={candidates} excludeCollecting={excludeCollecting} />
 				<span className="text-[11px]" style={{ color: dimColor }}>
 					{t("settings.freePoolHint")}
 				</span>

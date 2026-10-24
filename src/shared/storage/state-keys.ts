@@ -96,6 +96,8 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	openAiBaseUrl: { default: undefined as string | undefined },
 	requestTimeoutMs: { default: undefined as number | undefined },
 	enableParallelToolCalling: { default: true as boolean },
+	// era harness：免费池隐私开关。true = 仅路由到不收集提示词的渠道（排除 Kilo 明文收集，仅剩 OVH；渠道标记见 free-pools.ts LANE_META）
+	freeExcludeCollecting: { default: false as boolean },
 
 	// Plan mode configurations
 	planModeApiModelId: { default: undefined as string | undefined },

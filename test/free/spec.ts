@@ -91,56 +91,44 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// 候选链组装（单一优先级池，2026-10-19 按真实编程能力重排 17 项跨两渠道）
+// 候选链组装（单一优先级池，2026-10-24 修订，15 项跨两渠道）
 // ---------------------------------------------------------------------------
 
-test("单一池：无 listing 时 16 个候选（Ling 被门控剔除）且保持编程能力优先级顺序", () => {
+test("单一池：无 listing 时 15 个候选（全部精确 ID）且保持编程能力优先级顺序", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
-	assert.equal(chain.length, 16) // 17 项池 - Ling（无精确 ID，listing 门控剔除）
-	// 渠道分布：OVH 10 + Kilo 6（Ling 剔除）；Zen 已移出池
+	assert.equal(chain.length, 15) // OVH 10 + Kilo 5（全部精确 ID，无 listingMatch 条目）
+	// 渠道分布：OVH 10 + Kilo 5；Zen 已移出池
 	assert.equal(chain.filter((c) => c.lane === "zen").length, 0)
 	assert.equal(chain.filter((c) => c.lane === "ovh").length, 10)
-	assert.equal(chain.filter((c) => c.lane === "kilo").length, 6)
-	// 编程能力优先级顺序（2026-10-19 重排；无 listing 时 Ling 剔除，其余 16 项锁定）
+	assert.equal(chain.filter((c) => c.lane === "kilo").length, 5)
+	// 编程能力优先级顺序（2026-10-24 修订；无 listing 时 Kilo 5 项全部放行）
 	assert.equal(chain[0].id, "Qwen3.8-27B")
 	assert.equal(chain[1].id, "Qwen3.6-27B")
 	assert.equal(chain[2].id, "poolside/laguna-s-2.1:free")
-	assert.equal(chain[3].id, "thinkingmachines/inkling-small:free")
-	assert.equal(chain[4].id, "dots-studio/dots-3-note-preview:free")
-	assert.equal(chain[5].id, "Qwen3.5-397B-A17B")
-	assert.equal(chain[6].id, "nvidia/nemotron-3-ultra-550b-a55b:free")
-	assert.equal(chain[7].id, "cohere/north-mini-code:free")
-	assert.equal(chain[8].id, "gpt-oss-120b")
-	assert.equal(chain[9].id, "Mistral-Small-3.2-24B-Instruct-2506")
-	assert.equal(chain[10].id, "gpt-oss-20b")
-	assert.equal(chain[11].id, "Meta-Llama-3_3-70B-Instruct")
-	assert.equal(chain[12].id, "Qwen3.5-9B")
-	assert.equal(chain[13].id, "Qwen2.5-VL-72B-Instruct")
-	assert.equal(chain[14].id, "Mistral-Nemo-Instruct-2407")
-	assert.equal(chain[15].id, "liquid/lfm-2.5-2.6b:free")
+	assert.equal(chain[3].id, "dots-studio/dots-3-note-preview:free")
+	assert.equal(chain[4].id, "Qwen3.5-397B-A17B")
+	assert.equal(chain[5].id, "nvidia/nemotron-3-ultra-550b-a55b:free")
+	assert.equal(chain[6].id, "cohere/north-mini-code:free")
+	assert.equal(chain[7].id, "gpt-oss-120b")
+	assert.equal(chain[8].id, "Mistral-Small-3.2-24B-Instruct-2506")
+	assert.equal(chain[9].id, "gpt-oss-20b")
+	assert.equal(chain[10].id, "Meta-Llama-3_3-70B-Instruct")
+	assert.equal(chain[11].id, "Qwen3.5-9B")
+	assert.equal(chain[12].id, "Qwen2.5-VL-72B-Instruct")
+	assert.equal(chain[13].id, "Mistral-Nemo-Instruct-2407")
+	assert.equal(chain[14].id, "liquid/lfm-2.5-2.6b:free")
 })
 
-test("单一池：listing 含 Ling 时补足为 17 个且插在 Inkling 之后 / Dots3-Note 之前", () => {
-	// 完整免费清单：6 个已实证 Kilo 条目 + Ling
-	const rows = [
-		{ id: "dots-studio/dots-3-note-preview:free", contextWindow: 512_000, maxOutput: 460_800, vision: true },
-		{ id: "poolside/laguna-s-2.1:free", contextWindow: 262_144, maxOutput: 32_768, vision: false },
-		{ id: "thinkingmachines/inkling-small:free", contextWindow: 1_048_576, maxOutput: 262_144, vision: true },
-		{ id: "nvidia/nemotron-3-ultra-550b-a55b:free", contextWindow: 1_000_000, maxOutput: 65_536, vision: false },
-		{ id: "cohere/north-mini-code:free", contextWindow: 256_000, maxOutput: 64_000, vision: false },
-		{ id: "liquid/lfm-2.5-2.6b:free", contextWindow: 65_536, maxOutput: 8_192, vision: false },
-		{ id: "vendor/ling-3.0-flash-sante:free", contextWindow: 262_144, maxOutput: 32_768, vision: false },
-	]
+test("单一池：listing 行元数据覆盖静态表（exact-ID 解析）", () => {
+	// 只给 dots 一行（其余 Kilo 条目不在清单 → 门控剔除），窗口/上限/vision 均以 listing 为准
+	const rows = [{ id: "dots-studio/dots-3-note-preview:free", contextWindow: 999_000, maxOutput: 8_192, vision: false }]
 	const chain = buildFreeCandidateChain({ hasImages: false, kiloFreeRows: rows })
-	assert.equal(chain.length, 17)
-	assert.equal(chain[4].displayName, "Ling 3.0 Flash Sante")
-	assert.equal(chain[5].id, "dots-studio/dots-3-note-preview:free")
-	assert.equal(chain[7].id, "nvidia/nemotron-3-ultra-550b-a55b:free")
-	assert.equal(chain[8].id, "cohere/north-mini-code:free")
-	assert.equal(chain[9].id, "gpt-oss-120b")
-	assert.equal(chain[12].id, "Meta-Llama-3_3-70B-Instruct")
-	assert.equal(chain[13].id, "Qwen3.5-9B")
-	assert.equal(chain[16].id, "liquid/lfm-2.5-2.6b:free")
+	assert.equal(chain.length, 11) // 10 OVH + 1 Kilo（其余 4 个 Kilo 条目不在清单 → 门控剔除）
+	const dots = chain.find((candidate) => candidate.id === "dots-studio/dots-3-note-preview:free")
+	assert.ok(dots, "dots 条目应被 listing 解析出来")
+	assert.equal(dots?.contextWindow, 999_000)
+	assert.equal(dots?.maxOutput, 8_192)
+	assert.equal(dots?.vision, false)
 })
 
 test("代理标记：原需代理候选（Muse Spark 1.3/1.2、Cat Jam）随 Zen 移出池，当前池内无 needsProxy", () => {
@@ -179,10 +167,10 @@ test("上下文窗口：OVH 端点 / Kilo 静态实证表的权威值", () => {
 	assert.equal(byId("Qwen2.5-VL-72B-Instruct")?.contextWindow, 32_768)
 	// Kilo 侧以静态实证表为准
 	assert.equal(byId("dots-studio/dots-3-note-preview:free")?.contextWindow, 512_000)
-	assert.equal(byId("thinkingmachines/inkling-small:free")?.contextWindow, 1_048_576)
+	assert.equal(byId("poolside/laguna-s-2.1:free")?.contextWindow, 262_144)
 })
 
-test("带图链只含 vision 候选（OVH 的 Qwen2.5-VL + Kilo 的 dots/inkling）", () => {
+test("带图链只含 vision 候选（OVH 的 Qwen2.5-VL + Kilo 的 dots）", () => {
 	const chain = buildFreeCandidateChain({ hasImages: true })
 	assert.ok(chain.length > 0)
 	assert.ok(chain.every((candidate) => candidate.vision))
@@ -192,7 +180,6 @@ test("带图链只含 vision 候选（OVH 的 Qwen2.5-VL + Kilo 的 dots/inkling
 		"OVH vision 候选应在带图链中",
 	)
 	assert.ok(chain.some((candidate) => candidate.id === "dots-studio/dots-3-note-preview:free"))
-	assert.ok(chain.some((candidate) => candidate.id === "thinkingmachines/inkling-small:free"))
 })
 
 test("Kilo listing 门控：不在免费清单的 Kilo 条目被剔除", () => {
@@ -204,20 +191,32 @@ test("Kilo listing 门控：不在免费清单的 Kilo 条目被剔除", () => {
 	assert.ok(!chain.some((candidate) => candidate.lane === "zen"))
 })
 
+test("隐私开关：excludeCollecting 剔除收集渠道（Kilo），仅剩 OVH 且优先级不变", () => {
+	const chain = buildFreeCandidateChain({ hasImages: false, excludeCollecting: true })
+	assert.equal(chain.length, 10)
+	assert.ok(
+		chain.every((candidate) => candidate.lane === "ovh"),
+		"链上应只剩 OVH 候选",
+	)
+	// 即使 listing 给了 Kilo 免费行，收集渠道也必须被剔除（隐私开关先于 listing 门控）
+	const rows = [{ id: "dots-studio/dots-3-note-preview:free", contextWindow: 512_000, maxOutput: 460_800, vision: true }]
+	const chainWithRows = buildFreeCandidateChain({ hasImages: false, kiloFreeRows: rows, excludeCollecting: true })
+	assert.ok(!chainWithRows.some((candidate) => candidate.lane === "kilo"))
+	// OVH 内部顺序保持池序
+	assert.equal(chain[0].id, "Qwen3.8-27B")
+	assert.equal(chain[9].id, "Mistral-Nemo-Instruct-2407")
+})
+
+test("隐私开关 + 带图：vision 候选仅剩 Qwen2.5-VL（OVH 侧唯一 vision）", () => {
+	const chain = buildFreeCandidateChain({ hasImages: true, excludeCollecting: true })
+	assert.equal(chain.length, 1)
+	assert.equal(chain[0].id, "Qwen2.5-VL-72B-Instruct")
+})
+
 test("Kilo listing 拉取失败时只放行已实证精确 ID 的条目", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
 	const kilo = chain.filter((candidate) => candidate.lane === "kilo")
-	assert.equal(kilo.length, 6, "6 个已实证 Kilo 条目应放行，Ling（无精确 ID）应剔除")
-	assert.ok(!kilo.some((candidate) => candidate.displayName === "Ling 3.0 Flash Sante"))
-})
-
-test("Kilo listingMatch 条目从 listing 解析真实 ID 与元数据", () => {
-	const rows = [{ id: "vendor/ling-3.0-flash-sante:free", contextWindow: 262_144, maxOutput: 32_768, vision: false }]
-	const chain = buildFreeCandidateChain({ hasImages: false, kiloFreeRows: rows })
-	const ling = chain.find((candidate) => candidate.displayName === "Ling 3.0 Flash Sante")
-	assert.ok(ling, "Ling 条目应被 listing 解析出来")
-	assert.equal(ling?.id, "vendor/ling-3.0-flash-sante:free")
-	assert.equal(ling?.contextWindow, 262_144)
+	assert.equal(kilo.length, 5, "5 个已实证 Kilo 条目应全部放行（池内已无待解析条目）")
 })
 
 test("parseKiloFreeRows: isFree 过滤 / vision / 缺省值", () => {
@@ -355,6 +354,17 @@ test("全部候选失败：抛错含候选数与 DeepSeek 引导（kiloFreeRows=
 	await assert.rejects(() => handler.createMessage("sys", userMessages).next(), /已尝试 10 个候选/)
 })
 
+test("隐私开关：不拉 Kilo listing、Kilo 零调用，OVH 全挂后只报 10 个候选", async () => {
+	// kiloFreeRows 不传：正常路径会发 listing 网络请求；开关开启时必须跳过（若回归为发起请求，
+	// 本测试会打到真实网络并可能让 Kilo 候选进链，下面的断言即失败）
+	const ovh = fakeClient({ chat: () => apiError(429, "API rate limit exceeded") })
+	const kilo = fakeClient({ chat: () => textStream("OK") })
+	const handler = new FreeModelHandler({ ovhClient: ovh, kiloClient: kilo, excludeCollecting: true })
+
+	await assert.rejects(() => handler.createMessage("sys", userMessages).next(), /已尝试 10 个候选/)
+	assert.equal(callsOf(kilo).chat, undefined, "隐私开关下 Kilo 不应被调用")
+})
+
 test("用户中止：候选失败后不得再烧下一个（停止键不能被忽略）", async () => {
 	let handler: FreeModelHandler | undefined
 	const ovh = fakeClient({
@@ -392,16 +402,13 @@ test("已吐内容后失败：报错而不是拼上另一个模型的开头", as
 	assert.deepEqual(callsOf(ovh).chat, ["Qwen3.8-27B"], "不能换模型接着写（会拼成两段回复）")
 })
 
-test("带图请求：只路由 vision 候选，落 vision 链首选 Inkling Small（重排后）", async () => {
+test("带图请求：只路由 vision 候选，落 vision 链首选 Dots3-Note（2026-10-24 修订）", async () => {
 	const ovh = fakeClient({ chat: () => apiError(429, "rate limit") })
 	const kilo = fakeClient({ chat: () => textStream("OK") })
 	const handler = new FreeModelHandler({
 		ovhClient: ovh,
 		kiloClient: kilo,
-		kiloFreeRows: [
-			{ id: "dots-studio/dots-3-note-preview:free", contextWindow: 512_000, maxOutput: 460_800, vision: true },
-			{ id: "thinkingmachines/inkling-small:free", contextWindow: 1_048_576, maxOutput: 262_144, vision: true },
-		],
+		kiloFreeRows: [{ id: "dots-studio/dots-3-note-preview:free", contextWindow: 512_000, maxOutput: 460_800, vision: true }],
 	})
 	const imageMessages = [
 		{
@@ -421,8 +428,8 @@ test("带图请求：只路由 vision 候选，落 vision 链首选 Inkling Smal
 	}
 
 	assert.equal(chunks.join(""), "OK")
-	assert.equal(handler.getModel().id, "thinkingmachines/inkling-small:free")
-	// 重排后 vision 链顺序：inkling(kilo #4) → dots-3-note(kilo #14) → Qwen2.5-VL(ovh #15)；inkling 命中即返回
-	assert.deepEqual(callsOf(kilo).chat, ["thinkingmachines/inkling-small:free"])
-	assert.equal(callsOf(ovh).chat, undefined, "inkling 先命中，OVH 不应被调")
+	assert.equal(handler.getModel().id, "dots-studio/dots-3-note-preview:free")
+	// vision 链顺序：dots-3-note(kilo #4) → Qwen2.5-VL(ovh #13)；dots 命中即返回
+	assert.deepEqual(callsOf(kilo).chat, ["dots-studio/dots-3-note-preview:free"])
+	assert.equal(callsOf(ovh).chat, undefined, "dots 先命中，OVH 不应被调")
 })

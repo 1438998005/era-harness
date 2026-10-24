@@ -10,16 +10,19 @@
  *   maxOutput 端点未登记 → 保守估值，handler 的 FREE_REQUEST_MAX_OUTPUT 截断兜底。
  * - vision 以 zen-gate 实测探测口径为准（未验证不声明，保守 false）。
  *
- * 池顺序（2026-10-19 重排：以 Artificial Analysis Coding Index 为骨架，用 SWE-bench Verified/Pro、
+ * 池顺序（2026-10-24 修订：以 Artificial Analysis Coding Index 为骨架，用 SWE-bench Verified/Pro、
  * Terminal-Bench 2.1、DeepSWE 等独立基准与 OpenRouter 社区用量补位/破平；纯按编程能力降序，未加隐私权重）：
- * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Laguna S 2.1(kilo) → Inkling Small(kilo) →
- * Ling 3.0 Flash Sante(kilo) → Dots3-Note(kilo) → Qwen3.5-397B(ovh) → Nemotron 3 Ultra(kilo) →
- * North Mini Code(kilo) → gpt-oss-120b(ovh) → Mistral Small 3.2(ovh) → gpt-oss-20b(ovh) →
- * Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) → Qwen2.5-VL-72B(ovh) → Mistral Nemo(ovh) → LFM 2.5 2.6B(kilo)。
- * （共 17 项：OVH 10 + Kilo 7；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，门控判据见 free-lanes.ts。
+ * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Laguna S 2.1(kilo) → Dots3-Note(kilo) → Qwen3.5-397B(ovh) →
+ * Nemotron 3 Ultra(kilo) → North Mini Code(kilo) → gpt-oss-120b(ovh) → Mistral Small 3.2(ovh) →
+ * gpt-oss-20b(ovh) → Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) → Qwen2.5-VL-72B(ovh) → Mistral Nemo(ovh) →
+ * LFM 2.5 2.6B(kilo)。
+ * （共 15 项：OVH 10 + Kilo 5；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，门控判据见 free-lanes.ts。
  * 逐模型出处与用户裁定以本文件为准（开发期编号知识库已退役，无在册副本）；纯能力序不加隐私权重。
- * 用户裁定（最高优先级）：Dots3-Note 自报 SWE-V 池内最高但实测 < Inkling → 排其后；Qwen3.6-27B 实测 > Laguna → 升 #2；
- * Ling 3.0 Flash Sante 由用户指定上移至 Dots3-Note 之前（#5，覆盖此前按编码可靠性让 Nemotron 先于 Ling 的排序）。）
+ * 用户裁定（最高优先级）：Dots3-Note 自报 SWE-V 池内最高但实测 < Inkling → 排其后；Qwen3.6-27B 实测 > Laguna → 升 #2。
+ * 2026-10-24 移除（修订，原 17 项）：Inkling Small（Kilo 免费版 2026-10-23 终止，listing 仅存付费行）、
+ * Ling 3.0 Flash Sante（Kilo 彻底下线，listing 无行、模型页 404；基础版 ling-3.0-flash 为付费行，补位不成立）。
+ * 移除后 Dots3-Note 顺升为 vision 链首选。Mistral Small 3.2 / Nemo 已被 OVH 列入退役表（2026-11-04 移除），
+ * 届时须复检移除。）
  *
  * 设计要点：
  * - 顺序 = 真实编程能力优先级，依次尝试直到成功；
@@ -62,11 +65,11 @@ export interface FreeCandidate {
 	vision: boolean
 	/** 需要代理才能访问（区域敏感；被 RegionError 封锁时走 failover，换出口可解） */
 	needsProxy?: boolean
-	/** Kilo 条目从 listing 解析真实 ID 的匹配器（ID 未实证时使用） */
+	/** Kilo 条目从 listing 解析真实 ID 的匹配器（ID 未实证时使用；2026-10-24 起池内无使用者，机制休眠保留） */
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 真实编程能力优先级（2026-10-19 重排，17 项跨两渠道，裁定记录见本文件头部注释） */
+/** 单一候选池：顺序 = 真实编程能力优先级（2026-10-24 修订，15 项跨两渠道，裁定记录见本文件头部注释） */
 export const FREE_POOL: readonly FreeCandidate[] = [
 	{
 		id: "Qwen3.8-27B",
@@ -96,32 +99,13 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		vision: false,
 	},
 	{
-		id: "thinkingmachines/inkling-small:free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Inkling Small",
-		contextWindow: 1_048_576, // Kilo listing 实证
-		maxOutput: 262_144,
-		vision: true,
-	},
-	{
-		id: "",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Ling 3.0 Flash Sante",
-		contextWindow: 262_144,
-		maxOutput: 32_768,
-		vision: false,
-		listingMatch: /ling-3[.\-_]?0.*flash/i, // ID 未实证（models.dev 仅有 ling-3.0-flash-fin-free），依赖 listing 解析
-	},
-	{
 		id: "dots-studio/dots-3-note-preview:free",
 		lane: "kilo",
 		wire: "chat",
 		displayName: "Dots3-Note Preview",
 		contextWindow: 512_000, // Kilo listing 实证
 		maxOutput: 460_800,
-		vision: true,
+		vision: true, // 2026-10-24 起 Kilo 侧唯一 vision 候选（Inkling Small 免费版已终止）
 	},
 	{
 		id: "Qwen3.5-397B-A17B",
@@ -203,7 +187,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "Qwen2.5 VL 72B",
 		contextWindow: 32_768, // OVH 端点实证
 		maxOutput: 8_192,
-		vision: true, // VL = 视觉语言模型（vision 候选，但排序靠后：Inkling Small 为 vision 链首选）
+		vision: true, // VL = 视觉语言模型（vision 候选，但排序靠后：Dots3-Note 为 vision 链首选）
 	},
 	{
 		id: "Mistral-Nemo-Instruct-2407",
@@ -239,17 +223,23 @@ export interface FreeChainOptions {
 	hasImages: boolean
 	/** Kilo 免费清单；undefined = 拉取失败（回退静态实证表） */
 	kiloFreeRows?: KiloFreeRow[]
+	/** 隐私开关：true = 剔除收集提示词的渠道（LANE_META.collectsData），当前即排除 Kilo */
+	excludeCollecting?: boolean
 }
 
 /**
  * 组装候选链（保持池内顺序 = 用户指定优先级）：
- * 1. Kilo 条目按 listing 门控（见文件头说明）；Zen / OVH 始终进链；
- * 2. 带图请求只保留 vision 候选（"an image must never ride a text-only model"）。
+ * 1. 隐私开关开启时先剔除收集渠道（当前即 Kilo，listing 无需拉取/解析）；
+ * 2. Kilo 条目按 listing 门控（见文件头说明）；Zen / OVH 始终进链；
+ * 3. 带图请求只保留 vision 候选（"an image must never ride a text-only model"）。
  */
 export function buildFreeCandidateChain(options: FreeChainOptions): FreeCandidate[] {
 	const chain: FreeCandidate[] = []
 
 	for (const candidate of FREE_POOL) {
+		if (options.excludeCollecting && LANE_META[candidate.lane].collectsData) {
+			continue
+		}
 		if (candidate.lane === "kilo") {
 			const resolved = resolveKiloCandidate(candidate, options.kiloFreeRows)
 			if (resolved) {
