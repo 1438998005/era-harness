@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { DirectoryInfo, EncodingKind, EncodingSample, ErbTreeScan } from './types.js';
 
@@ -80,6 +80,31 @@ export function detectEncoding(buffer: Buffer): EncodingKind {
   }
 }
 
+/**
+ * 只读文件头做编码探测。
+ * 小文件整读（退整行边界会丢掉最后一行的日文，反而失真）；
+ * 大文件只读前 1024 字节，且截断点退到整行边界——切在多字节字符中间会让
+ * fatal UTF-8 校验失败，整个文件被误判成 CP932（与 readTextFile 的截断策略一致）。
+ * 1KB 内完全没有换行的极端情况仍可能切在字符中间，无法在固定窗口内根治。
+ */
+async function detectHeadEncoding(file: string): Promise<EncodingKind> {
+  const handle = await open(file, 'r');
+  try {
+    const { size } = await handle.stat();
+    if (size <= 1024) {
+      return detectEncoding(await handle.readFile());
+    }
+    const buffer = Buffer.alloc(1024);
+    const { bytesRead } = await handle.read(buffer, 0, 1024, 0);
+    const chunk = buffer.subarray(0, bytesRead);
+    const lastBreak = chunk.lastIndexOf(0x0a);
+    const head = lastBreak >= 0 ? chunk.subarray(0, lastBreak + 1) : chunk;
+    return detectEncoding(head);
+  } finally {
+    await handle.close();
+  }
+}
+
 /** 对 ERB 文件等距取样做编码探测。 */
 export async function sampleErbEncodings(files: readonly string[], sampleCount: number): Promise<EncodingSample> {
   const sample: EncodingSample = { sampledFiles: 0, utf8Bom: 0, utf8: 0, cp932: 0, unknown: 0 };
@@ -91,9 +116,7 @@ export async function sampleErbEncodings(files: readonly string[], sampleCount: 
   }
   for (const f of picked) {
     try {
-      const buf = await readFile(f);
-      const kind = detectEncoding(buf.subarray(0, 1024));
-      sample[kind]++;
+      sample[await detectHeadEncoding(f)]++;
       sample.sampledFiles++;
     } catch {
       /* 读取失败不计入 */
