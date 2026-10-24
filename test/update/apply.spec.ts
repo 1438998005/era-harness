@@ -300,3 +300,142 @@ test("备份目录命名沿用用户既有习惯", () => {
 	const name = backupDirName("develop20261017", new Date(2026, 9, 18, 20, 30))
 	assert.equal(name, "update_backup_20261018_2030_develop20261017")
 })
+
+// ── U1：撤销必须连状态一起回滚 ──────────────────────────────────────────
+
+const OLD_STATE = {
+	schemaVersion: 1 as const,
+	source: { projectUrl: "https://example.test/eratw", branch: "develop" },
+	applied: { commit: "aaaaaaaa", nowVersion: "20261013", appliedAt: "2026-10-13T00:00:00.000Z" },
+	files: { "ERB/A.ERB": { sha1: "bbbbbbbb", size: 5, mtimeMs: 0 } },
+	localOverrides: [],
+}
+
+test("撤销更新：状态文件回到更新前（state-before.json 被写回）", async () => {
+	await withTempRoot(async (root) => {
+		await writeFiles(root, { "ERB/A.ERB": "old A" })
+		const plan = makePlan([{ path: "ERB/A.ERB", action: "write", reason: "clean-update", theirsSha1: "x" }])
+
+		const report = await applyPlan({
+			root,
+			plan,
+			label: "x",
+			stateBefore: OLD_STATE,
+			provide: () => Buffer.from("new A", "utf8"),
+		})
+		assert.equal(report.ok, true)
+
+		// 模拟 service.runUpdate 成功后的状态落盘（新快照）
+		const statePath = path.join(root, ".era-harness", "update-state.json")
+		await fs.mkdir(path.dirname(statePath), { recursive: true })
+		await fs.writeFile(
+			statePath,
+			JSON.stringify({ ...OLD_STATE, applied: { commit: "new", nowVersion: "new", appliedAt: "now" } }),
+			"utf8",
+		)
+
+		const undo = await rollbackFromBackup(report.backupDir!)
+		assert.equal(undo.ok, true)
+
+		// 状态必须是**更新前**的那份，不是"没有"也不是新快照
+		const restored = JSON.parse(await fs.readFile(statePath, "utf8"))
+		assert.equal(restored.applied.commit, "aaaaaaaa")
+		assert.equal(restored.applied.nowVersion, "20261013")
+	})
+})
+
+test("撤销更新：更新前没有状态（首次更新）时，状态文件应被删除", async () => {
+	await withTempRoot(async (root) => {
+		await writeFiles(root, { "ERB/A.ERB": "old A" })
+		const plan = makePlan([{ path: "ERB/A.ERB", action: "write", reason: "clean-update", theirsSha1: "x" }])
+
+		const report = await applyPlan({
+			root,
+			plan,
+			label: "x",
+			stateBefore: null,
+			provide: () => Buffer.from("new A", "utf8"),
+		})
+		assert.equal(report.ok, true)
+
+		const statePath = path.join(root, ".era-harness", "update-state.json")
+		await fs.mkdir(path.dirname(statePath), { recursive: true })
+		await fs.writeFile(statePath, "{}", "utf8")
+
+		const undo = await rollbackFromBackup(report.backupDir!)
+		assert.equal(undo.ok, true)
+		await assert.rejects(fs.stat(statePath), "首次更新撤销后不该留下状态文件")
+	})
+})
+
+test("撤销更新：老备份没有 state-before.json 时保持原行为（不碰状态文件）", async () => {
+	await withTempRoot(async (root) => {
+		await writeFiles(root, { "ERB/A.ERB": "old A" })
+		const plan = makePlan([{ path: "ERB/A.ERB", action: "write", reason: "clean-update", theirsSha1: "x" }])
+
+		const report = await applyPlan({ root, plan, label: "x", provide: () => Buffer.from("new A", "utf8") })
+		assert.equal(report.ok, true)
+
+		const statePath = path.join(root, ".era-harness", "update-state.json")
+		await fs.mkdir(path.dirname(statePath), { recursive: true })
+		await fs.writeFile(statePath, "keep-me", "utf8")
+
+		const undo = await rollbackFromBackup(report.backupDir!)
+		assert.equal(undo.ok, true)
+		assert.equal(await fs.readFile(statePath, "utf8"), "keep-me")
+	})
+})
+
+// ── U2：回滚没跑干净时必须如实报告 ─────────────────────────────────────
+
+test("中途失败自动回滚成功：rolledBack 为 true", async () => {
+	await withTempRoot(async (root) => {
+		await writeFiles(root, { "ERB/A.ERB": "old A" })
+		const plan = makePlan([
+			{ path: "ERB/A.ERB", action: "write", reason: "clean-update", theirsSha1: "x" },
+			{ path: "ERB/B.ERB", action: "write", reason: "upstream-add", theirsSha1: "y" },
+		])
+
+		// 第 2 个动作（写 B）时注入失败 → 回滚把 A、B 都还原回去
+		const report = await applyPlan({
+			root,
+			plan,
+			label: "x",
+			failAfter: 1,
+			provide: () => Buffer.from("content", "utf8"),
+		})
+		assert.equal(report.ok, false)
+		assert.equal(report.rolledBack, true, "回滚干净时必须如实报 true")
+	})
+})
+
+test("回滚本身失败（备份丢失）：rolledBack 为 false，且不谎报恢复原状", async () => {
+	await withTempRoot(async (root) => {
+		await writeFiles(root, { "ERB/A.ERB": "old A", "ERB/B.ERB": "old B" })
+		const plan = makePlan([
+			{ path: "ERB/A.ERB", action: "write", reason: "clean-update", theirsSha1: "x" },
+			{ path: "ERB/B.ERB", action: "write", reason: "clean-update", theirsSha1: "y" },
+		])
+
+		const report = await applyPlan({
+			root,
+			plan,
+			label: "x",
+			// provide 在备份完成之后逐文件调用：写 A 前把 A 的备份删掉（模拟杀毒误删备份），
+			// 再让 provide 对 B 抛错触发回滚 → 回滚还原 A 时备份已不在 → 回滚出错
+			provide: async (rel) => {
+				if (rel === "ERB/A.ERB") {
+					await fs.rm(path.join(root, "_备份"), { recursive: true, force: true })
+					return Buffer.from("new A", "utf8")
+				}
+				throw new Error("注入失败")
+			},
+		})
+
+		assert.equal(report.ok, false)
+		assert.equal(report.rolledBack, false, "回滚有残留错误时必须如实报 false")
+		// 磁盘停在半更新状态：A 已是新内容（备份没了还原不了），这是必须让用户知道的
+		assert.equal(await fs.readFile(path.join(root, "ERB", "A.ERB"), "utf8"), "new A")
+		assert.ok(report.errors.some((e) => e.path === "ERB/A.ERB"))
+	})
+})

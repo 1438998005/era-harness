@@ -28,6 +28,7 @@ const SPECS = [
 	"discover.spec.ts",
 	"profile.spec.ts",
 	"apply.spec.ts",
+	"plan-drift.spec.ts",
 	"service.spec.ts",
 	"gates.spec.ts",
 	"gates-g158.spec.ts",

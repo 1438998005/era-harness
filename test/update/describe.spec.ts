@@ -126,6 +126,46 @@ test("文案：失败必须明说「什么都没变」", () => {
 	assert.match(narrative.text, /磁盘空间不够/)
 })
 
+test("文案：回滚没跑干净时不能谎报「什么都没变」，要指路备份目录", () => {
+	const narrative = describeResult("failed", {
+		root: "D:/game",
+		error: "文件被占用",
+		rolledBack: false,
+		backupDir: "D:/game/_备份/update_backup_x",
+	})
+	assert.match(narrative.title, /没能完全恢复/)
+	assert.ok(!narrative.text.includes("什么都没变"), `不能谎报原状：${narrative.text}`)
+	assert.match(narrative.text, /手动处理/)
+	assert.match(narrative.text, /update_backup_x/)
+	assert.equal(narrative.backupDir, "D:/game/_备份/update_backup_x")
+	assertNoJargon(narrative.text)
+})
+
+test("文案：写后校验有文件没写对时，点名文件并建议处理", () => {
+	const narrative = describeResult("applied", {
+		root: "D:/game",
+		nowVersion: "20261017",
+		backupDir: "D:/game/_备份/update_backup_x",
+		verifyMismatches: ["ERB/a.ERB", "ERB/b.ERB", "ERB/c.ERB", "ERB/d.ERB", "ERB/e.ERB", "ERB/f.ERB", "ERB/g.ERB"],
+	})
+	assert.match(narrative.title, /7 个文件没写对/)
+	assert.ok(!narrative.text.includes("什么都没丢"), `校验没过不能当一切正常：${narrative.text}`)
+	assert.match(narrative.text, /ERB\/a\.ERB/)
+	assert.match(narrative.text, /还有 2 个/)
+	assert.match(narrative.text, /update_backup_x/)
+	assertNoJargon(narrative.text)
+})
+
+test("文案：校验全部通过时照常报更新完成", () => {
+	const narrative = describeResult("applied", {
+		root: "D:/game",
+		nowVersion: "20261017",
+		verifyMismatches: [],
+	})
+	assert.match(narrative.title, /更新完成/)
+	assert.match(narrative.text, /什么都没丢/)
+})
+
 test("文案：只有冲突且全部保留时不说「更新完成」", () => {
 	const narrative = describeResult("nothing-to-do", { root: "D:/game", keptLocal: 3 })
 	assert.equal(narrative.title, "没有需要更新的文件")

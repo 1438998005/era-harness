@@ -14,9 +14,10 @@
 
 import fs from "node:fs/promises"
 import path from "node:path"
-import { hashLocalFile, isProtectedPath, toFsPath, winLongPath } from "./manifest"
+import { hashLocalFile, isProtectedPath, statePath, toFsPath, winLongPath } from "./manifest"
 import { extractTar } from "./tarball"
 import type { PlanEntry, RelPath, UpdatePlan } from "./types"
+import { STATE_DIR, STATE_FILE } from "./types"
 
 export type BackupStatus = "applying" | "done" | "rolled-back"
 
@@ -75,7 +76,11 @@ export interface ApplyReport {
 	deleted: number
 	bytesWritten: number
 	errors: Array<{ path: string; message: string }>
-	/** 是否触发了自动回滚（true 表示磁盘已恢复原状） */
+	/**
+	 * 自动回滚的结果：true = 磁盘已完整恢复原状；
+	 * false = 回滚本身也出了错（磁盘可能停在半更新状态，UI 必须如实告诉用户，
+	 * 不能再说"什么都没变"——那是 U2 踩过的谎报）。
+	 */
 	rolledBack: boolean
 	skipped: number
 }
@@ -374,6 +379,8 @@ class Applier {
 	}
 
 	failedReport(error: unknown): ApplyReport {
+		// rollback() 开头会清空 errors，所以这里的 this.errors 只剩回滚阶段的错误：
+		// 有残留 = 没恢复干净，必须如实报 false，让 UI 说"需要手动处理"而不是谎报原状
 		return {
 			ok: false,
 			backupDir: this.backupDir,
@@ -381,7 +388,7 @@ class Applier {
 			deleted: 0,
 			bytesWritten: 0,
 			errors: [...this.errors, { path: "", message: (error as Error).message }],
-			rolledBack: true,
+			rolledBack: this.errors.length === 0,
 			skipped: this.skippedCount(),
 		}
 	}
@@ -573,6 +580,33 @@ export async function rollbackFromBackup(backupDir: string): Promise<RollbackRep
 
 	manifest.status = "rolled-back"
 	await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8")
+
+	// 状态也要跟着回去：更新成功时 `.era-harness/update-state.json` 已被写成新快照，
+	// 只还原文件不还原状态的话，下次更新会以新快照为基线，把所有旧文件判成
+	// 「用户改过」并误报已经是最新的。`state-before.json` 正是为此备份的。
+	// （备份目录里没有这个文件 = 老版本备份，保持只还原文件的原行为。）
+	const stateBeforePath = path.join(backupDir, "state-before.json")
+	try {
+		const raw = await fs.readFile(stateBeforePath, "utf8")
+		const parsed = JSON.parse(raw) as unknown
+		if (parsed === null) {
+			// 更新前没有状态（首次更新）：撤销后状态文件也不该留着
+			await fs.rm(winLongPath(statePath(manifest.root)), { force: true })
+		} else if (typeof parsed === "object" && (parsed as { schemaVersion?: unknown }).schemaVersion === 1) {
+			const target = winLongPath(statePath(manifest.root))
+			await fs.mkdir(path.dirname(target), { recursive: true })
+			await fs.writeFile(target, raw, "utf8")
+		} else {
+			errors.push({
+				path: `${STATE_DIR}/${STATE_FILE}`,
+				message: "state-before.json 格式不认识，更新状态没有还原",
+			})
+		}
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+			errors.push({ path: `${STATE_DIR}/${STATE_FILE}`, message: (error as Error).message })
+		}
+	}
 
 	return { ok: errors.length === 0, restored, removed, errors }
 }
