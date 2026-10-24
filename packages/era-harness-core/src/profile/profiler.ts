@@ -1,6 +1,7 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { DimConstant, ProjectProfile, VariableFamily } from './types.js';
+import { readTextFile } from '../encoding/encoding.js';
 import { configGet, configGetBoolean, configGetNumber, parseEmueraConfig } from './config.js';
 import { parseDimFile } from './dim.js';
 import { parseAlsEntries, parseCsvEntries } from './csv.js';
@@ -31,9 +32,14 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+/**
+ * 画像的全部文本读取都走编码安全通道：ERB/CSV/配置可能是 UTF-8 BOM 或 CP932，
+ * 裸 `readFile(utf8)` 会把 CP932 解成 U+FFFD 乱码、把 BOM 留在首字段里
+ * （首条 CSV 的 id 直接解析失败）。解码失败不抛错，只缺文件才返回 null。
+ */
 async function readTextIfExists(p: string): Promise<string | null> {
   try {
-    return await readFile(p, 'utf8');
+    return (await readTextFile(p)).text;
   } catch {
     return null;
   }

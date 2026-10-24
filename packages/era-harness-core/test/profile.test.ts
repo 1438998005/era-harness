@@ -7,7 +7,7 @@ import { profileProject } from '../src/profile/profiler.js';
 import { parseEmueraConfig, configGet, configGetBoolean, configGetNumber } from '../src/profile/config.js';
 import { parseDimFile } from '../src/profile/dim.js';
 import { parseAlsEntries, parseCsvEntries } from '../src/profile/csv.js';
-import { detectEncoding } from '../src/profile/scan.js';
+import { detectEncoding, sampleErbEncodings } from '../src/profile/scan.js';
 
 let projectRoot: string;
 
@@ -221,3 +221,92 @@ test(
     assert.ok(p.encoding.sampledFiles > 0);
   },
 );
+
+// ── C1：画像读取走编码安全通道（CP932 / BOM）────────────────────────────
+
+test('profile: CP932 编码的 CSV 解码为正常文本（不是 U+FFFD 乱码）', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'era-harness-cp932-'));
+  try {
+    // CP932 字节的「あいう」+ ASCII（合成内容，非游戏文本）
+    const nameBytes = Buffer.from([0x82, 0xa0, 0x82, 0xa2, 0x82, 0xa4]);
+    const expectedName = new TextDecoder('windows-31j').decode(nameBytes);
+    assert.ok(!expectedName.includes('\uFFFD'), 'fixture 字节必须是合法 CP932');
+    await mkdir(path.join(root, 'CSV'), { recursive: true });
+    await writeFile(
+      path.join(root, 'CSV', 'TFLAG.csv'),
+      Buffer.concat([Buffer.from('1,'), nameBytes, Buffer.from('\n2,GOOUT\n')]),
+    );
+    const p = await profileProject(root);
+    const family = p.variableFamilies.find((f) => f.name === 'TFLAG');
+    assert.ok(family, '应识别出 TFLAG 家族');
+    assert.deepEqual(family.sampleNames, [expectedName, 'GOOUT']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('profile: UTF-8 BOM 被剥离，首字段不被污染', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'era-harness-bom-'));
+  try {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    await writeFile(
+      path.join(root, 'lazyloading.cfg'),
+      Buffer.concat([bom, Buffer.from('口上・メッセージ関連\\個人口上\n', 'utf8')]),
+    );
+    await writeFile(
+      path.join(root, 'emuera.config'),
+      Buffer.concat([bom, Buffer.from('USELAZYLOADING:YES\n', 'utf8')]),
+    );
+    const p = await profileProject(root);
+    // 旧实现首元素会带 \uFEFF 前缀
+    assert.deepEqual(p.engine.lazyLoadingEntries, ['口上・メッセージ関連\\個人口上']);
+    // 旧实现首条 key 会带 \uFEFF，查不到
+    assert.equal(p.config?.entries[0]?.key, 'USELAZYLOADING');
+    assert.equal(configGetBoolean(p.config, 'uselazyloading'), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// ── C2：编码采样的截断点必须落在整行边界 ────────────────────────────────
+
+test('encoding: 采样截断退到整行边界，合法 UTF-8 不再被误判为 CP932', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'era-harness-sample-'));
+  try {
+    const erbDir = path.join(root, 'ERB');
+    await mkdir(erbDir, { recursive: true });
+    // 前 1020 字节是 340 行 ASCII 整行，随后 10 字节「あああ\n」：
+    // 旧实现切在第 1024 字节（「あ」中间）→ 残字节让 fatal UTF-8 校验失败 → 误判 cp932
+    const lines = Buffer.from('ab\n'.repeat(340), 'utf8');
+    const tail = Buffer.from('あああ\n', 'utf8');
+    assert.equal(lines.length, 1020);
+    await writeFile(path.join(erbDir, 'TRUNC.ERB'), Buffer.concat([lines, tail]));
+    // 小文件整读分支：CP932 字节（含换行）仍应判 cp932
+    await writeFile(path.join(erbDir, 'SMALL.ERB'), Buffer.from([0x88, 0x9f, 0x82, 0xb1, 0x0a]));
+
+    const sample = await sampleErbEncodings(
+      [path.join(erbDir, 'TRUNC.ERB'), path.join(erbDir, 'SMALL.ERB')],
+      10,
+    );
+    assert.equal(sample.sampledFiles, 2);
+    assert.equal(sample.utf8, 1, '截断退行边界后应正确判为 utf8');
+    assert.equal(sample.cp932, 1);
+    assert.equal(sample.utf8Bom, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('encoding: 超长单行文件（1KB 内无换行）不崩、有判定', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'era-harness-longline-'));
+  try {
+    const erbDir = path.join(root, 'ERB');
+    await mkdir(erbDir, { recursive: true });
+    await writeFile(path.join(erbDir, 'LONGLINE.ERB'), Buffer.from('x'.repeat(2048), 'utf8'));
+    const sample = await sampleErbEncodings([path.join(erbDir, 'LONGLINE.ERB')], 5);
+    assert.equal(sample.sampledFiles, 1);
+    assert.equal(sample.utf8, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
