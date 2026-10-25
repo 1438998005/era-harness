@@ -74,6 +74,7 @@ function normalizeDsmlMarkup(text: string): string {
 
 	let openTool: string | null = null
 	let openParam: string | null = null
+	const knownTools = new Set(getToolUseNames())
 
 	const pattern = new RegExp(
 		[
@@ -124,10 +125,18 @@ function normalizeDsmlMarkup(text: string): string {
 			// 模型会 `<path>`（Cline）开、`</｜｜DSML｜｜ parameter>`（DSML）关两种格式混用。
 			// 不登记的话 DSML 关标签来时 openParam 是 null，会把闭合标签**删掉**，
 			// 反而让 path 吞掉后面的 <regex>，比不修更糟。
+			// 工具闭标签（2026-10-25 任务 1792887990433 msg67 取证）：普通 `</tool>` 先到时
+			// 必须清 openTool，否则紧随的 `</invoke>` 会再还原一个重复闭标签落进正文。
+			// 注意**不能**对「普通闭标签」再做重复删除——早闭合孤儿参数形态（同一任务 msg1）
+			// 的第二个 `</write_to_file>` 是模型自我纠正后的真实闭标签，删掉它孤儿归并就失效了。
 			if (openTagName && toolParamNames.includes(openTagName as never)) {
 				openParam = openTagName
 			} else if (closeTagName && toolParamNames.includes(closeTagName as never)) {
 				openParam = null
+			} else if (openTagName && knownTools.has(openTagName)) {
+				openTool = openTool ?? openTagName
+			} else if (closeTagName && knownTools.has(closeTagName) && openTool === closeTagName) {
+				openTool = null
 			}
 			return match
 		},
@@ -276,6 +285,71 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 	return normalized.replace(/<\/\s+(parameter|tool_name|server_name)>/g, "</$1>").replace(/<\/?\s*function\s*>/g, "")
 }
 
+// era harness（2026-10-25 真实任务 1792887990433 取证）：DeepSeek 把参数闭标签写成 DSML
+// token（`</｜｜DSML｜｜ parameter>`）后**提前收口**了 write_to_file，随后把
+// `<path>/<content>` 裸写在工具块外面、再补一个重复的 `</write_to_file>`。参数留在孤儿区
+// 解析不进工具块 → 报 missing required parameter 反复重试。
+// 修复：同一工具闭标签出现两次、且两次之间**只有已知参数标签对**时，删掉第一个闭标签，
+// 让孤儿参数归回工具块。两道安全门：①孤儿区必须是纯参数对序列（含任何别的内容一律不动，
+// 模型三次自我重试混着正文与残码的真实 msg1 就因此不触发，走原有报错自纠路径）；
+// ②孤儿区必须带来首个块**缺失**的参数才值得并回，两次完全独立的正常调用不受影响。
+// 孤儿区必须是「纯参数对序列」：状态机逐对扫描（开标签 → 字面 indexOf 找第一个对应的
+// 闭标签 → 只允许空白间隔）。不能用单个正则 `^(?:<p>[\s\S]*?</p>)+$` 判定——实测
+// （2026-10-25 msg1 全文形态）回溯会让惰性 `[\s\S]*?` 跨过第一个 `</path>`、吞掉正文与
+// `<write_to_file>` 一直找到远处另一个 `</path>` 才闭合，纯度判定被击穿导致误归并。
+function isPureParamPairRegion(region: string): boolean {
+	const paramNames = (toolParamNames as readonly string[]).slice().sort((a, b) => b.length - a.length)
+	let i = 0
+	while (i < region.length) {
+		while (i < region.length && /\s/.test(region[i])) i++
+		if (i >= region.length) break
+		let matched: string | undefined
+		for (const p of paramNames) {
+			if (region.startsWith(`<${p}>`, i)) {
+				matched = p
+				break
+			}
+		}
+		if (!matched) return false
+		i += matched.length + 2
+		const closeIdx = region.indexOf(`</${matched}>`, i)
+		if (closeIdx === -1) return false
+		i = closeIdx + matched.length + 3
+	}
+	return true
+}
+
+function repairEarlyCloseOrphanParams(text: string): string {
+	const toolNames = getToolUseNames()
+	const paramNames = toolParamNames as readonly string[]
+	const paramOpen = new RegExp(`<(${paramNames.join("|")})>`, "g")
+
+	for (const tool of toolNames) {
+		const closeTag = `</${tool}>`
+		for (let first = text.indexOf(closeTag); first !== -1; first = text.indexOf(closeTag, first + 1)) {
+			const second = text.indexOf(closeTag, first + closeTag.length)
+			if (second === -1) break
+			const region = text.slice(first + closeTag.length, second)
+			if (!isPureParamPairRegion(region)) continue
+
+			// 孤儿区带来的参数必须有一个是首块没有的
+			const head = text.slice(0, first)
+			const headOpenIdx = head.lastIndexOf(`<${tool}>`)
+			if (headOpenIdx === -1) continue
+			const headParams = new Set<string>()
+			for (const m of head.slice(headOpenIdx).matchAll(paramOpen)) headParams.add(m[1])
+			let brings = false
+			for (const m of region.matchAll(paramOpen)) {
+				if (!headParams.has(m[1])) brings = true
+			}
+			if (!brings) continue
+
+			return text.slice(0, first) + text.slice(first + closeTag.length)
+		}
+	}
+	return text
+}
+
 // era harness: 模型偶尔在开标签里多吐一个引号（实测 `<search_files">`），
 // 而解析器用的是精确 `startsWith("<search_files>")`，于是整块退化成正文。
 // 只对**已知的工具名/参数名**做这个修复，避免误伤 write_to_file 的正文内容。
@@ -319,10 +393,14 @@ export function parseAssistantMessageV2(rawMessage: string): AssistantMessageCon
 	//    <｜｜DSML｜｜ parameter name="task_progress"> 转出来正是 <task_progress>；
 	// 3) dots-3-note 的 <dots_function_call> 包裹 + <parameter name="X"> 还原（同理必须早于 task_progress 剥离）；
 	// 4) 剥离独立成段的 task_progress；
-	// 5) 最后修开标签里多出来的引号（此时前面转出的标签也一并被照顾到）。
+	// 5) 早闭合孤儿参数归并（必须在 task_progress 剥离之后：孤儿区里的 task_progress
+	//    会破坏「纯参数对」判定）；
+	// 6) 最后修开标签里多出来的引号（此时前面转出的标签也一并被照顾到）。
 	const assistantMessage = repairStrayQuoteInOpenTag(
-		stripTaskProgressMarkup(
-			normalizeDotsFunctionCallMarkup(normalizeDsmlMarkup(normalizeLeakedToolMarkup(rawMessage)), hasDialectWrapper),
+		repairEarlyCloseOrphanParams(
+			stripTaskProgressMarkup(
+				normalizeDotsFunctionCallMarkup(normalizeDsmlMarkup(normalizeLeakedToolMarkup(rawMessage)), hasDialectWrapper),
+			),
 		),
 	)
 	const contentBlocks: AssistantMessageContent[] = []
@@ -516,9 +594,20 @@ export function parseAssistantMessageV2(rawMessage: string): AssistantMessageCon
 
 	// Finalize any open parameter within an open tool use
 	if (currentToolUse && currentParamName) {
-		currentToolUse.params[currentParamName] = assistantMessage
-			.slice(currentParamValueStart) // From param start to end of string
-			.trim()
+		let partialValue = assistantMessage.slice(currentParamValueStart) // From param start to end of string
+		// era harness（2026-10-25 真实任务 1792887990433 取证）：流尾停在闭合标签中间时
+		// （如 path 参数已收到 `_tmp_search6.py</path` 而 `>` 未到），半截闭标签残片会混进
+		// 参数值，流式预览拿着脏路径去 mkdir 直接 EINVAL。只剥「当前参数闭标签的严格前缀」
+		// 残片；最终值由主循环在闭标签完整到达时精确截取，不受此影响。
+		const closeTag = `</${currentParamName}>`
+		const lt = partialValue.lastIndexOf("<")
+		if (lt !== -1) {
+			const tail = partialValue.slice(lt)
+			if (tail.length < closeTag.length && closeTag.startsWith(tail)) {
+				partialValue = partialValue.slice(0, lt)
+			}
+		}
+		currentToolUse.params[currentParamName] = partialValue.trim()
 		// Tool use remains partial
 	}
 

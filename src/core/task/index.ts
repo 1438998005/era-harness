@@ -1,7 +1,7 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import { ApiHandler, ApiProviderInfo, buildApiHandler } from "@core/api"
 import { ApiStream } from "@core/api/transform/stream"
-import { AssistantMessageContent, parseAssistantMessageV2, ToolUse } from "@core/assistant-message"
+import { AssistantMessageContent, cleanAssistantTextForDisplay, parseAssistantMessageV2, ToolUse } from "@core/assistant-message"
 import { ContextManager } from "@core/context/context-management/ContextManager"
 import { checkContextWindowExceededError } from "@core/context/context-management/context-error-handling"
 import { getContextWindowInfo } from "@core/context/context-management/context-window-utils"
@@ -2294,61 +2294,16 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				if (this.taskState.didRejectTool || (!this.isParallelToolCallingEnabled() && this.taskState.didAlreadyUseTool)) {
 					break
 				}
-				let content = block.content
-				if (content) {
-					// (have to do this for partial and complete since sending content in thinking tags to markdown renderer will automatically be removed)
-					// Remove end substrings of <thinking or </thinking (below xml parsing is only for opening tags)
-					// (this is done with the xml parsing below now, but keeping here for reference)
-					// content = content.replace(/<\/?t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/, "")
-					// Remove all instances of <thinking> (with optional line break after) and </thinking> (with optional line break before)
-					// - Needs to be separate since we dont want to remove the line break before the first tag
-					// - Needs to happen before the xml parsing below
-					content = content.replace(/<thinking>\s?/g, "")
-					content = content.replace(/\s?<\/thinking>/g, "")
+				// era harness：展示净化抽成纯函数（display-clean.ts，含方言包裹残片清理与
+				// 尾部不完整标签裁剪的 `=` 形态扩展），便于单测。
+				const content = cleanAssistantTextForDisplay(block.content ?? "", !!block.partial)
 
-					// Remove all instances of <think> tags (alternative to <thinking>, some models are trained to use this tag instead)
-					content = content.replace(/<think>\s?/g, "")
-					content = content.replace(/\s?<\/think>/g, "")
-
-					// New claude models tend to output <function_calls> tags which we don't want to show in the chat
-					content = content.replace(/<function_calls>\s?/g, "")
-					content = content.replace(/\s?<\/function_calls>/g, "")
-
-					// Remove partial XML tag at the very end of the content (for tool use and thinking tags)
-					// (prevents scrollview from jumping when tags are automatically removed)
-					const lastOpenBracketIndex = content.lastIndexOf("<")
-					if (lastOpenBracketIndex !== -1) {
-						const possibleTag = content.slice(lastOpenBracketIndex)
-						// Check if there's a '>' after the last '<' (i.e., if the tag is complete) (complete thinking and tool tags will have been removed by now)
-						const hasCloseBracket = possibleTag.includes(">")
-						if (!hasCloseBracket) {
-							// Extract the potential tag name
-							let tagContent: string
-							if (possibleTag.startsWith("</")) {
-								tagContent = possibleTag.slice(2).trim()
-							} else {
-								tagContent = possibleTag.slice(1).trim()
-							}
-							// Check if tagContent is likely an incomplete tag name (letters and underscores only)
-							const isLikelyTagName = /^[a-zA-Z_]+$/.test(tagContent)
-							// Preemptively remove < or </ to keep from these artifacts showing up in chat (also handles closing thinking tags)
-							const isOpeningOrClosing = possibleTag === "<" || possibleTag === "</"
-							// If the tag is incomplete and at the end, remove it from the content
-							if (isOpeningOrClosing || isLikelyTagName) {
-								content = content.slice(0, lastOpenBracketIndex).trim()
-							}
-						}
-					}
-				}
-
-				if (!block.partial) {
-					// Some models add code block artifacts (around the tool calls) which show up at the end of text content
-					// matches ``` with at least one char after the last backtick, at the end of the string
-					const match = content?.trimEnd().match(/```[a-zA-Z0-9_-]+$/)
-					if (match) {
-						const matchLength = match[0].length
-						content = content.trimEnd().slice(0, -matchLength)
-					}
+				// era harness（2026-10-25 真实任务 1792888515757 取证，MiMo）：partial 正文
+				// 净化后为空时跳过 say。已渲染的 partial say:text 在文本块变成工具块后没有
+				// 任何机制回收（say 只替换同类型 partial），因此必须在渲染前清干净，
+				// 否则 `<tool_call><function=search` 这类截断残片会永久留在消息列表。
+				if (block.partial && !content) {
+					break
 				}
 
 				await this.say("text", content, undefined, undefined, block.partial)

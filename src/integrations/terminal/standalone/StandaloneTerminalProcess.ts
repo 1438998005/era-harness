@@ -46,6 +46,48 @@ export class StandaloneTerminalProcess extends EventEmitter<TerminalProcessEvent
 	/** Buffer for incomplete lines */
 	private buffer = ""
 
+	/** 尾部可能被截断的多字节序列，留待下一个 chunk 拼合解码 */
+	private decodePending: Buffer = Buffer.alloc(0)
+
+	/** UTF-8 严格解码器（非法字节抛错，用于探测「输出不是 UTF-8」） */
+	private utf8StrictDecoder = new TextDecoder("utf-8", { fatal: true })
+
+	/** GBK 解码器（cmd.exe 本地化报错等非 UTF-8 输出的回退通道） */
+	private gbkDecoder = new TextDecoder("gbk")
+
+	/**
+	 * era harness（2026-10-25 真实任务 1792887990433 取证）：Windows 子进程输出有两个
+	 * 非 UTF-8 源——cmd.exe 自身的本地化报错（如「不是内部或外部命令」）按控制台代码页
+	 * （GBK/cp936）写 stderr；未启用 UTF-8 模式的 python 管道输出同样按 cp936 编码。
+	 * 之前一律 `toString()`（UTF-8）解读，GBK 汉字几乎不可能撞成合法 UTF-8，于是成串
+	 * U+FFFD 乱码。逐 chunk 先按 UTF-8 严格解码、失败再按 GBK 解码；末尾可能被截断的
+	 * 多字节序列留到下一个 chunk 拼合，避免把合法 UTF-8 误判成 GBK。
+	 * 只解输出这一条管道；回退仅对**单个 chunk** 生效（不粘滞），混合编码输出各自取所长。
+	 */
+	private decodeChunk(data: Buffer): string {
+		let buf = Buffer.concat([this.decodePending, data])
+		this.decodePending = Buffer.alloc(0)
+		// 从末尾找最后一个多字节序列的起始字节；它声明的长度超出剩余字节 → 序列被截断
+		for (let i = buf.length - 1, scanned = 0; i >= 0 && scanned < 4; i--, scanned++) {
+			const b = buf[i]
+			if ((b & 0xc0) === 0x80) continue // 续字节，继续向前找序列首
+			const expected = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 1
+			if (expected > 1 && buf.length - i < expected) {
+				this.decodePending = Buffer.from(buf.subarray(i))
+				buf = buf.subarray(0, i)
+			}
+			break
+		}
+		if (buf.length === 0) {
+			return ""
+		}
+		try {
+			return this.utf8StrictDecoder.decode(buf)
+		} catch {
+			return this.gbkDecoder.decode(buf)
+		}
+	}
+
 	/** Full output captured from the process */
 	private fullOutput = ""
 
@@ -105,6 +147,11 @@ export class StandaloneTerminalProcess extends EventEmitter<TerminalProcessEvent
 					GIT_PAGER: "cat", // Prevent git from using less
 					SYSTEMD_PAGER: "", // Disable systemd pager
 					MANPAGER: "cat", // Disable man pager
+					// era harness（2026-10-25 真实任务 1792887990433 取证）：Windows 上 python 管道
+					// 输出默认按控制台代码页（GBK/cp936）编码，片假名等不在 GBK 的字符被打成 `?`，
+					// 宿主再按 UTF-8 解读就成串乱码。VS Code 终端路径已在 VscodeTerminalRegistry
+					// 注入同款变量（v3.91.9），这里补齐 Standalone 路径。
+					PYTHONUTF8: "1",
 				},
 			}
 
@@ -128,7 +175,7 @@ export class StandaloneTerminalProcess extends EventEmitter<TerminalProcessEvent
 
 			// Handle stdout
 			this.childProcess.stdout?.on("data", (data: Buffer) => {
-				const output = data.toString()
+				const output = this.decodeChunk(data)
 				this.handleOutput(output, didEmitEmptyLine)
 				if (!didEmitEmptyLine && output) {
 					this.emit("line", "") // Signal start of output
@@ -138,7 +185,7 @@ export class StandaloneTerminalProcess extends EventEmitter<TerminalProcessEvent
 
 			// Handle stderr
 			this.childProcess.stderr?.on("data", (data: Buffer) => {
-				const output = data.toString()
+				const output = this.decodeChunk(data)
 				this.handleOutput(output, didEmitEmptyLine)
 				if (!didEmitEmptyLine && output) {
 					this.emit("line", "")

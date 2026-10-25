@@ -92,3 +92,79 @@ test("空上下文与缺字段容错（trimEnd / undefined）", () => {
 	assert.ok(out.includes("│3 | only match"))
 	assert.ok(!out.includes("│undefined"), "undefined 不应渗入输出")
 })
+
+// ===== era harness（2026-10-25）：CP932 双编码搜索 =====
+// 背景：eraTW 工程有无 BOM 的 CP932 文件，默认遍（UTF-8）搜不到 CJK——DS 曾以此为由
+// 放弃内置搜索改写 python 双编码脚本（真实任务 1792887990433 第 1 轮推理原话）。
+
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
+import { mergeEncodingPasses, regexSearchFiles } from "@services/ripgrep"
+import { HostProvider } from "../../src/hosts/host-provider"
+
+// 测试宿主：只有 getBinaryLocation 生效（取系统 PATH 上的 rg.exe），其余 creator 不会被调用
+const rgPath = spawnSync("where", ["rg"], { encoding: "utf8" }).stdout.split(/\r?\n/)[0]
+if (rgPath) {
+	HostProvider.initialize(
+		(() => {
+			throw new Error("not available in tests")
+		}) as any,
+		(() => {
+			throw new Error("not available in tests")
+		}) as any,
+		(() => {
+			throw new Error("not available in tests")
+		}) as any,
+		(() => {
+			throw new Error("not available in tests")
+		}) as any,
+		(() => {
+			throw new Error("not available in tests")
+		}) as any,
+		() => {},
+		async () => "",
+		async () => rgPath,
+		".",
+		".",
+	)
+}
+
+test("mergeEncodingPasses：默认遍已命中的文件不采纳第二遍结果（防 UTF-8 文件假阳性）", () => {
+	const pass1 = [{ column: 0, filePath: "d:/p/utf8.erb", line: 1, match: "hit\n", beforeContext: [], afterContext: [] }]
+	const pass2 = [
+		// 同文件的第二遍结果（转码假阳性）→ 应被排除
+		{ column: 0, filePath: "d:/p/utf8.erb", line: 3, match: "false positive\n", beforeContext: [], afterContext: [] },
+		// 新文件（CP932 命中）→ 应保留
+		{ column: 0, filePath: "d:/p/cp932.erb", line: 7, match: "cp932 hit\n", beforeContext: [], afterContext: [] },
+	]
+	const merged = mergeEncodingPasses(pass1, pass2 as any)
+	assert.equal(merged.length, 2)
+	assert.deepEqual(
+		merged.map((r) => `${r.filePath}:${r.line}`),
+		["d:/p/utf8.erb:1", "d:/p/cp932.erb:7"],
+	)
+})
+
+test("mergeEncodingPasses：第二遍为空时原样返回", () => {
+	const pass1 = [{ column: 0, filePath: "a", line: 1, match: "m\n", beforeContext: [], afterContext: [] }]
+	assert.equal(mergeEncodingPasses(pass1, []).length, 1)
+})
+
+test("集成：CP932 无 BOM 文件与 UTF-8 文件在同一搜索中都能命中", async () => {
+	// 「テスト」的 CP932 字节：テ=0x83 0x65、ス=0x83 0x58、ト=0x83 0x67
+	const cp932Line = 'msg = "' + Buffer.from([0x83, 0x65, 0x83, 0x58, 0x83, 0x67]).toString("latin1") + 'cp932"\r\n'
+	const dir = mkdtempSync(path.join(tmpdir(), "era-rg-"))
+	try {
+		writeFileSync(path.join(dir, "utf8.erb"), 'msg = "テストutf8"\r\n', "utf8")
+		writeFileSync(path.join(dir, "cp932.erb"), Buffer.from(cp932Line, "latin1"))
+
+		const out = await regexSearchFiles(dir, dir, "テスト")
+		assert.ok(out.includes("utf8.erb"), `UTF-8 文件应命中：\n${out}`)
+		assert.ok(out.includes("cp932.erb"), `CP932 文件必须经 Shift-JIS 第二遍命中：\n${out}`)
+		assert.ok(out.includes("テストcp932"), "CP932 内容应被正确转码显示（无乱码）")
+	} finally {
+		rmSync(dir, { recursive: true, force: true })
+	}
+})

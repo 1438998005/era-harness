@@ -91,7 +91,8 @@ async function main() {
 	}
 
 	await bundle("parse.spec.ts", path.join(outDir, "parse.spec.cjs"))
-	runNode(["--test", path.join(outDir, "parse.spec.cjs")])
+	await bundle("stream.spec.ts", path.join(outDir, "stream.spec.cjs"))
+	runNode(["--test", path.join(outDir, "parse.spec.cjs"), path.join(outDir, "stream.spec.cjs")])
 }
 
 main().catch((e) => {

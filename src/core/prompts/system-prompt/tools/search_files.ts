@@ -23,10 +23,10 @@ Usage:
 const id = ClineDefaultTool.SEARCH
 
 const DESCRIPTION_EN =
-	"Request to perform a regex search across files in a specified directory, providing context-rich results. This tool searches for patterns or specific content across multiple files, displaying each match with encapsulating context."
+	"Request to perform a regex search across files in a specified directory, providing context-rich results. This tool searches for patterns or specific content across multiple files, displaying each match with encapsulating context. Files are searched in both UTF-8 and Shift-JIS (CP932) encodings automatically, so Japanese era scripts saved without a BOM are matched too. Each match line is prefixed with its line number."
 
 const DESCRIPTION_ZH_CN =
-	"请求在指定目录中的文件中执行正则表达式搜索，提供上下文丰富的结果。此工具在多个文件中搜索模式或特定内容，显示每个匹配项及其周围的上下文。"
+	"请求在指定目录中的文件中执行正则表达式搜索，提供上下文丰富的结果。此工具在多个文件中搜索模式或特定内容，显示每个匹配项及其周围的上下文。文件会自动按 UTF-8 与 Shift-JIS（CP932）两种编码各搜一遍，无 BOM 的日文 era 脚本同样能命中；匹配行自带行号。"
 
 const INSTRUCTION_PATH_EN =
 	"The path of the directory to search in (relative to the current working directory {{CWD}}){{MULTI_ROOT_HINT}}. This directory will be recursively searched."

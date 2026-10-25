@@ -240,6 +240,21 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			resolutionMethod: (typeof pathResult !== "string" ? "hint" : "primary_fallback") as "hint" | "primary_fallback",
 		}
 
+		// era harness（2026-10-25 真实任务 1792887990433 取证）：模型会把游戏根目录当文件
+		// 读取。目录传给 fs.readFile 只会抛 EISDIR 系统错误，模型看不懂还会重试；这里在
+		// 批准流程之前拦截，给可读提示让它改用对的工具。
+		try {
+			const stat = await import("node:fs/promises").then((fs) => fs.stat(absolutePath))
+			if (stat.isDirectory()) {
+				config.taskState.consecutiveMistakeCount++
+				return formatResponse.toolError(
+					`'${relPath}' is a directory, not a file. Use list_files to see its contents, era_symbols to locate symbols, or search_files to search inside it.`,
+				)
+			}
+		} catch {
+			// stat 失败（路径不存在等）→ 交给 extractFileContent 抛原有错误
+		}
+
 		// Handle approval flow
 		const sharedMessageProps = {
 			tool: "readFile",

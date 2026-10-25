@@ -2,6 +2,7 @@ import { ClineDefaultTool } from "@shared/tools"
 
 export type AssistantMessageContent = TextStreamContent | ToolUse | ReasoningStreamContent
 
+export { cleanAssistantTextForDisplay } from "./display-clean"
 export { parseAssistantMessageV2 } from "./parse-assistant-message"
 
 export interface TextStreamContent {

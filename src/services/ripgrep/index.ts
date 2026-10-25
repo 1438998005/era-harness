@@ -112,17 +112,22 @@ export async function rawRipgrepLines(args: string[]): Promise<string[]> {
 	return output.split("\n").filter((line) => line.length > 0)
 }
 
-export async function regexSearchFiles(
-	cwd: string,
-	directoryPath: string,
-	regex: string,
-	filePattern?: string,
-	clineIgnoreController?: ClineIgnoreController,
-): Promise<string> {
-	// 上游对齐（cline#13384 记载的 fast path 即 2 行上下文；本文件头部注释也一直写着 2）：
-	// 曾被改成 1，实测上下文不足是模型转向自写临时脚本检索的诱因之一（2026-10-24 取证）。
-	const args = ["--json", "-e", regex, "--glob", filePattern || "*", "--context", "2", directoryPath]
+/**
+ * era harness（2026-10-25 真实任务 1792887990433 取证）：eraTW 工程里存在**无 BOM 的
+ * CP932/Shift-JIS 文件**，ripgrep 默认按 UTF-8 解码，CJK 模式对它们搜不到——DS 第 1 轮
+ * 推理原话「CP932 文件读不出」正是它放弃 search_files、改写 python 双编码脚本的直接依据
+ * （修复行号后依然绕开，见 知识库 12 §12.24 的因果链修订）。
+ * 修复：默认遍之后追加 `--encoding shift-jis` 第二遍（WHATWG shift_jis 即 CP932 兼容），
+ * 结果合并。合并规则：**默认遍已命中的文件不再采纳第二遍结果**——UTF-8 文件被按
+ * Shift-JIS 转码后可能碰巧产生假阳性，按文件粒度整体排除。纯函数，单测锁定。
+ */
+export function mergeEncodingPasses(pass1: SearchResult[], pass2: SearchResult[]): SearchResult[] {
+	const seen = new Set(pass1.map((r) => r.filePath))
+	return [...pass1, ...pass2.filter((r) => !seen.has(r.filePath))]
+}
 
+/** 单遍 ripgrep --json：执行 + 解析成 SearchResult 列表。 */
+async function runJsonPass(args: string[]): Promise<{ results: SearchResult[]; lineTruncated: boolean }> {
 	let output: string
 	let lineTruncated = false
 	try {
@@ -168,10 +173,40 @@ export async function regexSearchFiles(
 		results.push(currentResult as SearchResult)
 	}
 
+	return { results, lineTruncated }
+}
+
+export async function regexSearchFiles(
+	cwd: string,
+	directoryPath: string,
+	regex: string,
+	filePattern?: string,
+	clineIgnoreController?: ClineIgnoreController,
+): Promise<string> {
+	// 上游对齐（cline#13384 记载的 fast path 即 2 行上下文；本文件头部注释也一直写着 2）：
+	// 曾被改成 1，实测上下文不足是模型转向自写临时脚本检索的诱因之一（2026-10-24 取证）。
+	const args = ["--json", "-e", regex, "--glob", filePattern || "*", "--context", "2", directoryPath]
+
+	let merged: SearchResult[]
+	let lineTruncated: boolean
+	try {
+		const pass1 = await runJsonPass(args)
+		merged = pass1.results
+		lineTruncated = pass1.lineTruncated
+		if (!lineTruncated) {
+			// CP932 第二遍：默认遍被截断时结果已到上限，不再跑第二遍
+			const pass2 = await runJsonPass([...args, "--encoding", "shift-jis"])
+			merged = mergeEncodingPasses(pass1.results, pass2.results)
+			lineTruncated = pass2.lineTruncated
+		}
+	} catch (error) {
+		throw Error("Error calling ripgrep", { cause: error })
+	}
+
 	// Filter results using ClineIgnoreController if provided
 	const filteredResults = clineIgnoreController
-		? results.filter((result) => clineIgnoreController.validateAccess(result.filePath))
-		: results
+		? merged.filter((result) => clineIgnoreController.validateAccess(result.filePath))
+		: merged
 
 	return formatResults(filteredResults, cwd, lineTruncated)
 }

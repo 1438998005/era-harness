@@ -73,6 +73,15 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 		const rawContent = block.params.content // for write_to_file
 		const rawDiff = block.params.diff // for replace_in_file
 
+		// era harness（2026-10-25 真实任务 1792887990433 取证）：流式半截参数可能含闭合
+		// 标签残片（实测 `_tmp_search6.py</path`——content 已完整、path 尾部吞了半截
+		// `</path`），partial 分支会拿它去 diffViewProvider.open → mkdir(dirname) 直接
+		// EINVAL。解析器终值化已剥严格前缀残片；这里再兜一层：partial 阶段路径含尖括号
+		// 一律静默跳过预览（残缺是暂态，完整块的 execute() 有同名守卫给模型可读报错）。
+		if (rawRelPath && /[<>]/.test(rawRelPath)) {
+			return
+		}
+
 		// Wait for path + the param this tool needs. Use `== null` for content so empty-string
 		// writes still stream into the editor (mirrors execute()'s validation).
 		const hasContent = block.name === "replace_in_file" ? !!rawDiff : rawContent != null

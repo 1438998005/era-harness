@@ -333,6 +333,163 @@
 				"</invoke>",
 				"继续说明。"
 			]
+		},
+		{
+			"name": "DS 混血形态①（2026-10-25 任务 1792887990433 msg7）：Cline 工具开 + DSML 参数开 + 普通参数闭 → execute_command 完整解析",
+			"raw": "<execute_command>\n<｜｜DSML｜｜ parameter name=\"command\">python -c \"import io,os,re;root='.';pat=re.compile(r'(668|中文词Ｄ|ひらがなＡ)');out=[];\\nimport sys\" 2>&1 || python -c \"print('skip')\"</command>\n<requires_approval>false</requires_approval>\n<task_progress>\n- [x] 定位目标定义\n</task_progress>\n</execute_command>",
+			"expectTools": [
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "python -c \"import io,os,re;root='.';pat=re.compile(r'(668|中文词Ｄ|ひらがなＡ)');out=[];\\nimport sys\" 2>&1 || python -c \"print('skip')\"",
+						"requires_approval": "false"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS 混血形态②（同任务 msg67）：DSML invoke + string=true 属性 + 普通工具闭 + DSML invoke 闭 → 单个完整 execute_command，无重复闭标签残片",
+			"raw": "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"execute_command\">\n<｜｜DSML｜｜ parameter name=\"command\" string=\"true\">python -c \"import io,sys;sys.stdout.reconfigure(encoding='utf-8');p='ERB/mod/qol/mod2.ERB';d=open(p,'rb').read();t=d.decode('utf-8-sig');print(len(t.splitlines()));print('\\n'.join('%d: %s'%(i,l) for i,l in enumerate(t.splitlines()[:120],1)))\"</command>\n<requires_approval>false</requires_approval>\n<task_progress>\n- [x] 定位目标定义\n</task_progress>\n</execute_command>\n</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>",
+			"expectTools": [
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "python -c \"import io,sys;sys.stdout.reconfigure(encoding='utf-8');p='ERB/mod/qol/mod2.ERB';d=open(p,'rb').read();t=d.decode('utf-8-sig');print(len(t.splitlines()));print('\\n'.join('%d: %s'%(i,l) for i,l in enumerate(t.splitlines()[:120],1)))\"",
+						"requires_approval": "false"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"</execute_command>"
+			]
+		},
+		{
+			"name": "MiMo 官方模板①（2026-10-25 任务 1792888515757 msg1）：等号 function 包裹 + <path> 开 </parameter> 闭混合体，双调用",
+			"raw": "<tool_call><function=search_files>\n<path>ERB</parameter><parameter=regex>中文词Ｄ</parameter></function></tool_call><tool_call><function=search_files>\n<path>CSV</parameter><parameter=regex>中文词Ｄ</parameter></function></tool_call>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "中文词Ｄ"
+					}
+				},
+				{
+					"name": "search_files",
+					"params": {
+						"path": "CSV",
+						"regex": "中文词Ｄ"
+					}
+				}
+			]
+		},
+		{
+			"name": "MiMo 官方模板②（同任务 msg5）：read_file 混合闭合 + search_files 等号形式",
+			"raw": "<tool_call><function=read_file>\n<path>ERB/cmdmod/COMF/daily/mod1.ERB</parameter><parameter=start_line>1</parameter><parameter=end_line>130</parameter></function></tool_call><tool_call><function=search_files><parameter=path>ERB</parameter><parameter=regex>(中文词Ｅ|中文词Ｆ| treasure|GIFT).*(668|中文词Ｄ)|(668|中文词Ｄ).*(中文词Ｅ|中文词Ｆ)</parameter></function></tool_call>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "ERB/cmdmod/COMF/daily/mod1.ERB",
+						"start_line": "1",
+						"end_line": "130"
+					}
+				},
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "(中文词Ｅ|中文词Ｆ| treasure|GIFT).*(668|中文词Ｄ)|(668|中文词Ｄ).*(中文词Ｅ|中文词Ｆ)"
+					}
+				}
+			]
+		},
+		{
+			"name": "MiMo 官方模板③（同任务 msg7）：单 search_files 全等号形式",
+			"raw": "<tool_call><function=search_files><parameter=path>ERB</parameter><parameter=regex>中文词Ｅ|中文词Ｆ</parameter></function></tool_call>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "中文词Ｅ|中文词Ｆ"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS 提前闭合+孤儿参数（2026-10-25 任务取证，单次尝试形态）→ 归并为一个完整 write_to_file",
+			"raw": "<write_to_file>\n<path>tmp_search.py</｜｜DSML｜｜ parameter>\n</write_to_file>\n\n<path>tmp_search.py</path>\n<content># code\nprint(1)\n</content>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "tmp_search.py",
+						"content": "# code\nprint(1)"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"<content>"
+			]
+		},
+		{
+			"name": "防腐蚀：两次独立 write_to_file 调用不得被孤儿归并误并",
+			"raw": "<write_to_file>\n<path>a.txt</path>\n<content>hello</content>\n</write_to_file>\n<write_to_file>\n<path>b.txt</path>\n<content>world</content>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "a.txt",
+						"content": "hello"
+					}
+				},
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "b.txt",
+						"content": "world"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS msg1 全文形态（三次自我重试）：前两个块缺 content、第三个完整；孤儿归并不得误触发",
+			"raw": "<write_to_file>\n<path>tmp_search.py</｜｜DSML｜｜ parameter>\n</write_to_file>\n\n<path>tmp_search.py</path>\n<content># -*- coding: utf-8 -*-\nimport os\nprint(\"step1\")\n```\n\n不对，我把 write_to_file 格式搞乱了。重新写。\n\n注意：内容是 Python 代码。需要正确放进 content 标签。\n\n<write_to_file>\n<path>tmp_search.py</｜｜DSML｜｜ parameter>\n</write_to_file>\n\n刚才的调用格式有误。重新提交正确格式。\n\n<write_to_file>\n<path>tmp_search.py</path>\n<content># -*- coding: utf-8 -*-\nimport os\nprint(\"done\")\n</content>\n<task_progress>\n- [ ] 定位目标定义\n- [ ] 查获取途径\n</task_progress>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "tmp_search.py"
+					}
+				},
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "tmp_search.py"
+					}
+				},
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "tmp_search.py",
+						"content": "# -*- coding: utf-8 -*-\nimport os\nprint(\"done\")"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS content 在前 path 在后（2026-10-25 任务取证 msg61）：整段解析应完整还原两参数",
+			"raw": "<write_to_file>\n<content># -*- coding: utf-8 -*-\nprint(\"ok\")\n</content>\n<path>tmp_search6.py</path>\n<task_progress>\n- [x] 定位目标定义\n</task_progress>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"content": "# -*- coding: utf-8 -*-\nprint(\"ok\")",
+						"path": "tmp_search6.py"
+					}
+				}
+			]
 		}
 	]
 }
