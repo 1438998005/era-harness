@@ -3,6 +3,27 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.10 — 2026-10-25
+
+> 本轮全部修复出自 v3.91.9 三模型同题实弹复测（deepseek-flash / mimo-v2.6-flash / Qwen3.8-27B）暴露的四族问题；根因诊断与证据原文见知识库 12 §12.25、08 #42 回填。
+
+### 修复
+
+- **流式截断态解析三修（deepseek 起手缺参 + EINVAL 根治）**。真实任务取证推翻了两个旧假设：①EINVAL `mkdir '...py<'` 不是模型输出畸形——模型原文标签完整（content 在前 path 在后），是**流式预览路径绕过了路径守卫**：partial 参数值在流尾停在闭合标签中间时（`_tmp_search6.py</path` 而 `>` 未到），解析器终值化把半截闭标签吞进 path 值，`handlePartialBlock` 拿脏路径去 `diffViewProvider.open()` 直接 EINVAL，`execute()` 的 `[<>]` 守卫根本没机会跑。修复：解析器终值化只剥「当前参数闭标签的严格前缀」残片；`handlePartialBlock` 补同款守卫（partial 含尖括号静默跳过预览，暂态不报错）。②DSML 混血形态重复闭标签（`</execute_command>` 先到、DSML `</invoke>` 又还原一个）：DSML 归一器现在对普通工具闭标签清空 `openTool` 记账，避免二次还原；同时**不对普通闭标签做重复删除**——早闭合孤儿形态的第二个 `</write_to_file>` 是模型自我纠正的真实闭标签，删了会废掉孤儿归并。
+- **早闭合孤儿参数归并**。DS 把参数闭标签写成 DSML token（`</｜｜DSML｜｜ parameter>`）后提前收口 write_to_file、把 `<path>/<content>` 裸写在工具块外再补第二个闭标签——参数留在孤儿区，报 missing required parameter 反复重试。现在「同一工具闭标签出现两次 + 中间是纯参数对序列 + 孤儿区带来首块缺失的参数」三个条件齐备时删第一个闭标签归并；两次独立的正常调用、三次自我重试混正文的真实 msg1 都不触发（防误并测试在案）。**纯度判定用状态机逐对扫描而非单正则**——实测回溯会让惰性 `[\s\S]*?` 跨过第一个 `</path>` 吞掉正文直到远处另一个 `</path>`，纯度判定被击穿导致误归并。
+- **MiMo 方言流式泄漏根治（展示层）**。`<tool_call><function=search` 泄漏不是解析失败——解析全程正确、工具全执行了——是流式截断点把半截方言标记渲染成了 say:text，且文本块随后变成工具块时已落盘的 partial 消息无人回收。展示净化抽成纯函数 `display-clean.ts`：补齐完整方言包裹残片清理（`<tool_call>`/`<function=名>`）+ 尾部不完整标签裁剪兼容 `=` 形态（旧正则只认纯字母标签名）；partial 正文净化后为空则跳过 say（从源头杜绝，不做事后撤回）。thinking/function_calls 等既有清理行为不变。
+- **Standalone 命令执行乱码两修**。实弹证据显示 python 仍按 GBK 输出——任务走的是 backgroundExec（Standalone）路径，v3.91.9 的 PYTHONUTF8=1 只注入了 VS Code 终端路径。①Standalone spawn env 补注入 `PYTHONUTF8=1`；②输出解码改逐 chunk **UTF-8 严格解码失败回退 GBK**：cmd.exe 自身的本地化报错（「不是内部或外部命令」）恒按控制台代码页写 stderr，这是 PYTHONUTF8 射程外的第二乱码源，实测回退解码后该报错完整可读；末尾可能截断的多字节序列留待下一 chunk 拼合，混合编码输出按 chunk 各取所长。
+
+### 改进
+
+- **search_files 双编码搜索（拆除 DS 自写 python 脚本的最后依据）**。eraTW 工程有无 BOM 的 CP932 文件，ripgrep 默认按 UTF-8 搜不到 CJK——DS 第 1 轮推理原话「CP932 文件读不出」正是它放弃内置搜索的直接依据（v3.91.9 修的行号不是本轮主因，归因改判见知识库 12）。默认遍之后追加 `--encoding shift-jis` 第二遍合并；默认遍已命中的文件不采纳第二遍结果（防 UTF-8 文件转码假阳性）。`mergeEncodingPasses` 纯函数 + 真实 rg 的 CP932/UTF-8 混合 fixture 集成测试锁定。read_file / search_files 工具描述同步声明已实现的编码能力（read_file 本就支持 BOM/UTF-16/CP932 自动解码），让「编码顾虑」失去事实基础。
+- **read_file 读目录给可读提示**。模型把游戏根目录当文件读取时（本轮实弹出现 1 次），原样会抛 EISDIR 天书；现在批准流程之前拦截并提示改用 list_files / era_symbols / search_files。
+
+### 验证
+
+- `test:toolcall` 41/41（新增 13 例：DS 混血形态×2、MiMo 官方模板×3、孤儿归并正反例×3、msg1 全文形态、content-before-path 整段、分块流式回放×4、display-clean 单测×3）；`test:ripgrep` 11/11（新增 3 例）；`test:update` 416/416；`test:free` 26/26；双侧 typecheck 绿；esbuild --production 重打包
+- 新增**分块流式回放测试基建**（`test/toolcall/stream.spec.ts`）：单发用例捕不到流式态 bug——EINVAL 脏 path 与 MiMo 泄漏残片都只存在于 chunk 截断态；现按危险边界切片、逐累积步断言解析结果与展示净化结果
+
 ## 3.91.9 — 2026-10-24
 
 ### 修复
