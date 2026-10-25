@@ -13,6 +13,8 @@ import type { AuditOutcome } from "../logging/audit-log-format"
 export type ToolExecutionResult = {
 	outcome: AuditOutcome
 	message?: string
+	/** 报错现场的参数快照（dialect-guard 产出；仅 outcome=error 时由防线填充，审计层统一脱敏）。 */
+	snapshot?: string
 }
 
 const TOOL_ERROR_PREFIX = "The tool execution failed with the following error:"

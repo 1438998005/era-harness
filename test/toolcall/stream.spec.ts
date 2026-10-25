@@ -137,6 +137,56 @@ const cases: StreamCase[] = [
 			},
 		],
 	},
+	{
+		// 2026-10-25 任务 1792900662485 msg7（A 族链式闭标签）：截断点落在链式标签中间，
+		// 中间态的脏参数值不得执行（partial 不执行），最终态必须完整还原。
+		name: "DS A族：流式截断在链式闭标签中间，最终态完整还原",
+		chunks: [
+			'<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="search_files">\n<｜｜DSML｜｜ parameter name="path" string="true">ERB</｜｜DSML｜｜ par',
+			'ameter name="regex" string="true">中文词Ａ</｜｜DSML｜｜ parameter name="task_progress>\n- [ ] 待办\n</task_progress>\n</｜｜DSML｜｜>\n</｜｜DSML｜｜ calls>',
+		],
+		checks: [
+			{
+				afterChunks: 1,
+				expectDisplayText: "",
+				expectTextNotContains: ["DSML"],
+			},
+			{
+				afterChunks: 2,
+				expectDisplayText: "",
+				expectTools: [
+					{
+						name: "search_files",
+						partial: false,
+						params: { path: "ERB", regex: "中文词Ａ" },
+					},
+				],
+			},
+		],
+	},
+	{
+		// 2026-10-25 第三方单竖线变体（08 #46）：分隔符 token 被切成两半时，
+		// 中间态不得把 `<｜DS` 残片渲染成正文，最终态还原为工具。
+		name: "DS 单竖线：流式截断在分隔符 token 中间，残片不落展示",
+		chunks: ["<｜DS", 'ML｜ invoke name="read_file">\n<path>a.ERB</path>\n</read_file>'],
+		checks: [
+			{
+				afterChunks: 1,
+				expectDisplayText: "",
+			},
+			{
+				afterChunks: 2,
+				expectDisplayText: "",
+				expectTools: [
+					{
+						name: "read_file",
+						partial: false,
+						params: { path: "a.ERB" },
+					},
+				],
+			},
+		],
+	},
 ]
 
 for (const c of cases) {
@@ -209,4 +259,22 @@ test("display-clean：合法正文不受影响", () => {
 	assert.equal(cleanAssistantTextForDisplay("代码\n```ts", false), "代码\n")
 	// partial 时不清理 ``` 结尾（还在流式，可能是代码块开头）
 	assert.equal(cleanAssistantTextForDisplay("代码\n```ts", true), "代码\n```ts")
+})
+
+test("display-clean：孤儿工具闭标签整块清掉（2026-10-25 任务 1792900662485 turn27 取证）", () => {
+	assert.equal(cleanAssistantTextForDisplay("</era_symbols>", false), "")
+	assert.equal(cleanAssistantTextForDisplay("</era_symbols>\n", false), "")
+	// 带前文的块不动（只有整块恰为闭标签才清）
+	assert.equal(cleanAssistantTextForDisplay("读完了 </era_symbols>", false), "读完了 </era_symbols>")
+	// 非已知工具名的闭标签按普通文本保留
+	assert.equal(cleanAssistantTextForDisplay("</unknown_thing>", false), "</unknown_thing>")
+})
+
+test("display-clean：DSML 标签形态清理与半截标签裁剪（08 #46）", () => {
+	assert.equal(cleanAssistantTextForDisplay('前文 <｜DSML｜ invoke name="search_files"> 后文', false), "前文  后文")
+	// 截断在分隔符中间的 partial 尾巴（<｜DS 不是 ASCII 标签名）
+	assert.equal(cleanAssistantTextForDisplay("<｜DS", true), "")
+	assert.equal(cleanAssistantTextForDisplay("正文 </｜", true), "正文")
+	// 孤立讨论 DSML 字样（无尖括号包裹）的正文不动
+	assert.equal(cleanAssistantTextForDisplay("这个模型输出 ｜｜DSML｜｜ 分隔符", true), "这个模型输出 ｜｜DSML｜｜ 分隔符")
 })

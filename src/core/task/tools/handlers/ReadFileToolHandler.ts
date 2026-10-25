@@ -1,6 +1,5 @@
 import path from "node:path"
 import type { ToolUse } from "@core/assistant-message"
-import { recordAudit } from "@core/logging/auditLog"
 import { formatResponse } from "@core/prompts/responses"
 import { getWorkspaceBasename, resolveWorkspacePath } from "@core/workspace"
 import { extractFileContent, type FileContentResult } from "@integrations/misc/extract-file-content"
@@ -13,7 +12,6 @@ import type { ToolResponse } from "../../index"
 import {
 	commitRangeRead,
 	invalidateRepeatWindowForPath,
-	readDedupeKey,
 	readRangeKey,
 	repeatReadSuppressedMessage,
 	shouldSuppressRepeatRead,
@@ -372,24 +370,10 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			// read, not a repeat, so it must not inherit the other range's count.
 			const rangeReadCount = commitRangeRead(config.taskState.fileReadCounts, cacheKey, rangeKey, false)
 
-			// 审计：排障时最关键的一条——「第几次读同一区间、命中了缓存没有」。
-			recordAudit({
-				event: "tool",
-				taskId: config.taskId,
-				turn: config.taskState.apiRequestCount,
-				tool: block.name,
-				target: displayPath,
-				range:
-					requestedRange.startLine !== undefined && requestedRange.endLine !== undefined
-						? [requestedRange.startLine, requestedRange.endLine]
-						: undefined,
-				dedupeKey: readDedupeKey(displayPath, requestedRange.startLine, requestedRange.endLine),
-				cacheHit: true,
-				readCount: rangeReadCount,
-				outcome: "ok",
-				provider,
-				model: config.api.getModel().id,
-			})
+			// era harness（D3，2026-10-25）：缓存命中元数据交由 ToolExecutor 单点并入审计。
+			// 此处曾直接 recordAudit，导致同一次 read_file 写两条事件（本条 + ToolExecutor
+			// 一条，间隔 ~200ms，无 ms 字段），统计双计；改经 taskState 传递后单条带 cacheHit。
+			config.taskState.readToolAuditMeta = { cacheHit: true, readCount: rangeReadCount }
 
 			// Re-push image block for multimodal models so image context is not lost on cached reads
 			if (validCached.imageBlock) {

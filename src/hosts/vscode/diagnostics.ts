@@ -12,6 +12,7 @@ import { exportDiagnostics, getDiagnosticsDir } from "@/core/logging/auditLog"
 import { StateManager } from "@/core/storage/StateManager"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
+import { mimoBaseUrlForKey } from "@/shared/mimo-request"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
 import { createOpenInOsDeps, openFolderInOs } from "./open-in-os"
@@ -74,6 +75,19 @@ function collectSettingsSummary(): Record<string, string> {
 			reasoningEffort: String(effort),
 			temperature: modelInfo?.temperature !== undefined ? String(modelInfo.temperature) : "(默认)",
 			openAiBaseUrl: api.openAiBaseUrl || "(默认)",
+		}
+
+		// D5（2026-10-25）：补各 provider 的**生效** baseUrl——方言表现强依赖请求路径
+		// （08 #46：同一模型 id 在不同端点方言不同），只有 openAiBaseUrl 一个字段分不清
+		// 「DS 官方端点」与「第三方兼容端点」的差异。只输出 URL，不碰任何密钥值。
+		summary.deepSeekBaseUrl = "https://api.deepseek.com/v1（内置，不受 openAiBaseUrl 影响）"
+		summary.freePool = "内置免费池（OVH+Kilo 车道，忽略自定义模型 id 与 baseUrl）"
+		try {
+			// MiMo 按密钥前缀选基址（实时 API / Token Plan）；无密钥时按默认基址标注
+			const mimoKey = stateManager.getSecretKey("mimoApiKey")
+			summary.mimoBaseUrl = `${mimoBaseUrlForKey(mimoKey)}（按密钥前缀推导）`
+		} catch {
+			// 忽略单个基址读取失败
 		}
 
 		const secretKeys = ["openAiApiKey", "deepSeekApiKey", "ovhAiEndpointsApiKey", "apiKey"] as const

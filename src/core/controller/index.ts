@@ -2,6 +2,7 @@ import type { Anthropic } from "@anthropic-ai/sdk"
 import { buildApiHandler } from "@core/api"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import { parseIdentityFromText, setCurrentIdentityMode } from "@core/identity/scope"
+import { recordAudit } from "@core/logging/auditLog"
 import { tryAcquireTaskLockWithRetry } from "@core/task/TaskLockUtils"
 import { detectWorkspaceRoots } from "@core/workspace/detection"
 import { setupWorkspaceManager } from "@core/workspace/setup"
@@ -253,6 +254,9 @@ export class Controller {
 	async reinitExistingTaskFromId(taskId: string) {
 		const history = await this.getTaskWithId(taskId)
 		if (history) {
+			// era harness（D4 事件边界，2026-10-25）：任务重建后 apiRequestCount 归零，
+			// 审计里 turn 从头数没有解释；resume 事件补上边界。
+			recordAudit({ event: "task", taskId, turn: 0, action: "resume" })
 			await this.initTask(undefined, undefined, undefined, history.historyItem)
 		}
 	}

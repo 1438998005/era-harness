@@ -26,6 +26,7 @@ import {
 	compareAuditFilesDesc,
 	type DiagnosticsHeader,
 	diagnosticsFileName,
+	foldUpdateEventsForExport,
 	parseAuditFileDate,
 	serializeAuditEntry,
 } from "./audit-log-format"
@@ -157,7 +158,10 @@ export interface DiagnosticsExportResult {
 export async function exportDiagnostics(header: DiagnosticsHeader): Promise<DiagnosticsExportResult> {
 	const dir = getDiagnosticsDir()
 	await fs.mkdir(dir, { recursive: true })
-	const lines = await readRecentAuditLines(AUDIT_EXPORT_LINE_LIMIT)
+	// D5（2026-10-25）：多读一倍再折叠 update 事件——update 在 500 条窗口里挤占排障
+	// 事件额度（实测一轮装机 17 条），折叠后窗口让给 tool/api/parse。
+	const rawLines = await readRecentAuditLines(AUDIT_EXPORT_LINE_LIMIT * 2)
+	const lines = foldUpdateEventsForExport(rawLines, AUDIT_EXPORT_LINE_LIMIT)
 
 	const body = [
 		buildDiagnosticsHeader(header),

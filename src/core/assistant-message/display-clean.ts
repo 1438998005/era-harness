@@ -11,6 +11,14 @@
 // 政策与解析层归一化对齐：`</tool_call>` 无条件删除（normalizeLeakedToolMarkup 同款），
 // `<function=NAME>`/`</function>` 方言包裹删除（normalizeDotsFunctionCallMarkup 尾部同款），
 // thinking/function_calls 清理维持原行为。
+//
+// 2026-10-25 追加（任务 1792900662485 turn 27/29/32 取证）：模型补发上一个工具的迟到
+// 闭标签（`</era_symbols>`），整段落成独立文本块反复出现在聊天区；同任务第三方端点
+// （08 #46）整块 DSML 标记落正文。两类残片在此清理，解析层不管展示。
+import { getToolUseNames } from "@shared/tools"
+
+const KNOWN_TOOL_NAMES = new Set(getToolUseNames())
+
 export function cleanAssistantTextForDisplay(rawContent: string, isPartial: boolean): string {
 	let content = rawContent
 	if (!content) {
@@ -20,6 +28,16 @@ export function cleanAssistantTextForDisplay(rawContent: string, isPartial: bool
 	// 方言包裹残片：完整的 <tool_call>/<tool-call>/</tool_call>/… 与 <function=NAME> 开标记。
 	// 流式半截形态（`<function=search` 无 `>`）交给尾部裁剪处理。
 	content = content.replace(/<\/?tool_call>|<\/?tool-call>|<\/?\s*function\s*>|<function=[a-zA-Z0-9_]+>/g, "")
+
+	// DSML 控制分隔符的标签形态（含单/双竖线与属性）：解析层修复失败时的展示兜底。
+	// 只清理 `<...>` 包住的形态，正文里孤立讨论 DSML 字样的文本不动。
+	content = content.replace(/<\/?[｜|]{1,3}\s*DSML\s*[｜|]{1,3}[^>]*>/g, "")
+
+	// 整块恰为已知工具的闭标签（如 `</era_symbols>`）：迟到闭标签残片，无信息量，清掉。
+	const trimmed = content.trim()
+	if (/^<\/[a-z_][a-z0-9_]*>$/.test(trimmed) && KNOWN_TOOL_NAMES.has(trimmed.slice(2, -1))) {
+		return ""
+	}
 
 	// (have to do this for partial and complete since sending content in thinking tags to markdown renderer will automatically be removed)
 	content = content.replace(/<thinking>\s?/g, "")
@@ -50,7 +68,10 @@ export function cleanAssistantTextForDisplay(rawContent: string, isPartial: bool
 			}
 			// 扩展（2026-10-25 MiMo 取证）：兼容方言等号形态的半截开标签（`<function=search`），
 			// 纯字母的既有判定保留。
-			const isLikelyTagName = /^[a-zA-Z_][a-zA-Z0-9_]*(?:=[a-zA-Z0-9_]*)?$/.test(tagContent)
+			// 扩展（2026-10-25 DSML 单竖线取证，08 #46）：分隔符以竖线开头，截断在
+			// `<｜DS`/`</｜` 时不是 ASCII 标签名，须按「标签起始 + 竖线」识别为半截标签。
+			const isLikelyTagName =
+				/^[a-zA-Z_][a-zA-Z0-9_]*(?:=[a-zA-Z0-9_]*)?$/.test(tagContent) || /^<\/?[｜|]/.test(possibleTag)
 			// Preemptively remove < or </ to keep from these artifacts showing up in chat (also handles closing thinking tags)
 			const isOpeningOrClosing = possibleTag === "<" || possibleTag === "</"
 			// If the tag is incomplete and at the end, remove it from the content

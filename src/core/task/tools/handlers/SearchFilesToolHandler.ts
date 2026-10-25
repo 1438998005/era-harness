@@ -1,6 +1,7 @@
 import type { ToolUse } from "@core/assistant-message"
 import { regexSearchFiles } from "@services/ripgrep"
 import { arePathsEqual, getReadablePath, isLocatedInWorkspace } from "@utils/path"
+import { existsSync } from "fs"
 import * as path from "path"
 import { formatResponse } from "@/core/prompts/responses"
 import { parseWorkspaceInlinePath } from "@/core/workspace/utils/parseWorkspaceInlinePath"
@@ -110,8 +111,36 @@ export class SearchFilesToolHandler implements IFullyManagedTool {
 				workspaceResults: "",
 				resultCount: 0,
 				success: false,
+				// era harness（2026-10-25 误报归因修复，08 #45）：保留原始错误供上层归因——
+				// rg 失败可能是 regex 非法（Rust 语法），不该一律甩锅给 path。
+				errorMessage: error instanceof Error ? error.message : String(error),
 			}
 		}
+	}
+
+	/**
+	 * 全部工作区搜索失败时的归因报错（2026-10-25，08 #45 turn 6/19 取证）。
+	 * 此前一律报 "the path may not exist"，但 regex 非法（ripgrep Rust 语法不支持）时
+	 * 路径其实存在——归因错位让模型反复修 path 自纠失败。
+	 * 归因判据钉结构（目标目录的 fs 存在性），不钉 ripgrep 错误文案（知识库 19 §19.1）。
+	 */
+	private buildSearchFailureMessage(
+		searchResults: Array<{ success: boolean; errorMessage?: string }>,
+		searchPaths: Array<{ absolutePath: string }>,
+		relDirPath: string,
+	): string {
+		const allTargetsMissing = searchPaths.length > 0 && searchPaths.every(({ absolutePath }) => !existsSync(absolutePath))
+		if (allTargetsMissing) {
+			return formatResponse.toolError(
+				`Search could not run: the path may not exist or is unreadable (tried: ${relDirPath}). If the target is outside the current workspace, pass its absolute path instead of a relative name.`,
+			)
+		}
+		const firstError = searchResults.find((r) => !r.success && r.errorMessage)?.errorMessage
+		return formatResponse.toolError(
+			`Search could not run: ripgrep failed while the target path exists${
+				firstError ? `: ${firstError.slice(0, 200)}` : ""
+			}. If the error text mentions the regex, it is likely invalid ripgrep (Rust) syntax — e.g. a stray backslash, unbalanced group, or unsupported construct; simplify or escape it and retry.`,
+		)
 	}
 
 	/**
@@ -311,9 +340,7 @@ export class SearchFilesToolHandler implements IFullyManagedTool {
 		// absolute path for files outside the workspace).
 		const results = anySucceeded
 			? this.formatSearchResults(config, searchResults, searchPaths)
-			: formatResponse.toolError(
-					`Search could not run: the path may not exist or is unreadable (tried: ${relDirPath}). If the target is outside the current workspace, pass its absolute path instead of a relative name.`,
-				)
+			: this.buildSearchFailureMessage(searchResults, searchPaths, relDirPath!)
 
 		// Capture workspace search pattern telemetry
 		if (config.isMultiRootEnabled && config.workspaceManager) {

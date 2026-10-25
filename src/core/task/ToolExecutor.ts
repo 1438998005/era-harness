@@ -19,6 +19,7 @@ import { formatResponse } from "../prompts/responses"
 import { StateManager } from "../storage/StateManager"
 import { WorkspaceRootManager } from "../workspace"
 import { ToolResponse } from "."
+import { buildToolParamSnapshot, findDialectResidueParam } from "./dialect-guard"
 import {
 	checkRepeatedToolCall,
 	extractApplyPatchPaths,
@@ -72,7 +73,10 @@ export class ToolExecutor {
 		// Core Services & Managers
 		private taskState: TaskState,
 		private messageStateHandler: MessageStateHandler,
-		private api: ApiHandler,
+		// era harness（D4，2026-10-25）：改取 getter——Controller 切 provider 时会直接替换
+		// task.api（controller/index.ts 四处 `task.api = buildApiHandler(...)`），构造期捕获的
+		// 引用从此失联，审计里会拼出「provider=free + model=旧模型」的嵌合记录（08 #46 实锤）。
+		private getApi: () => ApiHandler,
 		private diffViewProvider: DiffViewProvider,
 		private mcpHub: McpHub,
 		private fileContextTracker: FileContextTracker,
@@ -158,7 +162,7 @@ export class ToolExecutor {
 			isMultiRootEnabled: this.isMultiRootEnabled,
 			taskState: this.taskState,
 			messageState: this.messageStateHandler,
-			api: this.api,
+			api: this.getApi(),
 			autoApprovalSettings: this.stateManager.getGlobalSettingsKey("autoApprovalSettings"),
 			autoApprover: this.autoApprover,
 			focusChainSettings: this.stateManager.getGlobalSettingsKey("focusChainSettings"),
@@ -228,6 +232,10 @@ export class ToolExecutor {
 
 		try {
 			const result = await this.execute(block)
+			// era harness（D3，2026-10-25）：read_file 缓存命中元数据由 handler 经 taskState
+			// 传入，这里单点并入审计并清空——同一次调用只写一条事件（此前两条间隔 ~200ms）。
+			const readMeta = block.name === ClineDefaultTool.FILE_READ ? this.taskState.readToolAuditMeta : undefined
+			this.taskState.readToolAuditMeta = undefined
 			recordAudit({
 				event: "tool",
 				taskId: this.taskId,
@@ -237,6 +245,9 @@ export class ToolExecutor {
 				outcome: result.outcome,
 				ms: Date.now() - startedAt,
 				message: result.message,
+				snapshot: result.snapshot,
+				cacheHit: readMeta?.cacheHit,
+				readCount: readMeta?.readCount,
 				...model,
 			})
 		} catch (error) {
@@ -261,7 +272,7 @@ export class ToolExecutor {
 			const apiConfig = this.stateManager.getApiConfiguration()
 			const mode = this.stateManager.getGlobalSettingsKey("mode")
 			const provider = (mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
-			return { provider: provider || undefined, model: this.api.getModel().id }
+			return { provider: provider || undefined, model: this.getApi().getModel().id }
 		} catch {
 			return {}
 		}
@@ -351,7 +362,7 @@ export class ToolExecutor {
 	 */
 	private isParallelToolCallingEnabled(): boolean {
 		const enableParallelSetting = this.stateManager.getGlobalSettingsKey("enableParallelToolCalling")
-		const model = this.api.getModel()
+		const model = this.getApi().getModel()
 		const apiConfig = this.stateManager.getApiConfiguration()
 		const mode = this.stateManager.getGlobalSettingsKey("mode")
 		const providerId = (mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
@@ -551,7 +562,7 @@ export class ToolExecutor {
 			messageStateHandler: this.messageStateHandler,
 			taskId: this.taskId,
 			hooksEnabled,
-			model: getHookModelContext(this.api, this.stateManager),
+			model: getHookModelContext(this.getApi(), this.stateManager),
 			toolName: block.name,
 		})
 
@@ -618,6 +629,21 @@ export class ToolExecutor {
 		// Check abort flag at the very start to prevent execution after cancellation
 		if (this.taskState.abort) {
 			return { outcome: "cancelled", message: "aborted before execution" }
+		}
+
+		// era harness（2026-10-25 修复目标升级，08 #45）：污染值不得静默执行——定位类参数
+		// 带方言残片时拒绝执行。msg9 实弹取证：file_pattern 带 DSML 残片仍 outcome ok，
+		// rg 得 "Found 0 results"，模型误信空结果继续推进，比缺参红字更危险。
+		// 报错指名污染参数（模型下轮自纠），审计附参数快照（诊断包可见完整残片形状）。
+		const pollutedParam = findDialectResidueParam(block.params)
+		if (pollutedParam) {
+			config.taskState.consecutiveMistakeCount++
+			const message = `Invalid '${pollutedParam}' for ${block.name}: the value contains unresolved tool-call dialect markup (DSML delimiters or stray parameter tags). The tool was NOT executed because a polluted value could silently corrupt the operation (e.g. a search returning misleading empty results). Re-issue the call with clean plain-text values.`
+			await this.say(
+				"error",
+				`Cline tried to use ${block.name} with dialect residue in parameter '${pollutedParam}'. Blocked to prevent silent corruption. Retrying...`,
+			)
+			return { outcome: "error", message, snapshot: buildToolParamSnapshot(block.params) }
 		}
 
 		const hooksEnabled = getHooksEnabledSafe(this.stateManager.getGlobalSettingsKey("hooksEnabled"))

@@ -13,6 +13,7 @@
  * comparison algorithm cannot drift between the two.
  */
 
+import { getToolUseNames } from "@shared/tools"
 import type { TaskState } from "./TaskState"
 
 // Soft threshold: inject a warning, giving the LLM one chance to self-correct.
@@ -226,12 +227,15 @@ export function readRangeKey(cacheKey: string, startLine?: number, endLine?: num
 
 /**
  * 审计里的 `dedupeKey`：**必须**和区间计数键同源，否则「缺省 start」与 `start_line=1`
- * 会被当成两组，同一次 read_file 写的两条审计（ToolExecutor 一条 + handler 缓存命中一条）
- * 就再也对不上。
+ * 会被当成两组，对不上。
  *
  * 路径形态保持各自口径：审计用模型可见路径（`displayPath` / `params.path`），
  * 内存计数用绝对路径（`cacheKey`）。单根工作区下两者相同，多根带 hint 时才不同——
  * 别误以为两套键应该逐字相等。
+ *
+ * （修订 2026-10-25：同一次 read_file 曾由 ToolExecutor 与 handler 各写一条审计、靠
+ * dedupeKey 对齐；D3 起改为 handler 经 taskState 传元数据、ToolExecutor 单点合并，
+ * 一次调用只落一条，dedupeKey 的「对齐两条」职责随之消失，同源约束保留。）
  */
 export function readDedupeKey(displayPath: string, startLine?: number, endLine?: number): string {
 	return `read|${readRangeKey(displayPath, startLine, endLine)}`
@@ -376,4 +380,40 @@ export function shouldEscalateLoop(input: { hardEscalation: boolean; toolName: s
 		return true
 	}
 	return parsed.readCount >= REPEAT_SUPPRESSED_HARD_COUNT
+}
+
+/**
+ * 未知方言循环签名（2026-10-25，08 #46）。
+ *
+ * 背景：解析器修复覆盖已知方言形态后，未来仍可能冒出未知变体——整块工具标记落正文、
+ * 零工具执行，模型对标准 noToolsUsed 反馈的响应是**原样重发**，无限循环烧钱（第三方
+ * 用户实测：同一 search_files 调用块重复 6 次，任务卡死）。这条防线不给模型注入提示，
+ * 只把「连续同文的结构化方言正文」计入既有 mistake 熔断，让 mistake_limit 弹窗打断。
+ *
+ * 判据是结构化的（19 §19.1）：正文含 `invoke name="已知工具名"` 或 DSML 分隔符才成签；
+ * 纯正文哈希重复不触发——正常散文/思考重复重试是既有 mistake 路径的事，与此无关。
+ */
+export function dialectLoopSignature(text: string): string | undefined {
+	if (!text) {
+		return undefined
+	}
+	const knownTools = getToolUseNames()
+	let hasKnownInvoke = false
+	for (const m of text.matchAll(/invoke\s+name\s*=\s*"([a-zA-Z_][a-zA-Z0-9_]*)"/g)) {
+		if (knownTools.includes(m[1] as never)) {
+			hasKnownInvoke = true
+			break
+		}
+	}
+	const hasDsmlDelimiter = /[｜|]{1,3}\s*DSML\s*[｜|]{1,3}/.test(text)
+	if (!hasKnownInvoke && !hasDsmlDelimiter) {
+		return undefined
+	}
+	// 折叠空白后取滚动哈希 + 长度：同文重发哈希必同，空白抖动不误判为「已变化」。
+	const compact = text.replace(/\s+/g, "")
+	let hash = 0
+	for (let i = 0; i < compact.length; i++) {
+		hash = (hash * 31 + compact.charCodeAt(i)) | 0
+	}
+	return `${hash}:${compact.length}`
 }

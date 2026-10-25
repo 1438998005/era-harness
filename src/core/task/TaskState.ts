@@ -71,6 +71,10 @@ export class TaskState {
 	// 只重置计数会让模型重犯同一策略，形成「重置→重犯→再升级」死循环（2026-10-24
 	// 真实任务 1792824640404 取证，见 知识库/12 §12.23）。在熔断处理处消费后复位。
 	fuseArmedByLoopEscalation = false
+	// 未知方言循环检测（2026-10-25，08 #46）：上一轮无工具正文的方言签名哈希。
+	// 模型输出整块未识别方言（如单竖线 DSML）落正文时会同文重试无限烧钱；
+	// 连续相同签名计入 consecutiveMistakeCount（3 轮即弹 mistake_limit 打断）。
+	dialectLoopLastHash?: string
 	doubleCheckCompletionPending = false
 	didAutomaticallyRetryFailedApiRequest = false
 	checkpointManagerErrorMessage?: string
@@ -86,6 +90,16 @@ export class TaskState {
 	apiRequestsSinceLastTodoUpdate = 0
 	currentFocusChainChecklist: string | null = null
 	todoListWasUpdatedByUser = false
+
+	// era harness（D4，2026-10-25）：最近一次请求实际服务的 provider/model 快照。
+	// 用户切 provider 后中止旧任务，abort 审计若实时读设置会把新 provider 记到旧任务
+	// 头上（08 #46 嵌合记录的另一成因）；请求时快照才是「这个任务当时由谁服务」。
+	lastRequestProviderInfo?: { provider?: string; model?: string }
+
+	// era harness（D3，2026-10-25）：read_file 缓存命中元数据——handler 命中缓存时设置、
+	// ToolExecutor 写审计时消费并清空，同一次 read_file 只落一条审计（此前 handler 与
+	// ToolExecutor 各写一条，间隔 ~200ms，统计双计）。
+	readToolAuditMeta?: { cacheHit: boolean; readCount: number }
 
 	// Task Abort / Cancellation
 	abort = false

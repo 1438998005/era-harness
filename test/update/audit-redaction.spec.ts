@@ -16,11 +16,13 @@ import {
 	collectRecentLines,
 	compareAuditFilesDesc,
 	diagnosticsFileName,
+	foldUpdateEventsForExport,
 	parseAuditFileDate,
 	sanitizeAuditEntry,
 	scrubSecrets,
 	serializeAuditEntry,
 } from "../../src/core/logging/audit-log-format"
+import { buildToolParamSnapshot, findDialectResidueParam } from "../../src/core/task/dialect-guard"
 import {
 	extractToolErrorMessage,
 	isToolDenied,
@@ -322,4 +324,107 @@ test("诊断包头部：含版本与设置摘要，但不含密钥值", () => {
 test("诊断包头部：空设置时不输出摘要段", () => {
 	const header = buildDiagnosticsHeader({ extensionVersion: "3.91.0" })
 	assert.equal(header.includes("设置摘要"), false)
+})
+
+// —— Stage 2（3.91.12）新增 ——
+
+test("D1：api/parse 是合法事件类型，用量与修复字段进白名单", () => {
+	const usage = sanitizeAuditEntry(
+		{
+			event: "api",
+			action: "usage",
+			taskId: "1790000000000",
+			turn: 5,
+			provider: "deepseek",
+			model: "deepseek-flash",
+			inputTokens: 84_100,
+			outputTokens: 2_200,
+			cacheReadTokens: 82_200,
+			cost: 0.1865,
+		},
+		1_700_000_000_000,
+	)
+	assert.ok(usage)
+	assert.equal(usage.event, "api")
+	assert.equal(usage.inputTokens, 84_100)
+	assert.equal(usage.cacheReadTokens, 82_200)
+	assert.equal(usage.cost, 0.1865)
+
+	const repair = sanitizeAuditEntry(
+		{ event: "parse", action: "repair", taskId: "t", turn: 3, repairs: "dsml=3,dots=1" },
+		1_700_000_000_000,
+	)
+	assert.ok(repair)
+	assert.equal(repairsOf(repair), "dsml=3,dots=1")
+})
+
+function repairsOf(record: Record<string, unknown>): string | undefined {
+	return record.repairs as string | undefined
+}
+
+test("D5：审计条目带 ISO 时间戳，且与 epoch 同源", () => {
+	const parsed = JSON.parse(serializeAuditEntry({ event: "tool", tool: "read_file" }, 1_700_000_000_000)!)
+	assert.equal(typeof parsed.ts, "number")
+	assert.equal(parsed.iso, new Date(1_700_000_000_000).toISOString())
+})
+
+test("S4/D2：snapshot 进白名单、过密钥擦洗、cap 1000", () => {
+	const dirty = "path=ERB ｜｜DSML｜｜ key=sk-abcdef0123456789abcdef " + "x".repeat(1500)
+	const parsed = JSON.parse(serializeAuditEntry({ event: "tool", tool: "search_files", outcome: "error", snapshot: dirty }, 1)!)
+	const snapshot = parsed.snapshot as string
+	assert.ok(snapshot.length <= 1100, "snapshot 不得超过 1000+省略号")
+	assert.equal(snapshot.includes("sk-abcdef"), false, "snapshot 里的密钥必须被擦")
+	assert.ok(snapshot.includes("path=ERB"), "残片形状必须保留供排障")
+})
+
+test("D5：update 事件折叠——超限时保留最近 10 条、其余折成摘要、时间序恢复", () => {
+	const lines: string[] = []
+	// 550 条 update + 20 条 tool = 570 行，超过 500 上限
+	for (let i = 0; i < 550; i++) {
+		lines.push(JSON.stringify({ ts: 1_700_000_000_000 + i * 2, event: "update", action: "check", target: `v3.9${i}` }))
+	}
+	for (let i = 0; i < 20; i++) {
+		lines.splice(
+			10 + i * 27,
+			0,
+			JSON.stringify({ ts: 1_700_000_000_000 + i * 2 + 1, event: "tool", tool: "search_files", outcome: "error" }),
+		)
+	}
+	const folded = foldUpdateEventsForExport(lines, 500)
+	const parsed = folded.map((l) => JSON.parse(l) as { event: string; action?: string; folded?: number })
+	const updateRows = parsed.filter((p) => p.event === "update" && p.action !== "folded")
+	const toolRows = parsed.filter((p) => p.event === "tool")
+	const summaryRows = parsed.filter((p) => p.event === "update" && p.action === "folded")
+	assert.equal(updateRows.length, 10, "只保留最近 10 条 update")
+	assert.equal(toolRows.length, 20, "tool 事件全保留")
+	assert.equal(summaryRows.length, 1, "折叠摘要一行")
+	assert.equal(summaryRows[0].folded, 540, "折叠计数正确（550 - 保留 10）")
+	assert.equal(folded.length, 31, "总行数 = 20 tool + 10 update + 1 摘要")
+	// 时间序：首行应是「被保留事件中最早」的一条——最早的 update 已被折叠，
+	// 轮到夹在第 10 条 update 后的第一个 tool 事件（ts=...001）
+	const firstTs = (JSON.parse(folded[0]) as { ts: number }).ts
+	assert.equal(firstTs, 1_700_000_000_001, "时间序恢复：保留集内最早事件在最前")
+})
+
+test("D5：不超 limit 时折叠函数原样返回", () => {
+	const lines = [JSON.stringify({ ts: 1, event: "update", action: "check" })]
+	assert.equal(foldUpdateEventsForExport(lines, 500), lines)
+})
+
+test("S4：dialect-guard——定位类参数含 DSML/方言标签语法时拒执行并产出快照", () => {
+	assert.equal(findDialectResidueParam({ path: "ERB", regex: "中文词" }), undefined, "干净参数不拦截")
+	assert.equal(findDialectResidueParam({ path: "ERB</｜｜DSML｜｜ parameter>" }), "path")
+	assert.equal(findDialectResidueParam({ file_pattern: '*.erb</｜DSML｜ parameter name="task_progress>' }), "file_pattern")
+	assert.equal(findDialectResidueParam({ regex: "A|B</parameter>" }), "regex")
+	assert.equal(findDialectResidueParam({ regex: '<parameter name="regex">' }), "regex")
+	// content/diff/command 不在定位类名单：合法讨论 XML 的文件内容不受影响
+	assert.equal(findDialectResidueParam({ content: '用法：<parameter name="path">x</parameter>' }), undefined)
+	assert.equal(findDialectResidueParam({}), undefined)
+	assert.equal(findDialectResidueParam(undefined), undefined)
+
+	const snapshot = buildToolParamSnapshot({ path: "ERB", regex: "A".repeat(300), content: "【文件正文】" })
+	assert.ok(snapshot)
+	assert.ok(snapshot!.includes('path="ERB"'), "快照含短参数值")
+	assert.ok(snapshot!.includes("…"), "长值被截断")
+	assert.equal(snapshot!.includes("【文件正文】"), false, "content 不进快照（正文剥离纪律）")
 })

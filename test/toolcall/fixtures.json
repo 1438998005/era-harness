@@ -490,6 +490,162 @@
 					}
 				}
 			]
+		},
+		{
+			"name": "DS 链式闭标签 msg7（2026-10-25 任务 1792900662485）：闭标签内嵌下一参数 opener，path/regex 不得吞进 file_pattern",
+			"raw": "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"search_files\">\n<｜｜DSML｜｜ parameter name=\"file_pattern\" string=\"true\">*.ERB</｜｜DSML｜｜ parameter name=\"path\" string=\"true\">ERB</｜｜DSML｜｜ parameter name=\"regex\" string=\"true\">中文词Ａ|中文词Ｂ|中文词Ｃ|中文词Ｄ</｜｜DSML｜｜ parameter name=\"task_progress>\n- [x] 定位目标物品编号\n- [ ] 查使用点\n- [ ] 定位发奖逻辑\n- [ ] 汇总来源\n</task_progress>\n</｜｜DSML｜｜>\n</｜｜DSML｜｜ calls>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"file_pattern": "*.ERB",
+						"path": "ERB",
+						"regex": "中文词Ａ|中文词Ｂ|中文词Ｃ|中文词Ｄ"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS 链式闭标签 msg9（静默污染形态）：path/regex 正常闭合、仅 file_pattern 链到 task_progress，参数不得被污染",
+			"raw": "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"search_files\">\n<｜｜DSML｜｜ parameter name=\"path\" string=\"true\">ERB</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"regex\" string=\"true\">中文词Ａ|中文词Ｂ</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"file_pattern\" string=\"true\">*.erb</｜｜DSML｜｜ parameter name=\"task_progress>\n- [x] 定位目标物品编号\n- [ ] 查使用点\n</task_progress>\n</｜｜DSML｜｜>\n</｜｜DSML｜｜ calls>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "中文词Ａ|中文词Ｂ",
+						"file_pattern": "*.erb"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS 链式闭标签 msg11：regex 闭标签链到 file_pattern，再链到 task_progress",
+			"raw": "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"search_files\">\n<｜｜DSML｜｜ parameter name=\"path\" string=\"true\">ERB</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"regex\" string=\"true\">中文词Ａ|中文词Ｂ</｜｜DSML｜｜ parameter name=\"file_pattern\" string=\"true\">*.erb</｜｜DSML｜｜ parameter name=\"task_progress>\n- [x] 定位目标物品编号\n</task_progress>\n</｜｜DSML｜｜>\n</｜｜DSML｜｜ calls>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "中文词Ａ|中文词Ｂ",
+						"file_pattern": "*.erb"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS 混用形态 msg31（turn19）：普通工具开标签 + DSML 参数 + 结尾双裸闭标签",
+			"raw": "<search_files>\n<｜｜DSML｜｜ parameter name=\"file_pattern\" string=\"true\">*.ERB</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"path\" string=\"true\">ERB/DIR_A</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"regex\" string=\"true\">RAND|CASE 6[0-9][0-9]</｜｜DSML｜｜ parameter name=\"task_progress>\n- [x] 定位编号\n- [ ] 汇总结论\n</task_progress>\n</｜｜DSML｜｜>\n</｜｜DSML｜｜>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"file_pattern": "*.ERB",
+						"path": "ERB/DIR_A",
+						"regex": "RAND|CASE 6[0-9][0-9]"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS 孤儿 XML 混合体 msg41（B 族）：path 用通用闭标签收口、后续参数用 <parameter name> 开标签，须完整还原",
+			"raw": "<search_files>\n<path>ERB</parameter>\n<parameter name=\"regex\">VAR_A = |VAR_A\\s*=</parameter>\n<parameter name=\"file_pattern\">*.ERB</parameter>\n<parameter name=\"task_progress\">\n- [x] 定位编号\n- [ ] 汇总结论\n</task_progress>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "VAR_A = |VAR_A\\s*=",
+						"file_pattern": "*.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "DS msg43（B 族变体）：DSML 包裹内 file_pattern 正常闭合、path 闭标签链到 regex",
+			"raw": "<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name=\"search_files\">\n<｜｜DSML｜｜ parameter name=\"file_pattern\">*.ERH</｜｜DSML｜｜ parameter>\n<｜｜DSML｜｜ parameter name=\"path\">ERB</｜｜DSML｜｜ parameter name=\"regex\" string=\"true\">VAR_A</｜｜DSML｜｜ parameter name=\"task_progress>\n- [x] 定位编号\n</task_progress>\n</｜｜DSML｜｜>\n</｜｜DSML｜｜ calls>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"file_pattern": "*.ERH",
+						"path": "ERB",
+						"regex": "VAR_A"
+					}
+				}
+			]
+		},
+		{
+			"name": "第三方单竖线 DSML token（08 #46 river.ai 端点截图形态）：整块应还原为 search_files 而非落正文",
+			"raw": "<｜DSML｜ calls>\n<｜DSML｜ invoke name=\"search_files\">\n<｜DSML｜ parameter name=\"path\">ERB</｜DSML｜ parameter>\n<｜DSML｜ parameter name=\"regex\">中文词Ｅ</｜DSML｜ parameter>\n<｜DSML｜ parameter name=\"file_pattern\">*.ERB</｜DSML｜ parameter>\n<｜DSML｜ parameter name=\"task_progress\">- [ ] 待办一\n- [ ] 待办二\n</task_progress>\n</｜DSML｜ invoke>\n</｜DSML｜ calls>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "ERB",
+						"regex": "中文词Ｅ",
+						"file_pattern": "*.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "单竖线与 ASCII 竖线混排（08 #46 字节不确定的兜底）：全角/ASCII 同色处理",
+			"raw": "<|DSML| invoke name=\"read_file\">\n<｜DSML｜ parameter name=\"path\">ERB/a.ERB</|DSML| parameter>\n</｜DSML｜ invoke>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "ERB/a.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "防腐蚀：无包裹时 content 值里的 <parameter name> 文档示例必须原样保留（08 #24 收紧场景）",
+			"raw": "<write_to_file>\n<path>docs.md</path>\n<content>\n用法：<parameter name=\"path\">目标路径</parameter> 放在工具块里。\n</content>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "docs.md",
+						"content": "用法：<parameter name=\"path\">目标路径</parameter> 放在工具块里。"
+					}
+				}
+			]
+		},
+		{
+			"name": "防腐蚀：正文里的孤儿 </parameter> 被清掉但不影响后续真实工具",
+			"raw": "这是对 XML 参数标签的说明 </parameter> 结束。\n<read_file><path>a.ERB</path></read_file>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "a.ERB"
+					}
+				}
+			],
+			"expectTextContains": [
+				"这是对 XML 参数标签的说明"
+			],
+			"expectTextNotContains": [
+				"</parameter>"
+			]
+		},
+		{
+			"name": "散落裸 DSML 分隔符（无任何标签上下文）：应被清掉不落正文",
+			"raw": "前文说明\n｜｜DSML｜｜\n<read_file><path>a.ERB</path></read_file>",
+			"expectTools": [
+				{
+					"name": "read_file",
+					"params": {
+						"path": "a.ERB"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"｜｜DSML｜｜"
+			]
 		}
 	]
 }

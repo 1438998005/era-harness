@@ -1,7 +1,13 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import { ApiHandler, ApiProviderInfo, buildApiHandler } from "@core/api"
 import { ApiStream } from "@core/api/transform/stream"
-import { AssistantMessageContent, cleanAssistantTextForDisplay, parseAssistantMessageV2, ToolUse } from "@core/assistant-message"
+import {
+	AssistantMessageContent,
+	cleanAssistantTextForDisplay,
+	createParseRepairStats,
+	parseAssistantMessageV2,
+	ToolUse,
+} from "@core/assistant-message"
 import { ContextManager } from "@core/context/context-management/ContextManager"
 import { checkContextWindowExceededError } from "@core/context/context-management/context-error-handling"
 import { getContextWindowInfo } from "@core/context/context-management/context-window-utils"
@@ -123,6 +129,7 @@ import {
 	isRemoteWorkspaceEnvironment,
 	type TaskLatencyTrigger,
 } from "./latency"
+import { dialectLoopSignature } from "./loop-detection"
 import { MessageStateHandler } from "./message-state"
 import type { PresentationPriority } from "./presentation-types"
 import { StreamChunkCoordinator } from "./StreamChunkCoordinator"
@@ -456,6 +463,18 @@ export class Task {
 			...apiConfiguration,
 			ulid: this.ulid,
 			onRetryAttempt: async (attempt: number, maxRetries: number, delay: number, error: any) => {
+				// era harness（D1 请求层审计，2026-10-25）：重试此前只改 UI 消息，审计零痕迹。
+				recordAudit({
+					event: "api",
+					action: "retry",
+					taskId: this.taskId,
+					turn: this.taskState.apiRequestCount,
+					attempt,
+					maxAttempts: maxRetries,
+					delayMs: Math.round(delay),
+					message: error?.message ? String(error.message) : undefined,
+					...this.auditTaskMeta(),
+				})
 				const clineMessages = this.messageStateHandler.getClineMessages()
 				const lastApiReqStartedIndex = findLastIndex(clineMessages, (m) => m.say === "api_req_started")
 				if (lastApiReqStartedIndex !== -1) {
@@ -577,7 +596,7 @@ export class Task {
 		this.toolExecutor = new ToolExecutor(
 			this.taskState,
 			this.messageStateHandler,
-			this.api,
+			() => this.api,
 			this.diffViewProvider,
 			this.mcpHub,
 			this.fileContextTracker,
@@ -1062,6 +1081,21 @@ export class Task {
 			return { provider: provider || undefined, model: this.api.getModel().id }
 		} catch {
 			return {}
+		}
+	}
+
+	/**
+	 * era harness（D4，2026-10-25）：任务级审计元数据优先取「最近一次请求实际服务的
+	 * provider/model」快照，快照缺失时回退实时设置。修两个实锤问题：①切 provider 后
+	 * 中止旧任务，abort 事件记成新 provider（08 #46 嵌合记录成因之一）；②api 引用与
+	 * 设置读取时机错位拼出 provider=free + model=旧模型 的组合。
+	 */
+	private auditTaskMetaForTaskEvents(): { provider?: string; model?: string } {
+		const snapshot = this.taskState.lastRequestProviderInfo
+		const meta = this.auditTaskMeta()
+		return {
+			provider: snapshot?.provider || meta.provider,
+			model: snapshot?.model || meta.model,
 		}
 	}
 
@@ -1553,13 +1587,13 @@ export class Task {
 
 	async abortTask() {
 		try {
-			// 审计：任务被取消（用户主动或错误升级）
+			// 审计：任务被取消（用户主动或错误升级）。meta 走请求时快照（D4）。
 			recordAudit({
 				event: "task",
 				taskId: this.taskId,
 				turn: this.taskState.apiRequestCount,
 				action: "abort",
-				...this.auditTaskMeta(),
+				...this.auditTaskMetaForTaskEvents(),
 			})
 
 			// PHASE 1: Check if TaskCancel should run BEFORE any cleanup
@@ -2086,6 +2120,19 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			const { model, providerId } = this.getCurrentProviderInfo()
 			const clineError = ErrorService.get().toClineError(error, model.id, providerId)
 
+			// era harness（D1 请求层审计，2026-10-25）：首 chunk 失败此前审计零痕迹——
+			// 第三方端点失败循环在诊断包里只有 start/abort（08 #46 实测）。
+			// action=error 表示失败发生在首 chunk 阶段。
+			recordAudit({
+				event: "api",
+				action: "error",
+				taskId: this.taskId,
+				turn: this.taskState.apiRequestCount,
+				provider: providerId,
+				model: model.id,
+				message: clineError.message,
+			})
+
 			// Capture provider failure telemetry using clineError
 			ErrorService.get().logMessage(clineError.message)
 
@@ -2302,7 +2349,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				// 净化后为空时跳过 say。已渲染的 partial say:text 在文本块变成工具块后没有
 				// 任何机制回收（say 只替换同类型 partial），因此必须在渲染前清干净，
 				// 否则 `<tool_call><function=search` 这类截断残片会永久留在消息列表。
-				if (block.partial && !content) {
+				// 2026-10-25 扩到 complete：整块恰为孤儿工具闭标签/DSML 残片时净化结果为空，
+				// 跳过以免渲染空文本行（任务 1792900662485 turn 27/29/32 取证）。
+				if (!content) {
 					break
 				}
 
@@ -2375,6 +2424,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 
 		// Used to know what models were used in the task if user wants to export metadata for error reporting purposes
 		const { model, providerId, customPrompt, mode } = this.getCurrentProviderInfo()
+		// era harness（D4，2026-10-25）：请求时快照——abort/审计据此报「当时实际服务的
+		// provider/model」，不再受用户事后切换设置影响（08 #46 嵌合记录修正）。
+		this.taskState.lastRequestProviderInfo = { provider: providerId, model: model.id }
 		if (providerId && model.id) {
 			try {
 				await this.modelContextTracker.recordModelUsage(providerId, model.id, mode)
@@ -2678,6 +2730,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			} = { cacheWriteTokens: 0, cacheReadTokens: 0, inputTokens: 0, outputTokens: 0, totalCost: undefined }
 			let didFinalizeApiReqMsg = false
 			let usageChunkSideEffectsQueue = Promise.resolve()
+			// era harness（D2 解析遥测）：流式期间每个 chunk 的重解析都会命中归一化/修复路径，
+			// 累计整轮流结束时一次性落一条 parse 事件——「模型干净」vs「被修干净」可区分。
+			const parseStats = createParseRepairStats()
 			/*
 				Usage side effects run as soon as a usage chunk arrives.
 				queueUsageChunkSideEffects() appends work to this promise chain, and each appended step starts immediately
@@ -2961,7 +3016,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 							// parse raw assistant message into content blocks
 							const prevLength = this.taskState.assistantMessageContent.length
 
-							this.taskState.assistantMessageContent = parseAssistantMessageV2(assistantMessage)
+							this.taskState.assistantMessageContent = parseAssistantMessageV2(assistantMessage, parseStats)
 
 							if (this.taskState.assistantMessageContent.length > prevLength) {
 								this.taskState.userMessageContentReady = false // new content we need to present, reset to false in case previous content set this to true
@@ -3028,6 +3083,16 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				if (!this.taskState.abandoned) {
 					const clineError = ErrorService.get().toClineError(error, this.api.getModel().id)
 					const errorMessage = clineError.serialize()
+					// era harness（D1 请求层审计）：中流失败此前同样零痕迹；action=stream_error
+					// 与首 chunk 阶段（action=error）区分。
+					recordAudit({
+						event: "api",
+						action: "stream_error",
+						taskId: this.taskId,
+						turn: this.taskState.apiRequestCount,
+						...this.auditTaskMeta(),
+						message: clineError.message,
+					})
 					const isStreamingSpendLimitError = clineError.isErrorType(ClineErrorType.SpendLimit)
 					// Auto-retry for streaming failures (skip for spend limit errors)
 					if (!isStreamingSpendLimitError && this.taskState.autoRetryAttempts < 3) {
@@ -3106,6 +3171,47 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			await finalizeApiReqMsg()
 			await this.messageStateHandler.saveClineMessagesAndUpdateHistory()
 			await this.postStateToWebview()
+
+			// era harness（D2 解析遥测，2026-10-25）：仅在有修复命中时落一条 parse 事件。
+			// MiMo 复测的教训：方言没消失、是被解析容错消化了——审计此前完全看不出
+			// 「表面干净」的回合里归一化器干了多少活。
+			const totalRepairs =
+				parseStats.dsml + parseStats.dots + parseStats.orphanRepair + parseStats.strayQuote + parseStats.taskProgressStrip
+			if (totalRepairs > 0) {
+				recordAudit({
+					event: "parse",
+					action: "repair",
+					taskId: this.taskId,
+					turn: this.taskState.apiRequestCount,
+					...this.auditTaskMeta(),
+					repairs: [
+						parseStats.dsml > 0 ? `dsml=${parseStats.dsml}` : "",
+						parseStats.dots > 0 ? `dots=${parseStats.dots}` : "",
+						parseStats.orphanRepair > 0 ? `orphan=${parseStats.orphanRepair}` : "",
+						parseStats.strayQuote > 0 ? `strayQuote=${parseStats.strayQuote}` : "",
+						parseStats.taskProgressStrip > 0 ? `taskProgress=${parseStats.taskProgressStrip}` : "",
+					]
+						.filter(Boolean)
+						.join(","),
+				})
+			}
+
+			// era harness（D1 请求层审计，2026-10-25）：每请求一条用量事件——token/费用此前
+			// 只活在 UI 消息里，诊断包完全没有；方言漂移与上下文规模的关联、单任务成本曲线
+			// 都无从取证（截图里的 ¥0.1865 / 84.1k / 82.2k 在审计中不存在）。
+			recordAudit({
+				event: "api",
+				action: "usage",
+				taskId: this.taskId,
+				turn: this.taskState.apiRequestCount,
+				provider: providerId,
+				model: model.id,
+				inputTokens: taskMetrics.inputTokens,
+				outputTokens: taskMetrics.outputTokens,
+				cacheReadTokens: taskMetrics.cacheReadTokens || undefined,
+				cacheWriteTokens: taskMetrics.cacheWriteTokens || undefined,
+				cost: taskMetrics.totalCost,
+			})
 
 			// need to call here in case the stream was aborted
 			if (this.taskState.abort) {
@@ -3255,6 +3361,25 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 					const hasReasoning = Boolean(reasoning?.thinking && reasoning.thinking.trim().length > 0)
 					if (!producedSubstantiveText && !hasReasoning) {
 						this.taskState.consecutiveMistakeCount++
+					}
+
+					// era harness（2026-10-25，08 #46）：未知方言变体整块落正文 → 零工具执行 →
+					// 模型对 noToolsUsed 反馈的原样重发，无限循环烧钱（第三方实测同一调用块重复
+					// 6 次卡死）。正文含结构化方言特征（invoke name=已知工具 / DSML 分隔符）且与
+					// 上一轮同文时计入既有 mistake 熔断（3 轮弹 mistake_limit 打断）；按用户裁定
+					// 不注入任何提示词。首见轮不计数，给模型一次自纠机会。
+					const dialectText = this.taskState.assistantMessageContent
+						.filter((b) => b.type === "text")
+						.map((b) => (b as { content?: string }).content ?? "")
+						.join("\n")
+					const dialectSig = dialectLoopSignature(dialectText)
+					if (dialectSig) {
+						if (this.taskState.dialectLoopLastHash === dialectSig) {
+							this.taskState.consecutiveMistakeCount++
+						}
+						this.taskState.dialectLoopLastHash = dialectSig
+					} else {
+						this.taskState.dialectLoopLastHash = undefined
 					}
 				}
 

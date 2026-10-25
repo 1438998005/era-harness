@@ -45,9 +45,13 @@ function decodeCommandEntities(text: string): string {
 // text separately (see task/index.ts), but the parser would otherwise render these tags as
 // plain text in the chat. Strip them from the parsed text so they never surface to the user;
 // surrounding prose is preserved. Also drops a trailing unclosed block during streaming.
-function stripTaskProgressMarkup(text: string): string {
+function stripTaskProgressMarkup(text: string, stats?: ParseRepairStats): string {
 	if (!text || text.indexOf("<task_progress>") === -1) return text
-	return text.replace(/<task_progress>[\s\S]*?<\/task_progress>/g, "").replace(/<task_progress>[\s\S]*$/, "")
+	const stripped = text.replace(/<task_progress>[\s\S]*?<\/task_progress>/g, "").replace(/<task_progress>[\s\S]*$/, "")
+	if (stats && stripped !== text) {
+		stats.taskProgressStrip++
+	}
+	return stripped
 }
 
 // era harness: DeepSeek 系推理服务（实测 GLM-5.3-Flash）有时不吐 Cline 的 XML，而是把
@@ -67,9 +71,35 @@ function stripTaskProgressMarkup(text: string): string {
 // 这里按出现顺序扫一遍，把 invoke/parameter 还原成 Cline 的 `<tool>` / `<param>`，
 // 并清掉残留分隔符。必须是单趟扫描：参数的开/闭标签交替出现，分几趟 replace 会把
 // 所有闭合都错配到最后一次打开的标签上。
-const DSML_DELIMITER = String.raw`[｜|]{2}\s*DSML\s*[｜|]{2}`
+// 2026-10-25 第三方复现（v3.91.10 + river.ai 端点，知识库 08 #46）：DSML 控制 token
+// 泄漏成**单竖线** `<｜DSML｜`（本方官方端点是双竖线 `｜｜`），分隔符只认 {2} 导致整块
+// 落正文、零工具执行、原样重试循环卡死。放宽为 1-3 根（全角/ASCII 混排同色处理）——
+// DSML 字面量在正常正文里不会出现，容差不引入误伤。
+const DSML_DELIMITER = String.raw`[｜|]{1,3}\s*DSML\s*[｜|]{1,3}`
 
-function normalizeDsmlMarkup(text: string): string {
+/**
+ * 解析修复遥测（D2，2026-10-25）：「模型干净」与「被修干净」必须可区分——MiMo 复测
+ * 判据②的验收盲区（方言仍在、全靠归一化容错消化，审计此前完全看不出）。各归一器命中
+ * 次数累加进同一对象，task 层在每轮流结束时仅非零才发一条 parse 审计事件。
+ */
+export interface ParseRepairStats {
+	/** DSML 归一器改写次数（含链式闭标签/裸闭标签/散落分隔符） */
+	dsml: number
+	/** dots/Anthropic 形态归一器改写次数（含 B 族孤儿混合体） */
+	dots: number
+	/** 早闭合孤儿参数归并次数 */
+	orphanRepair: number
+	/** 开标签杂引号修复次数 */
+	strayQuote: number
+	/** 独立 task_progress 段剥离次数 */
+	taskProgressStrip: number
+}
+
+export function createParseRepairStats(): ParseRepairStats {
+	return { dsml: 0, dots: 0, orphanRepair: 0, strayQuote: 0, taskProgressStrip: 0 }
+}
+
+function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 	if (!text || !text.includes("DSML")) return text
 
 	let openTool: string | null = null
@@ -84,63 +114,116 @@ function normalizeDsmlMarkup(text: string): string {
 			//    开/闭引号都可省略，参数名必须是不含引号/空白/尖括号的标识符。
 			`<${DSML_DELIMITER}\\s*parameter\\s+name="?([^">\\s>]+)"?[^>]*>`,
 			`</${DSML_DELIMITER}\\s*parameter\\s*>`, // 4: 关参数
+			// 4b: 链式闭标签（2026-10-25 任务 1792900662485 msg7/9/11/43 取证，v3.91.10
+			//     复测残留的主形态）：闭标签内嵌下一参数的 opener——
+			//     `</D parameter name="regex" string="true">下一参数值`，且跟在后面的
+			//     task_progress 伪参数连属性引号都不闭合（name="task_progress>）。
+			//     语义 = 关当前参数 + 开下一参数。
+			`</${DSML_DELIMITER}\\s*parameter\\s+name="?([^">\\s>]+)"?[^>]*>`,
 			`</?${DSML_DELIMITER}\\s*calls\\s*>`, // 5: calls 包裹
 			`<([a-z_][a-z0-9_]*)\\s*>`, // 6: Cline 开标签（工具或参数）
 			`</([a-z_][a-z0-9_]*)\\s*>`, // 7: Cline 关标签
-			DSML_DELIMITER, // 8: 兜底，清残留分隔符
+			// 8: 裸闭标签（同批取证：task_progress 由普通 </task_progress> 收口后，工具闭
+			//    只剩 `</D>`，无 keyword；turn 19 还连发两个）。
+			`</${DSML_DELIMITER}\\s*>`,
+			// 9: 散落的裸分隔符（两侧不挨着尖括号/竖线才算孤立）。配不上任何标签时清掉；
+			//    有工具/参数开着时语义不明，保留原样交给后续修复。
+			`(?<![<｜|/])${DSML_DELIMITER}(?![>|｜|])`,
 		].join("|"),
 		"g",
 	)
 
-	const normalized = text.replace(
-		pattern,
-		(match, invokeName?: string, dsmlParamName?: string, openTagName?: string, closeTagName?: string) => {
-			// 1: DSML 开工具
-			if (invokeName) {
-				openTool = invokeName
-				return `<${invokeName}>`
-			}
-			// 3: DSML 开参数
-			if (dsmlParamName) {
-				openParam = dsmlParamName
-				return `<${dsmlParamName}>`
-			}
-			// 2: DSML 关工具
-			if (/invoke/.test(match)) {
-				const tool = openTool
-				openTool = null
-				return tool ? `</${tool}>` : ""
-			}
-			// 4: DSML 关参数
-			if (/parameter/.test(match)) {
+	const replacer = (
+		match: string,
+		invokeName?: string,
+		dsmlParamName?: string,
+		chainParamName?: string,
+		openTagName?: string,
+		closeTagName?: string,
+	): string => {
+		// 1: DSML 开工具
+		if (invokeName) {
+			openTool = invokeName
+			return `<${invokeName}>`
+		}
+		// 3: DSML 开参数
+		if (dsmlParamName) {
+			openParam = dsmlParamName
+			return `<${dsmlParamName}>`
+		}
+		// 4b: 链式闭标签 = 关当前参数 + 开下一参数。下一参数名不在白名单时只关不开
+		//     （其值落进工具块当正文被丢弃——比吞进前一参数值污染安全）。
+		if (chainParamName) {
+			const prev = openParam
+			const known = (toolParamNames as readonly string[]).includes(chainParamName)
+			openParam = known ? chainParamName : null
+			return (prev ? `</${prev}>` : "") + (known ? `<${chainParamName}>` : "")
+		}
+		// 2: DSML 关工具
+		if (/invoke/.test(match)) {
+			const tool = openTool
+			openTool = null
+			return tool ? `</${tool}>` : ""
+		}
+		// 4: DSML 关参数
+		if (/parameter/.test(match)) {
+			const param = openParam
+			openParam = null
+			return param ? `</${param}>` : ""
+		}
+		// 5: calls 包裹
+		if (/calls/.test(match)) {
+			return ""
+		}
+		// 8: 裸闭标签 </D>：优先关当前参数（参数先于工具闭合），否则关当前工具
+		if (/^<\/[｜|]/.test(match)) {
+			if (openParam) {
 				const param = openParam
 				openParam = null
-				return param ? `</${param}>` : ""
+				return `</${param}>`
 			}
-			// 5: calls 包裹
-			if (/calls/.test(match)) {
-				return ""
-			}
-			// 6/7: Cline 自己的标签，原样返回。但**必须登记** openParam：实测同一段里
-			// 模型会 `<path>`（Cline）开、`</｜｜DSML｜｜ parameter>`（DSML）关两种格式混用。
-			// 不登记的话 DSML 关标签来时 openParam 是 null，会把闭合标签**删掉**，
-			// 反而让 path 吞掉后面的 <regex>，比不修更糟。
-			// 工具闭标签（2026-10-25 任务 1792887990433 msg67 取证）：普通 `</tool>` 先到时
-			// 必须清 openTool，否则紧随的 `</invoke>` 会再还原一个重复闭标签落进正文。
-			// 注意**不能**对「普通闭标签」再做重复删除——早闭合孤儿参数形态（同一任务 msg1）
-			// 的第二个 `</write_to_file>` 是模型自我纠正后的真实闭标签，删掉它孤儿归并就失效了。
-			if (openTagName && toolParamNames.includes(openTagName as never)) {
-				openParam = openTagName
-			} else if (closeTagName && toolParamNames.includes(closeTagName as never)) {
-				openParam = null
-			} else if (openTagName && knownTools.has(openTagName)) {
-				openTool = openTool ?? openTagName
-			} else if (closeTagName && knownTools.has(closeTagName) && openTool === closeTagName) {
-				openTool = null
-			}
-			return match
-		},
-	)
+			const tool = openTool
+			openTool = null
+			return tool ? `</${tool}>` : ""
+		}
+		// 6/7: Cline 自己的标签，原样返回。但**必须登记** openParam：实测同一段里
+		// 模型会 `<path>`（Cline）开、`</｜｜DSML｜｜ parameter>`（DSML）关两种格式混用。
+		// 不登记的话 DSML 关标签来时 openParam 是 null，会把闭合标签**删掉**，
+		// 反而让 path 吞掉后面的 <regex>，比不修更糟。
+		// 工具闭标签（2026-10-25 任务 1792887990433 msg67 取证）：普通 `</tool>` 先到时
+		// 必须清 openTool，否则紧随的 `</invoke>` 会再还原一个重复闭标签落进正文。
+		// 注意**不能**对「普通闭标签」再做重复删除——早闭合孤儿参数形态（同一任务 msg1）
+		// 的第二个 `</write_to_file>` 是模型自我纠正后的真实闭标签，删掉它孤儿归并就失效了。
+		if (openTagName && toolParamNames.includes(openTagName as never)) {
+			openParam = openTagName
+		} else if (closeTagName && toolParamNames.includes(closeTagName as never)) {
+			openParam = null
+		} else if (openTagName && knownTools.has(openTagName)) {
+			openTool = openTool ?? openTagName
+		} else if (closeTagName && knownTools.has(closeTagName) && openTool === closeTagName) {
+			openTool = null
+		}
+		// 9: 散落裸分隔符（match 是纯分隔符、不含尖括号）：无上下文时清掉，有上下文时保留
+		if (!/^[<]/.test(match) && !openTool && !openParam) {
+			return ""
+		}
+		return match
+	}
+
+	const normalized = text.replace(pattern, (match, ...groups: unknown[]) => {
+		const [invokeName, dsmlParamName, chainParamName, openTagName, closeTagName] = groups as [
+			string | undefined,
+			string | undefined,
+			string | undefined,
+			string | undefined,
+			string | undefined,
+		]
+		const result = replacer(match, invokeName, dsmlParamName, chainParamName, openTagName, closeTagName)
+		if (stats && result !== match) {
+			stats.dsml++
+		}
+		return result
+	})
 
 	// 清掉可能因此产生的 `</ parameter>`（分隔符被移除后残留的空格）
 	return normalized.replace(/<\/\s+(parameter|tool_name|server_name)>/g, "</$1>")
@@ -172,13 +255,19 @@ function normalizeDsmlMarkup(text: string): string {
 // 其后再出现字面重复的 `</工具>` 时删除（2026-10-24 任务第 3-8 回合实测两者并存，
 // 不删会留正文残留）。实现约束同 normalizeDsmlMarkup：必须单趟扫描，分几趟 replace
 // 会把所有闭合都错配到最后一次打开的标签上。
-function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolean): string {
+function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolean, stats?: ParseRepairStats): string {
 	if (!text || !hasDialectWrapper) {
 		return text
 	}
 
 	const knownParams = new Set<string>(toolParamNames)
 	const knownTools = new Set<string>(getToolUseNames())
+
+	// 保护区（2026-10-25）：content/diff/command 的值是写给用户的文件/命令本体，
+	// `<parameter name="X">` 在文档与代码里是合法内容。激活门放宽（见
+	// parseAssistantMessageV2 的 hasParameterMarkup）后，全消息级激活只靠这个保护
+	// 才不腐蚀文件——进入保护区后一切标签原样放行，只有保护区参数自己的闭标签能结束保护。
+	const PROTECTED_PARAM_VALUES = new Set(["content", "diff", "command"])
 
 	let openTool: string | null = null
 	let emittedToolClose: string | null = null
@@ -198,87 +287,114 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 		"g",
 	)
 
-	const normalized = text.replace(
-		pattern,
-		(match, paramName?: string, openTagName?: string, closeTagName?: string, eqParamName?: string) => {
-			if (match.includes("dots_function_call")) {
-				return ""
-			}
-			// <parameter name="X"> → <X>，压栈
-			if (paramName) {
-				if (knownParams.has(paramName)) {
-					paramStack.push(paramName)
-					return `<${paramName}>`
+	const dotsReplacer = (
+		match: string,
+		paramName?: string,
+		openTagName?: string,
+		closeTagName?: string,
+		eqParamName?: string,
+	): string => {
+		// 保护区判定必须在一切分支之前：值内部出现任何方言标签都不改写。
+		if (paramStack.length > 0) {
+			const top = paramStack[paramStack.length - 1]
+			if (top !== undefined && PROTECTED_PARAM_VALUES.has(top)) {
+				if (match === `</${top}>`) {
+					paramStack.pop()
 				}
 				return match
 			}
-			// <parameter=X>（等号形式）→ <X>，压栈；规则与上同
-			if (eqParamName) {
-				if (knownParams.has(eqParamName)) {
-					paramStack.push(eqParamName)
-					return `<${eqParamName}>`
-				}
-				return match
-			}
-			// </parameter> → 还原成栈顶参数的闭标签；栈空说明是孤儿闭合，删掉
-			if (/^<\/\s*parameter/.test(match)) {
-				const param = paramStack.pop()
-				return param ? `</${param}>` : ""
-			}
-			// <invoke> 开包裹直接剥掉；</invoke> 还原成当前工具的闭标签
-			if (/invoke/.test(match)) {
-				if (match.startsWith("</")) {
-					const tool = openTool
-					openTool = null
-					emittedToolClose = tool
-					paramStack.length = 0
-					return tool ? `</${tool}>` : ""
-				}
-				return ""
-			}
-			if (openTagName) {
-				if (knownParams.has(openTagName)) {
-					paramStack.push(openTagName)
-				} else if (knownTools.has(openTagName)) {
-					openTool = openTagName
-					emittedToolClose = null
-				}
-				return match
-			}
-			if (closeTagName) {
-				if (closeTagName === "function") {
-					// MiMo 官方训练模板用 </function> 收口（开标签 <function=NAME> 已被
-					// normalizeLeakedToolMarkup 还原，尾部的 </tool_call> 也在那里清掉）。
-					// 按闭工具处理，官方模板形态的工具块才能完整闭合（回归测试要求非 partial）。
-					const tool = openTool
-					openTool = null
-					emittedToolClose = tool
-					paramStack.length = 0
-					return tool ? `</${tool}>` : ""
-				}
-				if (knownParams.has(closeTagName)) {
-					// 规范参数闭标签：对称弹栈（栈顶是别的参数=错配，同样弹掉、保留原样）。
-					// 栈空是孤儿闭合（</invoke> 已代还过工具闭标签，其后残留的 </task_progress> 等），
-					// 删掉避免落进正文。
-					const param = paramStack.pop()
-					return param === undefined ? "" : match
-				}
-				if (knownTools.has(closeTagName)) {
-					if (emittedToolClose === closeTagName && openTool === null) {
-						// </invoke>/</function> 已还原过同一个工具闭标签：这是重复闭合，删除
-						return ""
-					}
-					if (openTool === closeTagName) {
-						openTool = null
-						emittedToolClose = closeTagName
-						paramStack.length = 0
-					}
-					return match
-				}
+		}
+		if (match.includes("dots_function_call")) {
+			return ""
+		}
+		// <parameter name="X"> → <X>，压栈
+		if (paramName) {
+			if (knownParams.has(paramName)) {
+				paramStack.push(paramName)
+				return `<${paramName}>`
 			}
 			return match
-		},
-	)
+		}
+		// <parameter=X>（等号形式）→ <X>，压栈；规则与上同
+		if (eqParamName) {
+			if (knownParams.has(eqParamName)) {
+				paramStack.push(eqParamName)
+				return `<${eqParamName}>`
+			}
+			return match
+		}
+		// </parameter> → 还原成栈顶参数的闭标签；栈空说明是孤儿闭合，删掉
+		if (/^<\/\s*parameter/.test(match)) {
+			const param = paramStack.pop()
+			return param ? `</${param}>` : ""
+		}
+		// <invoke> 开包裹直接剥掉；</invoke> 还原成当前工具的闭标签
+		if (/invoke/.test(match)) {
+			if (match.startsWith("</")) {
+				const tool = openTool
+				openTool = null
+				emittedToolClose = tool
+				paramStack.length = 0
+				return tool ? `</${tool}>` : ""
+			}
+			return ""
+		}
+		if (openTagName) {
+			if (knownParams.has(openTagName)) {
+				paramStack.push(openTagName)
+			} else if (knownTools.has(openTagName)) {
+				openTool = openTagName
+				emittedToolClose = null
+			}
+			return match
+		}
+		if (closeTagName) {
+			if (closeTagName === "function") {
+				// MiMo 官方训练模板用 </function> 收口（开标签 <function=NAME> 已被
+				// normalizeLeakedToolMarkup 还原，尾部的 </tool_call> 也在那里清掉）。
+				// 按闭工具处理，官方模板形态的工具块才能完整闭合（回归测试要求非 partial）。
+				const tool = openTool
+				openTool = null
+				emittedToolClose = tool
+				paramStack.length = 0
+				return tool ? `</${tool}>` : ""
+			}
+			if (knownParams.has(closeTagName)) {
+				// 规范参数闭标签：对称弹栈（栈顶是别的参数=错配，同样弹掉、保留原样）。
+				// 栈空是孤儿闭合（</invoke> 已代还过工具闭标签，其后残留的 </task_progress> 等），
+				// 删掉避免落进正文。
+				const param = paramStack.pop()
+				return param === undefined ? "" : match
+			}
+			if (knownTools.has(closeTagName)) {
+				if (emittedToolClose === closeTagName && openTool === null) {
+					// </invoke>/</function> 已还原过同一个工具闭标签：这是重复闭合，删除
+					return ""
+				}
+				if (openTool === closeTagName) {
+					openTool = null
+					emittedToolClose = closeTagName
+					paramStack.length = 0
+				}
+				return match
+			}
+		}
+		return match
+	}
+
+	const normalized = text.replace(pattern, (match, ...groups: unknown[]) => {
+		const [paramName, openTagName, closeTagName, eqParamName] = groups as [
+			string | undefined,
+			string | undefined,
+			string | undefined,
+			string | undefined,
+		]
+		const result = dotsReplacer(match, paramName, openTagName, closeTagName, eqParamName)
+		if (stats && result !== match) {
+			stats.dots++
+		}
+		return result
+	})
 
 	// 清掉可能因此产生的 `</ parameter>`（分隔符被移除后残留的空格），
 	// 以及 `<function>`/`</function>` 方言包裹残留（`<function=未知名>` 带 `=`，不受影响）
@@ -319,7 +435,7 @@ function isPureParamPairRegion(region: string): boolean {
 	return true
 }
 
-function repairEarlyCloseOrphanParams(text: string): string {
+function repairEarlyCloseOrphanParams(text: string, stats?: ParseRepairStats): string {
 	const toolNames = getToolUseNames()
 	const paramNames = toolParamNames as readonly string[]
 	const paramOpen = new RegExp(`<(${paramNames.join("|")})>`, "g")
@@ -344,6 +460,9 @@ function repairEarlyCloseOrphanParams(text: string): string {
 			}
 			if (!brings) continue
 
+			if (stats) {
+				stats.orphanRepair++
+			}
 			return text.slice(0, first) + text.slice(first + closeTag.length)
 		}
 	}
@@ -353,12 +472,18 @@ function repairEarlyCloseOrphanParams(text: string): string {
 // era harness: 模型偶尔在开标签里多吐一个引号（实测 `<search_files">`），
 // 而解析器用的是精确 `startsWith("<search_files>")`，于是整块退化成正文。
 // 只对**已知的工具名/参数名**做这个修复，避免误伤 write_to_file 的正文内容。
-function repairStrayQuoteInOpenTag(text: string): string {
+function repairStrayQuoteInOpenTag(text: string, stats?: ParseRepairStats): string {
 	if (!text || text.indexOf('">') === -1) {
 		return text
 	}
 	const known = new Set<string>([...getToolUseNames(), ...toolParamNames])
-	return text.replace(/<([a-z_][a-z0-9_]*)\s*["'»]\s*>/g, (match, name: string) => (known.has(name) ? `<${name}>` : match))
+	return text.replace(/<([a-z_][a-z0-9_]*)\s*["'»]\s*>/g, (match, name: string) => {
+		const fixed = known.has(name) ? `<${name}>` : match
+		if (stats && fixed !== match) {
+			stats.strayQuote++
+		}
+		return fixed
+	})
 }
 
 /**
@@ -382,11 +507,17 @@ function repairStrayQuoteInOpenTag(text: string): string {
  * @returns An array of `AssistantMessageContent` objects, which can be `TextContent` or `ToolUse`.
  *          Blocks that were not fully closed by the end of the input string will have their `partial` flag set to `true`.
  */
-export function parseAssistantMessageV2(rawMessage: string): AssistantMessageContent[] {
+export function parseAssistantMessageV2(rawMessage: string, stats?: ParseRepairStats): AssistantMessageContent[] {
 	// 方言包裹证据必须取自**原始消息**：normalizeLeakedToolMarkup 可能已把
 	// `<tool_call><function=NAME>` 开包裹消费掉，事后再查就漏判了。
 	// 闭包裹单独出现（流式截断残留）也算证据——闭包裹清理与参数归一都要它放行。
 	const hasDialectWrapper = /<dots_function_call>|<\/?tool_call>|<\/?tool-call>|<function=/.test(rawMessage)
+	// B 族孤儿 XML 混合体（2026-10-25 任务 1792900662485 msg41 取证，v3.91.10 复测残留）：
+	// `<path>ERB</parameter>` 用通用闭标签收口、后续参数用 `<parameter name="regex">` 开标签，
+	// 没有任何方言包裹。激活条件放宽为「消息含 parameter 标签语法」；防腐蚀由
+	// normalizeDotsFunctionCallMarkup 的 content/diff/command 值保护区承担——合法文件
+	// 内容里的 `<parameter name="...">` 原样保留，这正是 2026-10-24 收紧激活门时担心的场景。
+	const hasParameterMarkup = /<\/?\s*parameter[\s>=]/.test(rawMessage)
 	// 顺序有讲究：
 	// 1) leaked 包装（</tool_call>）先归一成 Cline 开标签；
 	// 2) DSML 原生标记转 Cline XML —— 必须早于 task_progress 剥离，因为 DSML 里的
@@ -396,13 +527,13 @@ export function parseAssistantMessageV2(rawMessage: string): AssistantMessageCon
 	// 5) 早闭合孤儿参数归并（必须在 task_progress 剥离之后：孤儿区里的 task_progress
 	//    会破坏「纯参数对」判定）；
 	// 6) 最后修开标签里多出来的引号（此时前面转出的标签也一并被照顾到）。
-	const assistantMessage = repairStrayQuoteInOpenTag(
-		repairEarlyCloseOrphanParams(
-			stripTaskProgressMarkup(
-				normalizeDotsFunctionCallMarkup(normalizeDsmlMarkup(normalizeLeakedToolMarkup(rawMessage)), hasDialectWrapper),
-			),
-		),
-	)
+	// stats 线程化后拆成顺序管线（与原嵌套组合完全同序，语义不变）：
+	let m = normalizeLeakedToolMarkup(rawMessage)
+	m = normalizeDsmlMarkup(m, stats)
+	m = normalizeDotsFunctionCallMarkup(m, hasDialectWrapper || hasParameterMarkup, stats)
+	m = stripTaskProgressMarkup(m, stats)
+	m = repairEarlyCloseOrphanParams(m, stats)
+	const assistantMessage = repairStrayQuoteInOpenTag(m, stats)
 	const contentBlocks: AssistantMessageContent[] = []
 	let currentTextContentStart = 0 // Index where the current text block started
 	let currentTextContent: TextStreamContent | undefined

@@ -10,7 +10,7 @@
  * 2. **脱敏**：所有字符串字段先截断再擦除形如 `sk-...` / `Bearer ...` / 长哈希的片段。
  */
 
-export type AuditEventKind = "tool" | "task" | "memory" | "update"
+export type AuditEventKind = "tool" | "task" | "memory" | "update" | "api" | "parse"
 
 export type AuditOutcome = "ok" | "error" | "denied" | "cancelled" | "info"
 
@@ -42,6 +42,29 @@ export interface AuditEntry {
 	model?: string
 	/** 短说明（错误信息等，截断 + 脱敏）；绝不写消息正文 */
 	message?: string
+	/**
+	 * 报错现场的参数快照（dialect-guard 产出；仅 outcome=error 的工具调用携带）。
+	 * 已排除 content/diff/command 正文类参数；外发前再过 scrubSecrets。
+	 */
+	snapshot?: string
+	/** api 事件：本次请求的输入 token 数（含缓存命中） */
+	inputTokens?: number
+	/** api 事件：本次请求的输出 token 数 */
+	outputTokens?: number
+	/** api 事件：缓存读 token 数 */
+	cacheReadTokens?: number
+	/** api 事件：缓存写 token 数 */
+	cacheWriteTokens?: number
+	/** api 事件：本次请求费用（CNY/USD 视 provider 口径，与 UI 一致） */
+	cost?: number
+	/** api 事件：重试轮次（从 1 起） */
+	attempt?: number
+	/** api 事件：最大重试轮次 */
+	maxAttempts?: number
+	/** api 事件：重试退避（毫秒） */
+	delayMs?: number
+	/** parse 事件：归一化/修复命中摘要（如 `dsml=3,dots=1`），仅非零时携带 */
+	repairs?: string
 }
 
 /** 单个字符串字段的最大长度：路径足够用，正文一定被砍掉。 */
@@ -180,7 +203,7 @@ function cleanRange(value: unknown): [number, number] | undefined {
 	return [start, end]
 }
 
-const EVENT_KINDS = new Set<AuditEventKind>(["tool", "task", "memory", "update"])
+const EVENT_KINDS = new Set<AuditEventKind>(["tool", "task", "memory", "update", "api", "parse"])
 const OUTCOMES = new Set<AuditOutcome>(["ok", "error", "denied", "cancelled", "info"])
 
 /**
@@ -194,6 +217,8 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 
 	const record: Record<string, unknown> = {
 		ts: now,
+		// D5（2026-10-25）：补 ISO 时间戳——epoch ms 无法直接与 UI/日志时间对账。
+		iso: new Date(now).toISOString(),
 		event: entry.event,
 	}
 
@@ -243,6 +268,31 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 
 	const message = cleanAuditMessage(entry.message)
 	if (message) record.message = message
+
+	// 报错现场快照：cap 放宽到 1000（排障要看到残片完整形状），scrub 仍走 cleanAuditText
+	const snapshot = cleanAuditText(entry.snapshot, 1000)
+	if (snapshot) record.snapshot = snapshot
+
+	// api 事件的用量/重试字段
+	const inputTokens = cleanNumber(entry.inputTokens)
+	if (inputTokens !== undefined) record.inputTokens = inputTokens
+	const outputTokens = cleanNumber(entry.outputTokens)
+	if (outputTokens !== undefined) record.outputTokens = outputTokens
+	const cacheReadTokens = cleanNumber(entry.cacheReadTokens)
+	if (cacheReadTokens !== undefined) record.cacheReadTokens = cacheReadTokens
+	const cacheWriteTokens = cleanNumber(entry.cacheWriteTokens)
+	if (cacheWriteTokens !== undefined) record.cacheWriteTokens = cacheWriteTokens
+	if (typeof entry.cost === "number" && Number.isFinite(entry.cost)) record.cost = entry.cost
+	const attempt = cleanNumber(entry.attempt)
+	if (attempt !== undefined) record.attempt = attempt
+	const maxAttempts = cleanNumber(entry.maxAttempts)
+	if (maxAttempts !== undefined) record.maxAttempts = maxAttempts
+	const delayMs = cleanNumber(entry.delayMs)
+	if (delayMs !== undefined) record.delayMs = delayMs
+
+	// parse 事件的修复命中摘要
+	const repairs = cleanAuditText(entry.repairs, 200)
+	if (repairs) record.repairs = repairs
 
 	return record
 }
@@ -362,4 +412,53 @@ export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
 	}
 
 	return lines.join("\n")
+}
+
+/**
+ * D5（2026-10-25）：诊断包导出时的 update 事件折叠。
+ *
+ * 实测一轮装机（多次 check/install/cancel）可产生 17 条 update 事件，在 500 条窗口里
+ * 挤占 tool/api/parse 等排障关键事件的额度。策略：保留最近 KEEP 条 update（回溯版本
+ * 安装史仍有用），更早的折叠成一行机器可读摘要（19 §19.8：机器字段独占、不含正文）。
+ * 其余事件全保留；总行数不超过 limit（超出时丢最老的，与 collectRecentLines 同语义）。
+ */
+const EXPORT_UPDATE_KEEP = 10
+
+export function foldUpdateEventsForExport(lines: string[], limit: number): string[] {
+	if (lines.length <= limit) {
+		return lines
+	}
+	const parsed = lines.map((line, index) => {
+		try {
+			return { line, index, obj: JSON.parse(line) as { ts?: number; event?: string } }
+		} catch {
+			return { line, index, obj: undefined as { ts?: number; event?: string } | undefined }
+		}
+	})
+	const updates = parsed.filter((p) => p.obj?.event === "update")
+	const others = parsed.filter((p) => p.obj?.event !== "update")
+	const keepUpdates = updates.slice(-EXPORT_UPDATE_KEEP)
+	const foldedCount = updates.length - keepUpdates.length
+
+	const kept = [...others, ...keepUpdates]
+	// 恢复时间序：全部可解析时按 ts 排，否则按原顺序稳定兜底
+	kept.sort((a, b) => {
+		const ta = typeof a.obj?.ts === "number" ? a.obj.ts : undefined
+		const tb = typeof b.obj?.ts === "number" ? b.obj.ts : undefined
+		if (ta !== undefined && tb !== undefined && ta !== tb) return ta - tb
+		return a.index - b.index
+	})
+
+	const result = kept.slice(-limit).map((p) => p.line)
+	if (foldedCount > 0) {
+		result.push(
+			JSON.stringify({
+				event: "update",
+				action: "folded",
+				folded: foldedCount,
+				note: `另有 ${foldedCount} 条更早的 update 事件已折叠`,
+			}),
+		)
+	}
+	return result
 }
