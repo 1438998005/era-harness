@@ -3,6 +3,45 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.12 — 2026-10-25
+
+> 诊断/审计增强（Stage 2），对应 HANDOFF「诊断包不足清单」六项 + 新发现三项；与 3.91.11 的解析器修复配套，为下轮复测与第三方远程取证提供数据面。
+
+### 改进
+
+- **请求层审计事件（`api`）**：`retry`（挂在既有 onRetryAttempt 回调）、`error`（首 chunk 失败）/`stream_error`（中流失败）、`usage`（每请求 input/output/cacheRead/cacheWrite tokens + 费用）。此前重试与 HTTP 错误审计零痕迹——第三方用户失败循环在诊断包里只有 start/abort（08 #46 实测），截图里的费用与上下文用量也不存在。
+- **解析修复遥测（`parse` 事件）**：`parseAssistantMessageV2` 增加可选统计出口，DSML/dots/孤儿归并/杂引号/task_progress 剥离的命中次数在每轮流结束时（仅非零）落一条 `repairs` 摘要。「模型干净」与「被修干净」从此可区分——MiMo 复测判据②的验收盲区（方言全靠容错消化、审计看不出）补上。
+- **cacheHit 双写合并**：同一次 read_file 此前由 ToolExecutor 与 handler 各写一条审计（间隔 ~200ms，一条无 ms），统计双计。现在 handler 命中缓存时经 `taskState.readToolAuditMeta` 传递元数据，ToolExecutor 单点合并为一条带 `cacheHit`/`readCount` 的事件。
+- **审计 provider/model 实况**：①ToolExecutor 改持 getter（Controller 切 provider 时直接替换 `task.api`，构造期捕获的旧引用会拼出 `provider=free + model=旧模型` 的嵌合记录，08 #46 实锤）；②请求时快照 `lastRequestProviderInfo`，abort 事件优先取「当时实际服务的 provider/model」，不再受事后切换设置影响；③新增 `task/resume` 事件（任务重建后 turn 归零从此有边界解释）。
+- **设置摘要补生效 baseUrl**：deepSeek（内置固定）、MiMo（按密钥前缀推导，只出 URL）、free 池说明（忽略自定义模型 id 与 baseUrl）。方言表现强依赖请求路径，单一 openAiBaseUrl 分不清 DS 官方与第三方端点。
+- **导出增强**：update 事件折叠（超 500 条窗口时保留最近 10 条、其余折成一行机器可读摘要，不再挤占 tool/api/parse 额度）；每条审计补 ISO 时间戳（epoch ms 无法与 UI 时间对账）。
+
+### 验证
+
+- `test:update` 422/422（新增 6 例：api/parse 白名单、snapshot 擦洗与 cap、update 折叠三态、ISO 同源、dialect-guard 判定正反例）；`test:free` 26/26；`test:toolcall` 56/56；双侧 typecheck 绿
+
+## 3.91.11 — 2026-10-25
+
+> 本轮修复出自 v3.91.10 三模型同题复测（08 #43 判据①残留）与第三方用户 river.ai 端点卡死反馈（08 #46）；根因与逐字取证见知识库 12 §12.26、08 #45/#46。
+
+### 修复
+
+- **DSML 分隔符单竖线变体（第三方卡死根治）**。第三方用户在 river.ai 端点（provider「openai」+ deepseek-ai/DeepSeek-V4.1-Flash-1017）上 DSML 控制 token 以**单竖线** `<｜DSML｜` 泄漏成正文，解析器只认双竖线 `[｜|]{2}` → 整块落正文、零工具执行、原样重试循环烧钱（同一调用块重复 6 次，任务卡死）。分隔符放宽为 1-3 根、全角/ASCII 混排同色处理；display-clean 补单竖线半截标签的尾部裁剪（`<｜DS` 不再渲染成正文）。注：所谓「切到免费 provider 后正常」实为审计假象——free 渠道是硬编码模型池（无 DeepSeek 候选），用户实际是换到池内 Qwen 才正常；审计 provider/model 嵌合（旧 handler 引用 + 实时设置拼接）的修正随后续版本跟进。
+- **DS 链式闭标签归并（A 族）**。v3.91.10 复测残留主形态：参数闭标签内嵌下一参数 opener（`</｜｜DSML｜｜ parameter name="regex" string="true">下一参数值`，且 task_progress 伪参数连属性引号都不闭合），旧正则不认带属性的闭标签 → path/regex 被吞进前一参数值 → 缺参红字/Invalid path/污染值静默执行。现在链式闭标签按「关当前参数 + 开下一参数」归并，未知参数名只关不开（残值丢弃不污染）；补裸闭标签 `</｜｜DSML｜｜>`（无 keyword，常连发两个）按「先参数后工具」消歧；散落的裸分隔符在无上下文时清理。
+- **孤儿 XML 混合体还原（B 族）**。`<path>ERB</parameter>` 用通用闭标签收口、后续参数用 `<parameter name="regex">` 开标签（无任何方言包裹），旧激活门要求包裹证据故不修。激活条件放宽为「消息含 parameter 标签语法」，防腐蚀由新加的 **content/diff/command 值保护区**承担——保护区参数值内的 `<parameter name="X">` 文档示例一律原样保留（这正是 2026-10-24 收紧激活门时担心的场景，现在两头都顾住了）。
+- **污染值不得静默执行（修复目标升级）**。解析器防线之外新增执行前守卫（`dialect-guard.ts`）：定位类参数（path/regex/file_pattern/url/query 等）含 DSML 分隔符或方言标签语法时拒绝执行、报错指名污染参数并计一次 mistake。实弹依据：msg9 的 file_pattern 带 DSML 残片仍 outcome ok，rg 得 "Found 0 results" 被模型误信——静默污染比红字危险。审计新增 `snapshot` 字段（仅报错调用携带，≤1000 字符、排除 content/diff/command、过密钥擦洗），诊断包从此能看到残片完整形状。
+- **未知方言循环熔断**。未知变体整块落正文 → 零工具执行 → 模型对 noToolsUsed 反馈原样重发无限烧钱。现在无工具正文的方言签名（`invoke name="已知工具"` / DSML 分隔符，结构判据）连续同文时计入既有 mistake 熔断，3 轮弹 mistake_limit 打断；不注入提示词，首见轮留自纠机会。
+- **search_files 失败归因修复**。rg 失败（regex 非法等）被一律误报为 "the path may not exist"——模型被误导反复修 path 自纠失败（turn 6/19 实弹）。现在按目标目录的 fs 存在性归因：目录确实缺失保留原文案；路径存在时指认 ripgrep 失败并附首行错误与 regex 自查提示。
+
+### 改进
+
+- **孤儿工具闭标签不再落聊天区**。模型补发上一工具的迟到闭标签（`</era_symbols>`，本轮实弹 3 次）整段落成独立文本块反复出现在聊天区；整块恰为已知工具闭标签的文本不再渲染，DSML 标签形态残片同步清理（解析层与 api 历史保持原样，仅展示净化）。
+
+### 验证
+
+- `test:toolcall` 56/56（新增 15 例：A 族链式闭标签×3、混用形态、B 族孤儿混合体×2、单竖线/ASCII 混排、content 保护区防腐蚀、孤儿 parameter、裸分隔符、分块流式×2、display-clean×2）；`test:update` 416/416；`test:free` 26/26；双侧 typecheck 绿
+- 真实任务回放：`tasks/1792900662485`（DS 33 轮）此前 6 个污染轮（turn 4/5/6/19/21/22）全部完整还原为可执行工具
+
 ## 3.91.10 — 2026-10-25
 
 > 本轮全部修复出自 v3.91.9 三模型同题实弹复测（deepseek-flash / mimo-v2.6-flash / Qwen3.8-27B）暴露的四族问题；根因诊断与证据原文见知识库 12 §12.25、08 #42 回填。
