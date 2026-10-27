@@ -14,6 +14,7 @@
 - **校验按渠道各自来**：GitHub 用接口的 `assets[].digest`；GitLab 没有摘要字段，改用同一 Release 里配套的 `era-harness-<ver>.vsix.sha256`。拿不到校验依据的渠道**不出现按钮**，而不是降级成"不校验"。
 - **移除配置项 `eraHarness.update.mirrorPrefix`**，设置目录生成物同步重建。原来填过前缀的用户改用两个渠道按钮即可。
 - 文案：`直接下载`/`用镜像下载` → `从 GitHub 下载`/`从 jihulab 下载`；失败提示不再出现"改用镜像"。
+- **关于页与仓库元信息改指 jihulab**：设置页「Release 页面」链接、`package.json` 的 `repository.url` 从已被风控的 GitHub 账号改为 `jihulab.com/eraharness/era-harness`；关于页说明重写，删掉 `eraHarness.update.mirrorPrefix` 与"改用镜像"的旧描述，改为两条链路互不兜底的说明。
 
 ### 验证
 

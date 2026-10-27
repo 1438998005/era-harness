@@ -148,7 +148,7 @@ function toUpdateError(error: unknown): UpdateError {
 		return new UpdateError("cancelled", "已取消")
 	}
 	if (/terminated|other side closed|ECONNRESET|socket hang up|ECONNREFUSED/i.test(message)) {
-		return new UpdateError("network", "网络连接被中断（代理或防火墙），可以重试或改用镜像")
+		return new UpdateError("network", "网络连接被中断（代理或防火墙），可以重试或换另一个渠道")
 	}
 	if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(message)) {
 		return new UpdateError("network", "域名解析失败，检查网络或代理设置")

@@ -5,6 +5,8 @@ node_modules
 tmp
 .vscode-test/
 *.vsix
+# Release 附带的校验文件，属于发布产物而非源码
+*.vsix.sha256
 
 .DS_Store
 .idea

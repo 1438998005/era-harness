@@ -60,23 +60,25 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 				<div className="flex px-4 flex-col gap-2">
 					<h2 className="text-lg font-semibold">era harness v{version}</h2>
 					<p className="m-0">
-						eraTW 画蛇添足版开发助手。不发布到插件市场，仅通过本仓库 Release 分发；也可以直接 sideload 本地
-						vsix。
+						eraTW 画蛇添足版开发助手。不发布到插件市场，仅通过本仓库的 GitHub / jihulab 两处 Release 分发；也可以直接
+						sideload 本地 vsix。
 					</p>
 
 					<div className="flex items-center gap-2">
 						<VSCodeButton appearance="secondary" disabled={checking} onClick={checkForUpdates}>
 							{checking ? "已发起…" : "检查更新"}
 						</VSCodeButton>
-						<VSCodeLink href="https://github.com/1438998005/era-harness/releases/latest">Release 页面</VSCodeLink>
+						<VSCodeLink href="https://jihulab.com/eraharness/era-harness/-/releases">Release 页面</VSCodeLink>
 					</div>
 					<p className="m-0 text-xs text-description">
-						只有你点「检查更新」才会联网检查；发现有新版本后，要你自己选「直接下载」或「用镜像下载」才会下载安装，装完需重载窗口生效。启动时不会自动检查。
+						只有你点「检查更新」才会联网检查；发现有新版本后，要你自己选「从 GitHub 下载」或「从 jihulab
+						下载」才会下载安装，装完需重载窗口生效。启动时不会自动检查。
 					</p>
 					<p className="m-0 text-xs text-description">
-						下载进度显示在右下角通知区（百分比 / 已下多少 / 速度 /
-						约剩多久），随时可点「取消」。直连慢就在通知里改用镜像，或点「复制下载链接」用浏览器/下载器拉下来手动装。镜像地址在设置里改
-						<code className="mx-1">eraHarness.update.mirrorPrefix</code>，留空则不出现镜像选项。
+						两个按钮走两条互不相干的链路：哪边通就用哪边，一边失败不会自动换另一边（换源等于替你决定信谁）。下载进度显示在右下角通知区（百分比
+						/ 已下多少 / 速度 /
+						约剩多久），随时可点「取消」。两边都不通时，点「复制下载链接」用浏览器或下载器手动拉下来装。每个包都会校验
+						sha256，对不上直接丢弃。
 					</p>
 
 					<h3 className="text-md font-semibold mt-2">操作日志 / 排障</h3>
