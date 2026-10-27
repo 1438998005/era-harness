@@ -75,8 +75,13 @@ tests/**/cache
 !packages/era-harness-core/test/fixtures/*.log
 
 # era harness 减法批次 1：构建工具与本地产物不进库
-tmp-protoc/
+# 注意必须写成 tmp-protoc/*（排除内容）而不是 tmp-protoc/（排除目录）：
+# 父目录被排除后，git 不允许再用 ! 把目录内的文件放回来。
+tmp-protoc/*
 protoc.zip
+# 例外：X: 虚拟盘 shim 是构建依赖（scripts/build-proto.mjs:54 调用，绕 protoc 中文路径），
+# 属源码而非本地产物，必须入库。
+!tmp-protoc/make-x-drive.cjs
 
 # 集群知识库挂载（junction，本机本地，勿入 git）
 .trae/
