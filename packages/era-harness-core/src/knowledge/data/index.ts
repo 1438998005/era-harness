@@ -1,5 +1,6 @@
 import type { KnowledgeEntry } from '../types.js';
 import { encodingDisciplineEntry } from './encoding-discipline.js';
+import { erabasicSyntaxDirectivesEntry } from './erabasic-syntax-directives.js';
 import { kojoStructureContractsEntry } from './kojo-structure-contracts.js';
 import { mainFlowPipelineEntry } from './main-flow-pipeline.js';
 import { objQolConventionsEntry } from './obj-qol-conventions.js';
@@ -21,10 +22,11 @@ export const KNOWLEDGE_ENTRIES: KnowledgeEntry[] = [
   mainFlowPipelineEntry,
   objQolConventionsEntry,
   versionUpAndSaveMigrationEntry,
+  erabasicSyntaxDirectivesEntry,
 ];
 
 /** 条目数（测试与 MCP 描述用） */
 export const KNOWLEDGE_ENTRY_COUNT = KNOWLEDGE_ENTRIES.length;
 
 /** 本批快照日期（取各条目 snapshotAt 的最大值；新增条目时同步） */
-export const KNOWLEDGE_SNAPSHOT_AT = '2026-10-21';
+export const KNOWLEDGE_SNAPSHOT_AT = '2026-10-28';

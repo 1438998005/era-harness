@@ -19,6 +19,7 @@
  * 因此整条合并逻辑都能在单元测试里跑。
  */
 
+import { findLostLocalSizeDirectives, formatLostDirectivesList } from "@eraharness/erb/directives"
 import { diffArrays } from "diff"
 import type { RelPath } from "./types"
 
@@ -273,6 +274,7 @@ export type MergeIssueCode =
 	| "truncated"
 	| "window-too-large"
 	| "model-failed"
+	| "directive-loss"
 
 export interface MergeIssue {
 	code: MergeIssueCode
@@ -342,6 +344,16 @@ export function validateMerge(input: ValidateMergeInput): MergeValidation {
 	const invented = out.callTargets.filter((c) => !knownCalls.has(c))
 	if (invented.length > 0) {
 		issues.push({ code: "extra-call", detail: `合并结果里出现了原文没有的调用：${listSome(invented)}` })
+	}
+
+	// 容量指令丢失：删掉不报错、只让 LOCAL 槽位悄悄回退默认值，所以必须显式拦住。
+	// 整段函数被删不在这里报（那是 missing-label 的职责）。
+	const lostDirectives = findLostLocalSizeDirectives(local, merged)
+	if (lostDirectives.length > 0) {
+		issues.push({
+			code: "directive-loss",
+			detail: `合并结果删掉了局部变量容量声明：${formatLostDirectivesList(lostDirectives)}。#LOCALSIZE/#LOCALSSIZE 是每个函数各自的元素数，不是重复定义，⛔ 不能去重或删除；位置错了应上移到 @函数名 之后`,
+		})
 	}
 
 	if (scope === "file") {
@@ -584,6 +596,7 @@ export const MERGE_SYSTEM_PROMPT = [
 	"- 不得引入 BASE / LOCAL / THEIRS 中都不存在的 CALL / CALLFORM / JUMP / GOTO / CALLTRAIN 目标名。",
 	"- 控制流块必须成对：IF…ENDIF、FOR…NEXT、WHILE…WEND、SELECTCASE…ENDSELECT、DO…LOOP、REPEAT…REND、CATCH…ENDCATCH。",
 	"- ERB 没有 #END。#FUNCTION / #FUNCTIONS 只是返回类型声明，函数体由 @标签 起头、到下一个 @标签 或文件末尾结束。",
+	"- #LOCALSIZE / #LOCALSSIZE / #LOCALFSIZE 是**每个函数各自的**局部变量元素数声明，不是变量定义：每个 @函数 各一条属正常，⛔ 不得删除、合并或去重；LOCAL/LOCALS 用到第 M 个槽就必须保留 N ≥ M+1。位置错了应上移到 @函数名 之后，不要删行。",
 	"- 缩进保持原样（Tab 就是 Tab，不要换成空格）。日文原文一字不改，不要把日文「翻译」成中文。",
 	"- 不要顺手优化：不重排、不合并重复代码、不改数值、不加注释、不修社区版自己的 bug。",
 	"- 不要输出 Markdown 代码围栏、不要输出解释、不要输出「以下是合并结果」之类的话。只输出代码本身。",

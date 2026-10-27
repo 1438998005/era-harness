@@ -3,6 +3,52 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.14 — 2026-10-28
+
+> 双知识库彻查：内置快照只抓了 `docs/Reference`、解析器认不出 `#LOCALSIZE` 这类带记号的名字、检索层不带 `#` 就查不到，三层缺口叠加，导致模型把目标工程 21,878 处局部变量元素数声明当成「重复变量定义」删掉。本轮从数据层一路修到写盘层。
+
+### 修复 · 知识库数据与检索
+
+- **内置指令快照从 1 个目录扩到 3 个**：`docs/Reference`（312 条）＋ `docs/Emuera`（20 页 → 65 条，**按 `###`/`####` 小节切段**）＋ `docs/tutorial`（27 条）。条目 312 → **404**，可检索名字 653 → **725**，覆盖上游 359 页。此前 `#LOCALSIZE`、`#DIM`、变量作用域这类语法/规格问题**两个知识库都查不到**。
+- **规格页必须切段**：`Emuera/function.zh.md` 一页 19KB，整页入库会被 `MAX_BODY_CHARS=4000` 截断（模型看到的正文里根本没有 `#LOCALSIZE`），且搜索时单页霸榜。切段条目带 `localOnly`，**不随线上刷新**（否则 26 段会并回一页再被截断）。
+- **带记号的名字现在能认**：`extractName` 原本只认 `[A-Za-z_]\w*`，`#LOCALSIZE` / `@EVENTLOAD` / `[SKIPSTART]` 全被丢弃。新增 `extractDirectiveNames`，四种形态（`#X` / `@X` / `[X]` / 裸大写）都收；`#### LOCAL` 这种无反引号的标题也能当小节边界。
+- **不带 `#` 也能查到**：`findReference` 加第二轮「去记号」匹配，`LOCALSIZE` 与 `#LOCALSIZE` 等价；`search_reference` 加「同页最多 2 条」，搜 `function` 不再被 26 段霸榜。
+- **未命中给出口**：`formatReferenceHits` / `formatKnowledgeHits` 不再只说「找不到」，改为给三条出路（换英文原名 / `mode=names` 看库里有什么 / `web_fetch` 上游文档站）。
+
+### 修复 · 在线层
+
+- **可发现新页**：本地快照没有的名字，会用上游 `search/search_index.json` 检索一次再按 `sourcePath` 拉正文，结果标 `origin=discovered`。此前在线层只能「按已知 id 取正文」，本地没有的永远查不到。
+- **`id` 不再拼进 URL**：规格页切段后 id 会含 `#` 与 `/`（`Emuera/function#LOCALSIZE`），新增 `sourcePath` 字段专供取上游，`SAFE_PATH_RE` 只放行 `docs/**/*.zh.md` 且拒 `..`。
+- **失败记忆按页面记**：原来一页 404 会把整个 `baseUrl` 拉黑 3 分钟，等于把「某页不存在」放大成「知识库全挂」；现在只有网络级错误（TLS / `ENOTFOUND` / timeout）才升格为全局冷却。
+- **TLS 错误翻成人话**：本机 Node 访问 `api.github.com` / `raw.githubusercontent.com` 报 `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`（企业代理/杀软中间人），意味着**在线知识库在本机很可能从未成功过**、一直在静默回退本地。现在会明说「本次使用内置离线快照」并给出 `NODE_EXTRA_CA_CERTS` 的解法；数据管线加了 `curl` 兜底，`--offline` 也不再偷偷联网。
+
+### 新增 · 语法知识条目
+
+- 新增第 8 条内嵌条目 `erabasic-syntax-directives`（`domain: syntax`，6 铁律 + 3 反模式）：`#LOCALSIZE` / `#LOCALSSIZE` 是**每个函数各自**的局部变量元素数，不是变量定义；值必须 > 0 的常量；忽略或未声明时回退 `VariableSize.csv`（本工程 `LOCAL,200` / `LOCALS,100`）；`#` 指令必须紧接 `@函数名`，位置错了**上移不要删**；事件函数里只取最先执行的那次设置。
+- 标题刻意避开「容量」二字 —— 该词已被 `project-structure-discipline` 钉成检索排序锁，抢了会让工程结构条目搜不到。
+- `#LOCALFSIZE` 单列一条边界说明（EM+EE 扩展，`docs/Emuera` 未收录，目标工程 0 处使用），**不与 `#LOCALSIZE` 并列**。
+
+### 新增 · 写盘两道确定性防线
+
+- **备份落点守卫**（`checkEraWriteTarget`）：脚本树里的 `.bak/.orig/副本`、以及 `X.ERB.bak` 这种「脚本的备份形态」一律拒绝，指路工程根 `_备份/<日期>_<用途>/`。拦在 `diffViewProvider.open` **之前** —— 否则 `open` 会先 `mkdir` 出目录再失败。工程根备份区、口上目录要求的 `*.txt` 正常放行。
+- **局部变量元素数丢失硬拦**：`write_to_file` / `replace_in_file` 若删掉某个仍存在函数的 `#LOCALSIZE` / `#LOCALSSIZE` / `#LOCALFSIZE`，直接拒绝并列出原行号。**不误拒**的四种情况都放行：同函数内换位置、改数值、整段函数删除（交给 `missing-label`）、文件过大只看开头时跳过检查。
+- 合并校验新增 `directive-loss` 问题码，`MERGE_SYSTEM_PROMPT` 同步加硬性约束；日志诊断对 `#行只能在函数声明后立刻使用` 改为「上移到 `@函数名` 之后，⛔ 不要删除」并显示源码行。
+
+### 改进 · 提示层与工具描述
+
+- `era_domain` 新增三条语法铁律与两条备份禁令；工具路由加第三类「语法/预处理器不归 `era_knowledge`，一律走 `era_reference`」。
+- `era_reference` / `era_knowledge`（插件侧 2 处 + MCP 侧 2 处）统一声明覆盖范围与「**不是上游全量**」—— 此前模型把「库里没有」误读成「这东西不存在」。
+
+### 数值勘误
+
+- 目标工程 `#LOCALSIZE` / `#LOCALSSIZE` 实测 **21,878 处**（10,970 + 10,908，分布在 1,416 个脚本文件里），早期文档写的 38,667 有误。
+- 删掉容量行的回退值：本工程 `CSV/VariableSize.csv:119-120` 写着 `LOCAL,200` / `LOCALS,100`（引擎内建默认 1000 / 100 只在文件未指定时生效）。且工程里 **95% 的声明值写的是 `1`**，所以删掉多数是「从 1 变成 200（变大）」—— 拦它的理由不是「一定崩」，而是没人要求过的静默改动 + 量级无法人工复核。
+
+### 验证
+
+- 核心库 `npm test` 155 例 = 154 过 / 1 跳过 / 0 败；插件侧 `node test/update/run.mjs` **448/448**；`npm run gate` 12/12；双侧 typecheck 0 错；`node esbuild.mjs --production` 通过。
+- 新增 `test/update/era-write-guard.spec.ts`（14 例，含真实工程 8 条路径的误拒检查）与 `test/spec-parse.test.ts`（9 例）。
+
 ## 3.91.13 — 2026-10-27
 
 > 更新渠道改造：把「GitHub 直连 + 第三方镜像」换成「GitHub / jihulab」两条**互不相干**的发布渠道。

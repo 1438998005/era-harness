@@ -43,7 +43,8 @@ const KIND_HINTS: Record<string, string> = {
 	"missing-next": "FOR 缺少对应的 NEXT",
 	"callf-non-function": "CALLF 的目标必须是带 #FUNCTION 的函数",
 	"unparseable-line": "这一行无法解析：常见原因是全角符号、缺半角空格或参数类型不符",
-	"hash-line-not-after-declaration": "# 开头的声明行必须紧跟在函数定义之后",
+	"hash-line-not-after-declaration":
+		"# 指令行（#LOCALSIZE / #LOCALSSIZE / #DIM / #DIMS / #FUNCTION 等）必须紧跟在 @函数名 之后：把这一行**上移到函数头下方**，⛔ 不要删除 —— #LOCALSIZE 是局部变量元素数，删掉会让 LOCAL 槽位回退 VariableSize.csv 的默认值（且不会立刻报错）",
 	"skipend-missing": "PRINTDATA/STRDATA 块缺少 SKIPEND 或 DATAFORM 数量不匹配",
 	"chara-array-too-many-args": "角色数组下标超出定义范围：检查 CSV 里的角色数量",
 	"unclosed-triple-quote": "三引号字符串没有闭合",
@@ -164,7 +165,11 @@ export async function findNewestLog(
 function formatDiagnostic(diagnostic: Diagnostic): string {
 	const location = `${diagnostic.file}:${diagnostic.line}`
 	const identifier = diagnostic.identifier ? ` \`${diagnostic.identifier}\`` : ""
-	return `- [严重度 ${diagnostic.severity}] ${location} ${diagnostic.kind}${identifier} — ${diagnostic.message}`
+	// 日志里紧跟警告的那行源码往往就是问题行本身（如 `#LOCALSIZE 1`）。
+	// 不显示它，模型只能靠 warning 文案猜——这正是把容量指令读成「变量声明」的原因。
+	const source = diagnostic.sourceLines?.map((line) => line.trim()).find((line) => line.length > 0)
+	const sourceLine = source ? `\n    源码：${source.length > 160 ? `${source.slice(0, 160)}…` : source}` : ""
+	return `- [严重度 ${diagnostic.severity}] ${location} ${diagnostic.kind}${identifier} — ${diagnostic.message}${sourceLine}`
 }
 
 export function formatSession(session: LogSession): string {

@@ -105,6 +105,18 @@ if (pool) {
 			continue
 		}
 		for (const source of item.sources) {
+			// 外部正本（上游文档站等，许可与 shared-trae 不同）：用 `external:` 前缀显式声明。
+			// 不查 shared-trae（那里本来就没有），但**必须**在 NOTICE 里逐字登记来源与许可 ——
+			// 否则「随便贴个链接」就能过闸，等于把溯源检查变成装饰。
+			if (String(source).startsWith("external:")) {
+				const ref = String(source).slice("external:".length)
+				if (!ref.trim()) {
+					problems.push(`${id}：external: 后面是空的 ⇒ 外部正本没写清是什么`)
+				} else if (!noticeText.includes(ref)) {
+					problems.push(`${id}：外部正本 ${ref} 没在 NOTICE-knowledge-sources.md 里登记（许可与来源必须可追溯）`)
+				}
+				continue
+			}
 			if (trae && !fs.existsSync(path.join(trae, source))) {
 				problems.push(`${id}：正本文件不存在 ${source}（在 ${trae} 下没找到）`)
 			}

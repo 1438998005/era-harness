@@ -105,6 +105,10 @@ SUBTRACTION-PLAN.md
 # packages/era-harness-core 是内置核心库的**源码**，编译时被 esbuild 内联进 dist，
 # 运行时不需要它（`@eraharness` 别名只在构建期生效），因此整个目录不进包。
 packages/**
+# 发布校验文件：`*.vsix` 本身被 vsce 默认排除，但 `*.vsix.sha256` 不匹配那条规则 ——
+# 实证 3.91.14 打包时混进了上一版的 era-harness-3.91.13.vsix.sha256。两个都显式排除。
+*.vsix
+*.vsix.sha256
 # 这些只在本地构建期使用（vsce prepublish 先从文件系统跑，再按本清单过滤进包）
 CLAUDE.md
 changelog.md

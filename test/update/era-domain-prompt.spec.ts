@@ -62,3 +62,40 @@ test("原有三条编辑铁律没有被挤掉", () => {
 	assert.ok(section.includes("用 read_file 的 start_line / end_line 分段读"), "缺分段读")
 	assert.ok(section.includes("ERB 结构警告"), "缺结构警告回检")
 })
+
+// —— 2026-10-28：容量指令被误删的根因是「提示层根本没讲它是什么」——
+
+test("语法要点：说明 #LOCALSIZE 是每函数各自的元素数，不是变量定义", () => {
+	assert.ok(section.includes("#LOCALSIZE n / #LOCALSSIZE n"), "缺容量指令的语义说明")
+	assert.ok(section.includes("每个函数各自的"), "缺「每函数独立」这一定性")
+	assert.ok(section.includes("不是变量定义"), "缺「不是变量定义」这一定性")
+	assert.ok(section.includes("不要当重复定义去重"), "缺「别去重」的禁令")
+	assert.ok(section.includes("VariableSize.csv"), "缺回退默认值的说明")
+	// 回退值要写**目标工程实际生效的**那一层：eratw 的 CSV/VariableSize.csv 显式写了
+	// LOCAL,200 / LOCALS,100。引擎内建默认（1000 / 100）只在文件里没写这两行时才生效，
+	// 拿它当「删掉会变成多少」会低估后果（500 → 200 才是真实退化）。
+	assert.ok(section.includes("LOCAL 200"), "回退值要写目标工程 VariableSize.csv 的实际设置（LOCAL 200）")
+	assert.ok(section.includes("LOCALS 100"), "回退值要写目标工程 VariableSize.csv 的实际设置（LOCALS 100）")
+	assert.ok(!section.includes("LOCAL 默认 1000"), "别把引擎内建默认（1000）当成本工程的回退值")
+})
+
+test("语法要点：位置错了要上移，不要删", () => {
+	assert.ok(section.includes("必须紧接在 @函数名 之后"), "缺位置规则")
+	assert.ok(section.includes("上移到函数头下方"), "缺「上移而不是删除」")
+})
+
+test("语法要点：#LOCALFSIZE 不与 #LOCALSIZE 并列（它是 EM+EE 扩展）", () => {
+	assert.ok(section.includes("#LOCALFSIZE 是 EM+EE 扩展"), "缺 #LOCALFSIZE 的边界说明")
+	assert.ok(!section.includes("#LOCALFSIZE n"), "#LOCALFSIZE 不该与 #LOCALSIZE 并列成同一形态")
+})
+
+test("工具路由：语法/预处理器走 era_reference，且声明库不是全量", () => {
+	assert.ok(section.includes("语法/预处理器不归 era_knowledge"), "缺第三类路由")
+	assert.ok(section.includes("不是上游全量"), "缺覆盖范围声明")
+	assert.ok(section.includes("lookup 未命中时会自动去上游文档站检索一次"), "缺在线发现出口")
+})
+
+test("禁止事项：备份不落脚本树，统一写 _备份/", () => {
+	assert.ok(section.includes("不把 .bak / .orig / .old / 副本 / 备份目录写进 ERB/"), "缺备份落点禁令")
+	assert.ok(section.includes("_备份/<日期>_<用途>/"), "缺统一备份目录")
+})

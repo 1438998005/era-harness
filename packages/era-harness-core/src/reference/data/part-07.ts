@@ -1,22 +1,22 @@
 // 本文件由 scripts/build-reference.ts 生成，请勿手工修改。
 //
-// 数据来源：https://github.com/qirchen421/emuera.sk.doc  docs/Reference/*.zh.md
-// 上游版本：606670cd78b58f5d9a050013d1d3f41db5a87a1b
+// 数据来源：https://github.com/qirchen421/emuera.sk.doc  docs/Reference、docs/Emuera、docs/tutorial/*.zh.md
+// 上游版本：41451be6091363e37ed066aaf04416decbf0127f
 // 许可：CC BY-NC 4.0（http://creativecommons.org/licenses/by-nc/4.0/）
 //       与本仓库代码的 Apache-2.0 分开管理，见 NOTICE-emuera-sk-doc.md
 import type { ReferenceEntry } from '../types.js';
 
 export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
   {
-    "id": "SPRITEANIMEADDFRAME",
-    "title": "SPRITEANIMEADDFRAME",
+    "id": "MATCH",
+    "title": "MATCH",
     "names": [
-      "SPRITEANIMEADDFRAME"
+      "MATCH"
     ],
     "signatures": [
       {
-        "name": "SPRITEANIMEADDFRAME",
-        "params": "`string`, `int`, `int`, `int`, `int`, `int`, `int`, `int`, `int`",
+        "name": "MATCH",
+        "params": "`array`, `any`, `int`, `int`",
         "returns": "`int`",
         "engines": [
           "emuera"
@@ -24,578 +24,83 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "向spriteName指定的资源名所对应的动画精灵添加帧。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITEANIMEADDFRAME spriteName, gID, x, y, width, height, offsetx, offsety, delay\n    ```\n\t向`spriteName`指定的资源名所对应的动画精灵添加帧。\n\t将`gID`指定的`Graphics`中，由`x`, `y`, `width`, `height`指定的矩形区域作为帧，并放置在精灵左上角偏移`offsetx`, `offsety`的位置。\n\t超出创建动画精灵时设定尺寸范围的部分将不会被绘制。\n\t`delay`用于指定此帧的显示时间，单位为毫秒。\n\t如果`spriteName`指定的资源名不存在，或者不是动画精灵，则此命令失败，不执行任何操作。\n\t如果帧添加成功则返回1，失败则返回0。\n\n!!! hint \"提示\"\n\n命令、式中函数均可使用。\n\n### 相关项目\n- SPRITRANIMECREATE"
+    "summary": "MATCH 函数用于返回 array 指定的数组变量中，与 value 值相等的元素数量。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tint MATCH array, value(, start, end)\n    ```\n    `MATCH` 函数用于返回 `array` 指定的数组变量中，与 `value` 值相等的元素数量。\n    `value` 的类型必须与 `array` 相同。\n    `array` 指定要搜索的一维数组，并在 `start` 以上、`end` 未满的元素范围内进行搜索。\n    如果省略 `end`，则搜索范围直到数组的最后一个元素。\n    `RESULT = MATCH(X, Y, A, B)` 的结果等同于：\n\n            RESULT = 0\n            FOR COUNT, A, B\n                IF X:COUNT == Y\n                    RESULT += 1\n                ENDIF\n            REND\n\n    与以下代码等价。（即使指定字符串数组和字符串表达式代替`X`、`Y`也能正常工作）\n    `array`只能指定一维数组变量，不能指定多维数组。\n    当`array`指定为`CFLAG`等角色数组时，仅对指定的角色进行计数。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。\n\n### 相关项目\n- GROUPMATCH",
+    "sourcePath": "docs/Reference/MATCH.zh.md"
   },
   {
-    "id": "SPRITEANIMECREATE",
-    "title": "SPRITEANIMECREATE",
+    "id": "MATCHALL",
+    "title": "MATCHALL / MATCHALLEX",
     "names": [
-      "SPRITEANIMECREATE"
+      "MATCHALL",
+      "MATCHALLEX"
     ],
     "signatures": [
       {
-        "name": "SPRITEANIMECREATE",
-        "params": "`string`, `int`, `int`",
+        "name": "MATCHALL",
+        "params": "`variable`, `any`(, `int`, `int`, `variable`)",
         "returns": "`int`",
         "engines": [
-          "emuera"
+          "net",
+          "skia"
         ],
         "overloads": []
-      }
-    ],
-    "summary": "创建一个动画精灵，其资源名由 spriteName 指定，尺寸由 width 和 height 指定。创建成功时返回非0值。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITEANIMECREATE spriteName, width, height\n    ```\n\t创建一个动画精灵，其资源名由 `spriteName` 指定，尺寸由 `width` 和 `height` 指定。创建成功时返回非0值。\n\t若因已存在相同资源名的精灵等原因导致失败，则返回0。\n\t要使其产生动画效果，需要使用 `SPRITEANIMEADDFRAME` 指令添加帧。\n\t关于动画精灵的注意事项，也请参阅 [`resouces`](../Emuera/resources.zh.md)。\n\n!!! hint \"提示\"\n\n    该指令同时支持在指令和表达式中使用。\n\n### 相关项目\n- SPRITEANIMEADDFRAME\n- SETANIMETIMER"
-  },
-  {
-    "id": "SPRITECREATE",
-    "title": "SPRITECREATE",
-    "names": [
-      "SPRITECREATE"
-    ],
-    "signatures": [
+      },
       {
-        "name": "SPRITECREATE",
-        "params": "`string`, `int`",
+        "name": "MATCHALLEX",
+        "params": "`string`, `any`(, `int`, `int`, `variable`)",
         "returns": "`int`",
         "engines": [
-          "emuera"
-        ],
-        "overloads": [
-          "`string`, `int`, `int`, `int`, `int`, `int`",
-          "`string`, `int`, `int`, `int`, `int`, `int`, `int`, `int`",
-          "`string`, `int`, `int`, `int`, `int`, `int`, `int`, `int`, `int`, `int`"
-        ]
-      }
-    ],
-    "summary": "基于 gID 所指定的 Graphics 图像的全部或部分，创建一个资源名为 spriteName 的精灵。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SPRITECREATE spriteName, gID\n    int SPRITECREATE spriteName, gID, x, y, width, height\n    int SPRITECREATE spriteName, gID, x, y, width, height, posX, posY\n    int SPRITECREATE spriteName, gID, x, y, width, height, posX, posY, destWidth, destHeight\n    ```\n\n    基于 `gID` 所指定的 `Graphics` 图像的全部或部分，创建一个资源名为 `spriteName` 的精灵。\n    通过指定 `x, y, width, height` 参数，可以截取 `Graphics` 图像的特定部分作为精灵。\n    创建成功时，返回非 0 值。\n    因已存在同名精灵资源等原因导致失败时，返回 0。\n    精灵仅保存了其父 `Graphics` 的 `gID` 和截取位置信息，因此当父 `Graphics` 发生变更时，精灵也会随之改变。\n    此外，如果父 `Graphics` 被销毁，该精灵也将被视为已销毁。\n    创建的精灵可以像在 `resources` 文件夹内的 csv 文件中声明的资源一样使用。\n    例如，可以在 `PRINT_IMG` 命令或 [`HTML_PRINT 的 img 标签`](../Emuera/HTML_PRINT.md#img) 中使用。\n\n    **Skia（SkiaSharp版）扩展参数**（第7个参数起）：\n\n    - `posX`, `posY`（可选，默认 `0`）：精灵的绘制偏移。指定精灵被绘制时相对于原点的偏移位置。\n    - `destWidth`, `destHeight`（可选，默认与源矩形相同尺寸）：精灵的绘制目标尺寸。指定与源矩形不同的尺寸时，精灵会被缩放绘制。负值会被取绝对值处理。\n\n!!! hint \"提示\"\n\n    该功能同时支持命令和表达式函数两种形式。\n\n### 相关项目\n- GCREATE"
-  },
-  {
-    "id": "SPRITECREATED",
-    "title": "SPRITECREATED",
-    "names": [
-      "SPRITECREATED"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITECREATED",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "若指定名称的精灵已创建则返回1，若未创建或已销毁则返回0。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITECREATED spriteName\n    ```\n    若指定名称的精灵已创建则返回1，若未创建或已销毁则返回0。\n\n!!! hint \"提示\"\n\n    该函数同时支持在指令和表达式中使用。\n\n### 相关项目\n- SPRITECREATE"
-  },
-  {
-    "id": "SPRITECREATEFROMFILE",
-    "title": "SPRITECREATEFROMFILE",
-    "names": [
-      "SPRITECREATEFROMFILE"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITECREATEFROMFILE",
-        "params": "`string`, `string`(, `int`, `int`, `int`, `int`)",
-        "returns": "`int`",
-        "engines": [
+          "net",
           "skia"
         ],
         "overloads": []
       }
     ],
-    "summary": "直接从图像文件创建 Sprite。可以一步完成 GCREATEFROMFILE 创建 Graphics 再用 SPRITECREATE 创建 Sprite 的两步操作。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SPRITECREATEFROMFILE spriteName, filePath(, x, y, width, height)\n    ```\n\n    直接从图像文件创建 Sprite。可以一步完成 `GCREATEFROMFILE` 创建 Graphics 再用 `SPRITECREATE` 创建 Sprite 的两步操作。\n\n    **参数**：\n\n    | 参数 | 类型 | 说明 |\n    | :--- | :--- | :--- |\n    | `spriteName` | string | 要创建的 Sprite 资源名 |\n    | `filePath` | string | 图像文件路径 |\n    | `x` | int | 裁剪起始 X 坐标（省略时为0） |\n    | `y` | int | 裁剪起始 Y 坐标（省略时为0） |\n    | `width` | int | 裁剪宽度（省略时为0，即图像整体宽度） |\n    | `height` | int | 裁剪高度（省略时为0，即图像整体高度） |\n\n    **返回值**：创建成功返回 1，失败返回 0。\n\n    !!! warning \"注意\"\n        - 支持命令和表达式函数两种形式。\n        - 如果同名 Sprite 已存在，则创建失败，返回 0。\n        - `filePath` 可以是 `resources` 文件夹的相对路径或绝对路径。\n        - 创建的 Sprite 可用于 `PRINT_IMG` 命令或 [`HTML_PRINT 的 img 标签`](../Emuera/HTML_PRINT.zh.md#img) 等。\n        - 与 `SPRITECREATE` 不同，此函数创建的 Sprite 没有父 Graphics，因此 Sprite 作为独立图像数据保存。\n\n!!! hint \"提示\"\n\n    支持命令和表达式函数两种形式。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        ; 从整个文件创建 Sprite\n        IF SPRITECREATEFROMFILE(\"my_img\", \"image/character.png\")\n            PRINTL Sprite 创建成功\n            PRINT_IMG my_img\n        ELSE\n            PRINTL Sprite 创建失败\n        ENDIF\n\n        ; 从文件的一部分裁剪创建 Sprite\n        SPRITECREATEFROMFILE \"my_icon\", \"image/icons.png\", 0, 0, 32, 32\n    ```\n\n### 相关项\n- SPRITECREATE\n- GCREATEFROMFILE\n- PRINT_IMG"
+    "summary": "在数组中搜索所有匹配值的索引，返回匹配数量。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    MATCHALL var, value[, beg, end[, outArr]]\n    MATCHALLEX \"varName\", value[, beg, end[, outArr]]\n    ```\n    在数组中搜索所有匹配值的索引，返回匹配数量。\n\n    - 第一参数：`MATCHALL` 为变量引用，`MATCHALLEX` 为字符串变量名\n    - 第二参数：搜索值（类型需与数组元素类型一致）\n    - 第三参数（可选）：搜索起始索引（默认 0）\n    - 第四参数（可选）：搜索结束索引（默认数组长度）\n    - 第五参数（可选）：输出数组变量引用，匹配的索引将写入该数组（从 0 开始）\n\n    返回值：匹配的元素数量。未找到返回 0。\n\n!!! hint \"提示\"\n\n    支持命令语法（`MATCHALL ARR, 2`）与表达式语法（`LOCAL = MATCHALL(ARR, 2)`）两种形式。作为命令调用时结果写入 `RESULT` 数组。与 MATCH 不同，MATCHALL 返回所有匹配位置而非仅计数。\n\n    `MATCHALL` 与 `MATCHALLEX` 的区别类似于 `GETNUM` 与 `GETNUMB`：\n    - `MATCHALL` 第一参数是变量引用（编译期解析），性能更好\n    - `MATCHALLEX` 第一参数是字符串变量名（运行期解析），灵活性更高\n\n    当第五参数数组长度不足时，多余的匹配索引被静默丢弃，返回值仍为实际匹配数量。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        #DIM ARR, 10 = 1, 2, 3, 2, 5, 2, 7, 8, 2, 10\n        #DIM IDX, 10\n\n        ; 仅计数\n        LOCAL = MATCHALL(ARR, 2)\n        PRINTFORML 找到 {LOCAL} 个 2\n\n        ; 输出索引到 IDX\n        LOCAL = MATCHALL(ARR, 2, 0, 10, IDX)\n        FOR I, 0, LOCAL\n            PRINTFORML IDX:{I} = {IDX:I}\n        NEXT\n    ```\n    ```text\n    找到 4 个 2\n    IDX:0 = 1\n    IDX:1 = 3\n    IDX:2 = 5\n    IDX:3 = 8\n    ```\n\n### 相关项目\n- MATCH — 仅计数首个匹配\n- FINDELEMENT — 查找单个元素位置",
+    "sourcePath": "docs/Reference/MATCHALL.zh.md"
   },
   {
-    "id": "SPRITEDISPOSE",
-    "title": "SPRITEDISPOSE",
+    "id": "MATH_EXTENSION",
+    "title": "数学扩展函数",
     "names": [
-      "SPRITEDISPOSE",
-      "SPRITDISPOSE"
+      "CBRT",
+      "LOG",
+      "LOG10",
+      "EXPOMENT",
+      "MATH_EXTENSION"
     ],
     "signatures": [
       {
-        "name": "SPRITEDISPOSE",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "废弃（释放）由 spriteName 指定的资源名所对应的精灵。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITDISPOSE spriteName\n    ```\n\t废弃（释放）由 `spriteName` 指定的资源名所对应的精灵。\n\t若废弃成功，则返回非零值。\n\t此指令不会影响构成该精灵来源的 `Graphics` 等对象。\n\t若要释放分配给 `Graphics` 的内存，请使用 `GDISPOSE` 指令。\n\n!!! hint \"提示\"\n\n    此功能同时支持指令形式和表达式函数形式。\n\n### 相关项目\n- SPRITECREAATE\n- SPRITEDISPOSEALL"
-  },
-  {
-    "id": "SPRITEDISPOSEALL",
-    "title": "SPRITEDISPOSEALL",
-    "names": [
-      "SPRITEDISPOSEALL"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITEDISPOSEALL",
+        "name": "CBRT",
         "params": "`int`",
         "returns": "`int`",
         "engines": [
-          "ee"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "销毁所有 SPRITE。若参数为 0，则仅销毁 ERB 上创建的 SPRITE；若参数非 0，则同时销毁 resources 内 CSV 创建的所有 SPRITE。",
-    "body": "!!! info \"API\"\n\n\t```erb\n\tint SPRITEDISPOSEALL, containCsvSprite\n\t```\n\n    销毁所有 SPRITE。若参数为 0，则仅销毁 ERB 上创建的 SPRITE；若参数非 0，则同时销毁 resources 内 CSV 创建的所有 SPRITE。\n    返回被销毁的精灵数量。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        GCREATE 0, 100, 100\n\n        SPRITECREATE \"AAA\", 0\n        SPRITECREATE \"BBB\", 0\n        SPRITECREATE \"CCC\", 0\n\n        PRINTFORMW {SPRITEDISPOSEALL(0)}\n    ```\n\n    ```text\n    3\n    ```\n\n### 相关项目\n- SPRITEDISPOSE"
-  },
-  {
-    "id": "SPRITEGETCOLOR",
-    "title": "SPRITEGETCOLOR",
-    "names": [
-      "SPRITEGETCOLOR"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITEGETCOLOR",
-        "params": "`string`, `int`, `int`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "获取指定spriteName资源名对应的精灵在指定位置的颜色，以0xAARRGGBB格式的整数值返回。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITEGETCOLOR spriteName, x, y\n    ```\n    获取指定`spriteName`资源名对应的精灵在指定位置的颜色，以`0xAARRGGBB`格式的整数值返回。\n    如果`spriteName`指定的精灵未创建或已销毁，或者`x, y`坐标位于图像范围之外，则返回-1。\n\n    请注意，这是唯一一个在失败时返回-1而非0的命令。\n    当获取到的位置颜色为黑色且完全透明时，此命令将返回0。\n\n!!! hint \"提示\"\n\n    此功能同时支持作为命令和表达式函数使用。"
-  },
-  {
-    "id": "SPRITEMOVE",
-    "title": "SPRITEMOVE",
-    "names": [
-      "SPRITEMOVE"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITEMOVE",
-        "params": "`string`, `int`, `int`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "将指定的值加到指定名称的精灵的相对位置的X、Y坐标上。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITEMOVE spriteName, movex, movey\n    ```\n\t将指定的值加到指定名称的精灵的相对位置的X、Y坐标上。\n\t也就是说，\n\n\t\tSPRITESETPOS spriteName, SPRITEPOSX(spriteName) + movex, SPRITEPOSY(spriteName) + movey\n\n\t是等价的。\n\t成功时返回非0值，如果因指定的精灵未创建或已销毁等原因失败，则返回0。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。"
-  },
-  {
-    "id": "SPRITEPOSXY",
-    "title": "SPRITEPOSX, SPRITEPOSY",
-    "names": [
-      "SPRITEPOSX",
-      "SPRITEPOSY",
-      "SPRITEPOSXY"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITEPOSX",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
           "emuera"
         ],
         "overloads": []
       },
       {
-        "name": "SPRITEPOSY",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "获取指定名称的精灵的相对位置的 X、Y 坐标。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SPRITEPOSX spriteName\n    int SPRITEPOSY spriteName\n    ```\n    获取指定名称的精灵的相对位置的 `X`、`Y` 坐标。\n    如果精灵尚未创建或已被销毁，则返回 0。\n    要区分相对位置的 `X`、`Y` 坐标是 0 还是精灵未创建/已销毁，请另外调用 `SPRITECREATED`。\n\n!!! hint \"提示\"\n\n    该函数在指令和表达式中均可使用。"
-  },
-  {
-    "id": "SPRITESETPOS",
-    "title": "SPRITESETPOS",
-    "names": [
-      "SPRITESETPOS"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITESETPOS",
-        "params": "`string`, `int`, `int`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "设置指定名称的精灵的相对位置 X、Y。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SPRITESETPOS spriteName, posX, posY\n    ```\n    设置指定名称的精灵的相对位置 `X`、`Y`。\n    成功时返回非0值，若因指定精灵未创建或已销毁等原因失败则返回0。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数形式。"
-  },
-  {
-    "id": "SPRITEWIDTHHEIGHT",
-    "title": "SPRITEWIDTH, SPRITEHEIGHT",
-    "names": [
-      "SPRITEWIDTH",
-      "SPRITEHEIGHT",
-      "SPRITEWIDTHHEIGHT"
-    ],
-    "signatures": [
-      {
-        "name": "SPRITEWIDTH",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SPRITEHEIGHT",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "获取指定名称的精灵的宽度或高度。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SPRITEWIDTH spriteName\n    int SPRITEHEIGHT spriteName\n    ```\n    获取指定名称的精灵的宽度或高度。\n    如果精灵尚未创建或已被销毁，则返回0。\n\n!!! hint \"提示\"\n\n    该函数同时支持在指令和表达式中使用。"
-  },
-  {
-    "id": "SQL_CONNECT",
-    "title": "SQL 连接管理",
-    "names": [
-      "SQL_CONNECTION_OPEN",
-      "SQL_CONNECT",
-      "SQL_DISCONNECT",
-      "SQL"
-    ],
-    "signatures": [
-      {
-        "name": "SQL_CONNECTION_OPEN",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_CONNECT",
-        "params": "`string`(, `string`)",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_DISCONNECT",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "SQLite 数据库的连接与断开相关函数。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SQL_CONNECTION_OPEN name\n    int SQL_CONNECT dbName(, connectionString)\n    int SQL_DISCONNECT dbName\n    ```\n\n    SQLite 数据库的连接与断开相关函数。\n\n    - `SQL_CONNECTION_OPEN`：以 `name` 为名，在 `sav/sql/` 目录下自动创建或打开 SQLite 数据库文件（`name.db`）。若已存在同名连接则先关闭再重新打开。成功返回 `1`。\n        - DotNet 上游行为：自动设置 `PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;` 以追求极致写入性能，但游戏崩溃时数据库有损坏风险。且 `name` 参数未做路径校验，恶意或写错的 ERB 脚本可通过 `../../` 等路径穿越 `sav/sql/` 目录，在系统任意位置创建或覆盖 `.db` 文件。\n        - **Skia 变体变更**：改为 `PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;`，写入性能接近 OFF 模式且崩溃时数据库不会损坏。同时 `name` 参数增加安全校验，仅允许合法文件名，禁止包含路径分隔符或 `..`（防止路径穿越）。\n    - `SQL_CONNECT`：以 `dbName` 为标识名，使用 `connectionString` 连接 SQLite 数据库。若省略 `connectionString`，默认使用内存数据库（`Data Source=:memory:`）。若已存在同名连接则直接返回 `1`。成功返回 `1`，失败抛出错误。\n    - `SQL_DISCONNECT`：断开名为 `dbName` 的数据库连接并释放资源。返回 `1`。\n\n    !!! warning \"注意\"\n\n        - `SQL_CONNECTION_OPEN` 是 DotNet 版新增的便捷函数，自动处理路径映射，适合大多数场景。\n        - `SQL_CONNECT` 是 Skia 版的底层连接函数，提供更灵活的持久化交互能力：\n            - 可指定任意路径的数据库文件（如 `Data Source=plugins/my_data.db`），不限于 `sav/sql/` 目录\n            - 可使用内存数据库（`Data Source=:memory:`）进行临时数据处理\n            - 可通过连接字符串自定义 SQLite 行为（WAL 模式、缓存大小、只读模式等）\n            - 不自动设置 PRAGMA，可自行控制 `journal_mode`、`synchronous` 等参数\n        - 两者共享同一连接池，不可对同一 `name`/`dbName` 同时使用两种方式连接。\n        - 「返回标题界面」或 `RESETDATA` 时会自动关闭所有连接。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n!!! example \"示例代码\"\n\n    ```erb\n    @SYSTEM_TITLE\n        ; 使用 SQL_CONNECTION_OPEN 便捷连接（数据库文件位于 sav/sql/mydb.db）\n        SQL_CONNECTION_OPEN \"mydb\"\n        PRINTFORML 连接成功：{RESULT}\n\n        ; 执行建表\n        SQL_EXECUTE_NONQUERY \"mydb\", \"CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT, price INTEGER)\"\n\n        ; 使用 SQL_CONNECT 连接内存数据库（临时数据处理）\n        SQL_CONNECT \"memdb\"\n        PRINTFORML 内存数据库连接成功：{RESULT}\n\n        ; 使用 SQL_CONNECT 连接自定义路径的数据库（如插件数据目录）\n        SQL_CONNECT \"QOL_DATA\", \"Data Source=plugins/qol_data.db\"\n        PRINTFORML 插件数据库连接成功：{RESULT}\n\n        ; 断开连接\n        SQL_DISCONNECT \"mydb\"\n        SQL_DISCONNECT \"memdb\"\n        SQL_DISCONNECT \"QOL_DATA\"\n\n        WAIT\n    ```"
-  },
-  {
-    "id": "SQL_EXECUTE",
-    "title": "SQL 执行操作",
-    "names": [
-      "SQL_EXECUTE_NONQUERY",
-      "SQL_EXECUTE_READER",
-      "SQL_EXECUTE_SCALAR_LONG",
-      "SQL_EXECUTE_SCALAR_STRING",
-      "SQL_EXECUTE_SCALAR_FLOAT",
-      "STR",
-      "SQL",
-      "SQL_EXECUTE"
-    ],
-    "signatures": [
-      {
-        "name": "SQL_EXECUTE_NONQUERY",
-        "params": "`string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_EXECUTE_READER",
-        "params": "`string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_EXECUTE_SCALAR_LONG",
-        "params": "`string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_EXECUTE_SCALAR_STRING",
-        "params": "`string`, `string`",
-        "returns": "`string`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_EXECUTE_SCALAR_FLOAT",
-        "params": "`string`, `string`",
-        "returns": "`float`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "SQLite 数据库的 SQL 语句执行相关函数。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SQL_EXECUTE_NONQUERY dbName, sql\n    int SQL_EXECUTE_READER dbName, sql\n    int SQL_EXECUTE_SCALAR_LONG dbName, sql\n    str SQL_EXECUTE_SCALAR_STRING dbName, sql\n    float SQL_EXECUTE_SCALAR_FLOAT dbName, sql\n    ```\n\n    SQLite 数据库的 SQL 语句执行相关函数。\n\n    - `SQL_EXECUTE_NONQUERY`：执行非查询 SQL 语句（INSERT / UPDATE / DELETE / CREATE TABLE 等），返回受影响的行数。\n    - `SQL_EXECUTE_READER`：执行查询 SQL 语句（SELECT），返回 Reader ID（用于后续 `SQL_READER_READ` 等操作）。\n    - `SQL_EXECUTE_SCALAR_LONG`：执行标量查询，返回结果的第一行第一列的整数值。若结果为 NULL 或无结果，返回 `0`。\n    - `SQL_EXECUTE_SCALAR_STRING`：执行标量查询，返回结果的第一行第一列的字符串值。若结果为 NULL 或无结果，返回空字符串。\n    - `SQL_EXECUTE_SCALAR_FLOAT`：执行标量查询，返回结果的第一行第一列的浮点数值。若结果为 NULL 或无结果，返回 `0.0`。\n\n    !!! warning \"注意\"\n\n        - 执行前必须先通过 `SQL_CONNECTION_OPEN` 或 `SQL_CONNECT` 建立连接。\n        - 若需要参数化查询（防 SQL 注入），请使用 `SQL_P_EXECUTE_*` 系列函数。\n        - `SQL_EXECUTE_READER` 返回的 Reader ID 使用完毕后必须调用 `SQL_READER_CLOSE` 关闭，否则会泄漏资源。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n!!! example \"示例代码\"\n\n    ```erb\n    @SYSTEM_TITLE\n        SQL_CONNECTION_OPEN \"test\"\n\n        ; 建表\n        SQL_EXECUTE_NONQUERY \"test\", \"CREATE TABLE IF NOT EXISTS scores (name TEXT, score INTEGER)\"\n\n        ; 插入数据\n        SQL_EXECUTE_NONQUERY \"test\", \"INSERT INTO scores VALUES ('Alice', 95)\"\n        SQL_EXECUTE_NONQUERY \"test\", \"INSERT INTO scores VALUES ('Bob', 82)\"\n\n        ; 标量查询\n        PRINTFORML 最高分：{SQL_EXECUTE_SCALAR_LONG(\"test\", \"SELECT MAX(score) FROM scores\")}\n        PRINTFORML 第一名姓名：{SQL_EXECUTE_SCALAR_STRING(\"test\", \"SELECT name FROM scores ORDER BY score DESC LIMIT 1\")}\n\n        ; Reader 查询\n        LOCAL = SQL_EXECUTE_READER(\"test\", \"SELECT * FROM scores\")\n        REPEAT 100\n            SIF !SQL_READER_READ(LOCAL)\n                BREAK\n            PRINTFORML %SQL_READER_GET_STRING(LOCAL, 0)%: {SQL_READER_GET_LONG(LOCAL, 1)}分\n        REND\n        SQL_READER_CLOSE LOCAL\n\n        SQL_DISCONNECT \"test\"\n        WAIT\n    ```"
-  },
-  {
-    "id": "SQL_PARAM",
-    "title": "SQL 参数化查询",
-    "names": [
-      "SQL_ESCAPE",
-      "SQL_P_EXECUTE_NONQUERY",
-      "SQL_P_EXECUTE_READER",
-      "SQL_P_EXECUTE_SCALAR_LONG",
-      "SQL_P_EXECUTE_SCALAR_STRING",
-      "SQL_P_EXECUTE_SCALAR_FLOAT",
-      "STR",
-      "SQL",
-      "SQL_PARAM"
-    ],
-    "signatures": [
-      {
-        "name": "SQL_ESCAPE",
-        "params": "`string`",
-        "returns": "`string`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_P_EXECUTE_NONQUERY",
-        "params": "`string`, `string`(, `string`...)",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_P_EXECUTE_READER",
-        "params": "`string`, `string`(, `string`...)",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_P_EXECUTE_SCALAR_LONG",
-        "params": "`string`, `string`(, `string`...)",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_P_EXECUTE_SCALAR_STRING",
-        "params": "`string`, `string`(, `string`...)",
-        "returns": "`string`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_P_EXECUTE_SCALAR_FLOAT",
-        "params": "`string`, `string`(, `string`...)",
-        "returns": "`float`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "SQLite 参数化查询相关函数，用于防止 SQL 注入攻击。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    str SQL_ESCAPE str\n    int SQL_P_EXECUTE_NONQUERY dbName, sql(, param0, param1, ...)\n    int SQL_P_EXECUTE_READER dbName, sql(, param0, param1, ...)\n    int SQL_P_EXECUTE_SCALAR_LONG dbName, sql(, param0, param1, ...)\n    str SQL_P_EXECUTE_SCALAR_STRING dbName, sql(, param0, param1, ...)\n    float SQL_P_EXECUTE_SCALAR_FLOAT dbName, sql(, param0, param1, ...)\n    ```\n\n    SQLite 参数化查询相关函数，用于防止 SQL 注入攻击。\n\n    - `SQL_ESCAPE`：对字符串进行 SQL 转义（将单引号 `''` 双写），返回转义后的字符串。适用于手动拼接 SQL 的场景。\n    - `SQL_P_EXECUTE_NONQUERY`：参数化执行非查询 SQL。SQL 中使用 `@0`、`@1`、`@2`... 作为占位符，后续参数按顺序替换。返回受影响的行数。\n    - `SQL_P_EXECUTE_READER`：参数化执行查询 SQL。返回 Reader ID。\n    - `SQL_P_EXECUTE_SCALAR_LONG`：参数化执行标量查询，返回整数值。\n    - `SQL_P_EXECUTE_SCALAR_STRING`：参数化执行标量查询，返回字符串值。\n    - `SQL_P_EXECUTE_SCALAR_FLOAT`：参数化执行标量查询，返回浮点数值。\n\n    !!! warning \"注意\"\n\n        - **推荐使用参数化查询**而非手动拼接 SQL 字符串，以防止 SQL 注入攻击。\n        - `SQL_ESCAPE` 仅在无法使用参数化查询时作为后备方案。\n        - 参数占位符为 `@0`、`@1`、`@2`...（从 0 开始编号），而非 `?` 或命名参数。\n        - 所有参数值均以字符串形式传入，SQLite 会根据列类型自动转换。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n!!! example \"示例代码\"\n\n    ```erb\n    @SYSTEM_TITLE\n        SQL_CONNECTION_OPEN \"test\"\n        SQL_EXECUTE_NONQUERY \"test\", \"CREATE TABLE IF NOT EXISTS users (name TEXT, age INTEGER)\"\n\n        ; 参数化插入（安全）\n        SQL_P_EXECUTE_NONQUERY \"test\", \"INSERT INTO users VALUES (@0, @1)\", \"Alice\", \"25\"\n        SQL_P_EXECUTE_NONQUERY \"test\", \"INSERT INTO users VALUES (@0, @1)\", \"Bob\", \"30\"\n\n        ; 参数化查询\n        LOCAL = SQL_P_EXECUTE_READER(\"test\", \"SELECT * FROM users WHERE age > @0\", \"26\")\n        REPEAT 100\n            SIF !SQL_READER_READ(LOCAL)\n                BREAK\n            PRINTFORML %SQL_READER_GET_STRING(LOCAL, 0)%: {SQL_READER_GET_LONG(LOCAL, 1)}岁\n        REND\n        SQL_READER_CLOSE LOCAL\n\n        ; 参数化标量查询\n        PRINTFORML 25岁以上的人数：{SQL_P_EXECUTE_SCALAR_LONG(\"test\", \"SELECT COUNT(*) FROM users WHERE age > @0\", \"25\")}\n\n        SQL_DISCONNECT \"test\"\n        WAIT\n    ```"
-  },
-  {
-    "id": "SQL_READER",
-    "title": "SQL Reader 操作",
-    "names": [
-      "SQL_READER_READ",
-      "SQL_READER_GET_LONG",
-      "SQL_READER_GET_STRING",
-      "SQL_READER_GET_FLOAT",
-      "SQL_READER_ISNULL",
-      "SQL_READER_CLOSE",
-      "STR",
-      "SQL",
-      "SQL_READER"
-    ],
-    "signatures": [
-      {
-        "name": "SQL_READER_READ",
+        "name": "LOG",
         "params": "`int`",
         "returns": "`int`",
         "engines": [
-          "net"
+          "emuera"
         ],
         "overloads": []
       },
       {
-        "name": "SQL_READER_GET_LONG",
-        "params": "`int`, `int`",
-        "returns": "`int`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_READER_GET_STRING",
-        "params": "`int`, `int`",
-        "returns": "`string`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_READER_GET_FLOAT",
-        "params": "`int`, `int`",
-        "returns": "`float`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_READER_ISNULL",
-        "params": "`int`, `int`",
-        "returns": "`int`",
-        "engines": [
-          "net"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_READER_CLOSE",
+        "name": "LOG10",
         "params": "`int`",
         "returns": "`int`",
         "engines": [
-          "net"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "SQLite 查询结果（Reader）的读取与操作相关函数。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SQL_READER_READ readerId\n    int SQL_READER_GET_LONG readerId, columnIndex\n    str SQL_READER_GET_STRING readerId, columnIndex\n    float SQL_READER_GET_FLOAT readerId, columnIndex\n    int SQL_READER_ISNULL readerId, columnIndex\n    int SQL_READER_CLOSE readerId\n    ```\n\n    SQLite 查询结果（Reader）的读取与操作相关函数。\n\n    - `SQL_READER_READ`：将 Reader 前进到下一行。有数据返回 `1`，无更多行返回 `0`。\n    - `SQL_READER_GET_LONG`：获取当前行指定列（从 0 开始）的整数值。\n    - `SQL_READER_GET_STRING`：获取当前行指定列的字符串值。\n    - `SQL_READER_GET_FLOAT`：获取当前行指定列的浮点数值。\n    - `SQL_READER_ISNULL`：判断当前行指定列是否为 NULL，是返回 `1`，否返回 `0`。\n    - `SQL_READER_CLOSE`：关闭 Reader 并释放资源。返回 `1`。\n\n    !!! warning \"注意\"\n\n        - `readerId` 由 `SQL_EXECUTE_READER` 返回。\n        - 读取列值前必须先调用 `SQL_READER_READ` 至少一次。\n        - 使用完毕后**必须**调用 `SQL_READER_CLOSE` 关闭，否则会泄漏资源。\n        - `columnIndex` 从 0 开始。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n!!! example \"示例代码\"\n\n    ```erb\n    @SYSTEM_TITLE\n        SQL_CONNECTION_OPEN \"test\"\n        SQL_EXECUTE_NONQUERY \"test\", \"CREATE TABLE IF NOT EXISTS data (k TEXT, v INTEGER, f REAL)\"\n        SQL_EXECUTE_NONQUERY \"test\", \"INSERT INTO data VALUES ('a', 10, 3.14)\"\n        SQL_EXECUTE_NONQUERY \"test\", \"INSERT INTO data VALUES ('b', NULL, NULL)\"\n\n        LOCAL = SQL_EXECUTE_READER(\"test\", \"SELECT * FROM data\")\n        REPEAT 100\n            SIF !SQL_READER_READ(LOCAL)\n                BREAK\n            PRINTFORM %SQL_READER_GET_STRING(LOCAL, 0)%:\n            SIF SQL_READER_ISNULL(LOCAL, 1)\n                PRINT NULL\n            SIF !SQL_READER_ISNULL(LOCAL, 1)\n                PRINTFORM {SQL_READER_GET_LONG(LOCAL, 1)}\n            PRINTFORM  /\n            SIF SQL_READER_ISNULL(LOCAL, 2)\n                PRINT NULL\n            SIF !SQL_READER_ISNULL(LOCAL, 2)\n                PRINTFORM {SQL_READER_GET_FLOAT(LOCAL, 2)}\n            PRINTL\n        REND\n        SQL_READER_CLOSE LOCAL\n\n        SQL_DISCONNECT \"test\"\n        WAIT\n    ```"
-  },
-  {
-    "id": "SQL_XML",
-    "title": "SQL XML 导入导出",
-    "names": [
-      "SQL_IMPORT_MAP_XML",
-      "SQL_IMPORT_DT_XML",
-      "SQL_EXPORT_MAP_XML",
-      "SQL_EXPORT_DT_XML",
-      "SQL_IMPORT_XML_CUSTOM",
-      "SQL",
-      "XML",
-      "SQL_XML"
-    ],
-    "signatures": [
-      {
-        "name": "SQL_IMPORT_MAP_XML",
-        "params": "`string`, `string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "skia"
+          "emuera"
         ],
         "overloads": []
       },
       {
-        "name": "SQL_IMPORT_DT_XML",
-        "params": "`string`, `string`, `string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_EXPORT_MAP_XML",
-        "params": "`string`, `string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_EXPORT_DT_XML",
-        "params": "`string`, `string`, `string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SQL_IMPORT_XML_CUSTOM",
-        "params": "`string`, `string`, `string`, `string`, `string`",
-        "returns": "`int`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "SQLite 数据库与 XML 文件之间的导入导出相关函数。支持 MAP 格式、DataTable 格式和自定义格式的 XML 互操作。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int SQL_IMPORT_MAP_XML dbName, tableName, filePath\n    int SQL_IMPORT_DT_XML dbName, tableName, schemaPath, dataPath\n    int SQL_EXPORT_MAP_XML dbName, tableName, filePath\n    int SQL_EXPORT_DT_XML dbName, tableName, schemaPath, dataPath\n    int SQL_IMPORT_XML_CUSTOM dbName, tableName, filePath, rowXPath, columnMappings\n    ```\n\n    SQLite 数据库与 XML 文件之间的导入导出相关函数。支持 MAP 格式、DataTable 格式和自定义格式的 XML 互操作。\n\n    - `SQL_IMPORT_MAP_XML`：将 MAP 格式的 XML 文件（`<map><p><k>key</k><v>value</v></p></map>`）导入到 SQLite 表。自动创建表（`k TEXT PRIMARY KEY, v TEXT`）并使用 `INSERT OR REPLACE`。成功返回 `1`。\n    - `SQL_IMPORT_DT_XML`：将 DataTable 格式的 XML 文件（Schema + Data）导入到 SQLite 表。根据 Schema 自动推断列类型（INTEGER / TEXT）。成功返回 `1`。\n    - `SQL_EXPORT_MAP_XML`：将 SQLite 表导出为 MAP 格式的 XML 文件。成功返回 `1`。\n    - `SQL_EXPORT_DT_XML`：将 SQLite 表导出为 DataTable 格式的 XML 文件（Schema + Data）。成功返回 `1`。\n    - `SQL_IMPORT_XML_CUSTOM`：将自定义格式的 XML 文件导入到 SQLite 表。通过 `rowXPath` 指定行节点路径，通过 `columnMappings` 指定列映射（格式：`\"ColName1=childNode,ColName2=@attr\"`）。所有列类型为 TEXT。成功返回 `1`。\n\n    !!! warning \"注意\"\n\n        - 执行前必须先通过 `SQL_CONNECTION_OPEN` 或 `SQL_CONNECT` 建立连接。\n        - `SQL_IMPORT_MAP_XML` 和 `SQL_IMPORT_DT_XML` 使用流式解析（XmlReader），支持大文件。\n        - `SQL_IMPORT_DT_XML` 的 Schema 文件用于推断列类型，Data 文件包含实际数据。\n        - 导出文件路径相对于程序目录。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n!!! example \"示例代码\"\n\n    ```erb\n    @SYSTEM_TITLE\n        SQL_CONNECTION_OPEN \"mydb\"\n\n        ; 从 MAP XML 导入\n        SQL_IMPORT_MAP_XML \"mydb\", \"config\", \"data/config_map.xml\"\n\n        ; 从 DT XML 导入\n        SQL_IMPORT_DT_XML \"mydb\", \"items\", \"data/items_schema.xml\", \"data/items_data.xml\"\n\n        ; 导出为 MAP XML\n        SQL_EXPORT_MAP_XML \"mydb\", \"config\", \"output/config_export.xml\"\n\n        ; 导出为 DT XML\n        SQL_EXPORT_DT_XML \"mydb\", \"items\", \"output/items_schema.xml\", \"output/items_data.xml\"\n\n        SQL_DISCONNECT \"mydb\"\n        WAIT\n    ```"
-  },
-  {
-    "id": "SQRT",
-    "title": "SQRT",
-    "names": [
-      "SQRT"
-    ],
-    "signatures": [
-      {
-        "name": "SQRT",
+        "name": "EXPOMENT",
         "params": "`int`",
         "returns": "`int`",
         "engines": [
@@ -604,39 +109,232 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "返回参数的平方根。由于小数部分会被舍去，建议在使用前先将数值放大。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SQRT int\n    ```\n    返回参数的平方根。由于小数部分会被舍去，建议在使用前先将数值放大。\n\n!!! hint \"提示\"\n\n    该函数同时支持指令和表达式函数两种用法。\n\n### 相关项目\n- CBRT, LOG, LOG10, EXPOMENT"
+    "summary": "以下摘自私家改造版更新日志",
+    "body": "## 基本数学函数\n\n!!! info \"API\"\n\n    ```erb\n    int CBRT value\n    int LOG value\n    int LOG10 value\n    int EXPOMENT value\n    ```\n\n    以下摘自私家改造版更新日志\n\n        新增数学函数作为表达式内函数\n        CBRT（立方根）\n        LOG（自然对数）\n        LOG10（常用对数）\n        EXPONENT（指数函数）\n        所有格式均为：函数名(参数)\n\n    由于 Emuera 无法处理小数，使用时需要一些技巧。\n\n## 三角函数\n\n| 函数名                                                          | 参数          | 返回值              |\n| :-------------------------------------------------------------- | :------------ | :------------------ |\n| [Skia]`SIN`   | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`COS`   | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`TAN`   | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`ASIN`  | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`ACOS`  | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`ATAN`  | `int`/`float` | `int`/`float`（同型） |\n\n!!! info \"API\"\n\n    ```erb\n    int/float SIN angle\n    int/float COS angle\n    int/float TAN angle\n    int/float ASIN value\n    int/float ACOS value\n    int/float ATAN value\n    ```\n\n    Skia（SkiaSharp版）新增。C# 原生三角函数。\n\n    **同名重载**：函数名不区分 Int/Float 版本（无 F 后缀变体）。当参数为 Float 类型时返回 Float，为 Int 类型时返回 Int。与运算符重载一致（`1 + 2.0` 返回 Float，`SIN(1.0)` 也返回 Float）。\n\n    - 参数均为**弧度制**。如需角度转弧度，使用 `angle * PI() / 180`。\n    - `ASIN`/`ACOS` 的参数必须在 `[-1, 1]` 范围内，超出时抛出错误。\n    - Int 版本返回截断小数后的整数值（如 `SIN(1) = 0`，因为 sin(1 rad) ≈ 0.84 → 截断为 0）。\n    - Float 版本返回完整的 double 精度浮点数。\n\n## 端数处理\n\n| 函数名                                                            | 参数          | 返回值              |\n| :---------------------------------------------------------------- | :------------ | :------------------ |\n| [Skia]`FLOOR`   | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`CEIL`    | `int`/`float` | `int`/`float`（同型） |\n| [Skia]`ROUND`   | `int`/`float` | `int`/`float`（同型） |\n\n!!! info \"API\"\n\n    ```erb\n    int/float FLOOR value\n    int/float CEIL value\n    int/float ROUND value\n    ```\n\n    Skia（SkiaSharp版）新增。端数处理函数。同名重载（与三角函数相同）。\n\n    - `FLOOR`：向下取整（向负无穷方向）。\n    - `CEIL`：向上取整（向正无穷方向）。\n    - `ROUND`：四舍五入（`MidpointRounding.AwayFromZero`，0.5 向远离零的方向舍入）。\n    - Int 版本对整数参数无实际效果（整数本身已是整数），主要供语义完整性使用。\n    - Float 版本返回浮点数结果。\n\n!!! hint \"提示\"\n\n    基本数学函数同时支持命令和表达式内函数。三角函数和端数处理仅支持表达式内函数（在表达式中使用）。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        ; 三角函数（弧度制，Int参数→Int返回值）\n        PRINTFORML SIN(1) = {SIN(1)}\n        PRINTFORML COS(1) = {COS(1)}\n\n        ; Float版（Float参数→Float返回值）\n        #DIMF rad = 0.7853981633974483\n        PRINTFORML SIN(rad) = {SIN(rad)}\n        PRINTFORML COS(rad) = {COS(rad)}\n\n        ; 反三角函数\n        PRINTFORML ASIN(0) = {ASIN(0)}\n        PRINTFORML ACOS(0) = {ACOS(0)}\n\n        ; 端数处理\n        #DIMF val = 3.7\n        PRINTFORML FLOOR(val) = {FLOOR(val)}\n        PRINTFORML CEIL(val) = {CEIL(val)}\n        PRINTFORML ROUND(val) = {ROUND(val)}\n    ```\n    ```text\n    SIN(1) = 0\n    COS(1) = 0\n    SIN(rad) = 0.707106781186548\n    COS(rad) = 0.707106781186548\n    ASIN(0) = 0\n    ACOS(0) = 1\n    FLOOR(val) = 3\n    CEIL(val) = 4\n    ROUND(val) = 4\n    ```",
+    "sourcePath": "docs/Reference/MATH_EXTENSION.zh.md"
   },
   {
-    "id": "STOPBGM",
-    "title": "STOPBGM",
+    "id": "MAX",
+    "title": "MAX, MIN, LIMIT, INRANGE",
     "names": [
-      "STOPBGM"
+      "MAX",
+      "MIN",
+      "LIMIT",
+      "INRANGE",
+      "A",
+      "SIF"
     ],
     "signatures": [
       {
-        "name": "STOPBGM",
-        "params": "`void`",
-        "returns": "`void`",
+        "name": "MAX",
+        "params": "`int`(, `int`...)",
+        "returns": "`int`",
         "engines": [
-          "ee"
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "MIN",
+        "params": "`int`(, `int`...)",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "LIMIT",
+        "params": "`int`, `int`, `int`",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "INRANGE",
+        "params": "`int`, `int`, `int`",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
         ],
         "overloads": []
       }
     ],
-    "summary": "停止 PLAYBGM 正在播放的音轨。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    STOPBGM\n    ```\n\n    停止 `PLAYBGM` 正在播放的音轨。\n\n!!! hint \"提示\"\n\n    只能作为命令使用。\n\n### 相关项目\n- PLAYBGM"
+    "summary": "MAX 返回参数中的最大值。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tint MAX int(, int...)\n\tint MIN int(, int...)\n\tint LIMIT int, minValue, maxValue\n\tint INRANGE int, minValue, maxValue\n    ```\n\t`MAX` 返回参数中的最大值。\n\n\t`MIN` 返回参数中的最小值。\n\n\t`LIMIT` 返回第一个参数的值。\n\t但是，如果第一个参数小于第二个参数，则返回第二个参数的值；如果大于第三个参数，则返回第三个参数的值。\n\t例如，当你想将 `X - Y` 赋值给 `A`，但希望赋值后的值在 `0` 到 `100` 之间时，通常需要这样写：\n\n    ```erb\n\tA = X - Y\n\tSIF A < 0\n\t\tA = 0\n\tSIF A > 100\n\t\tA = 100\n\t```\n\n\t使用 `LIMIT` 命令可以将此操作简化为两行甚至一行。\n\n    ```erb\n    LIMIT X - Y, 0, 100\n    A = RESULT\n\n    A = LIMIT(X - Y, 0, 100)\n    ```\n\n    `INRANGE` 在第一参数的值大于等于第二参数且小于等于第三参数时返回 `1`，在第一参数小于第二参数或大于第三参数时返回 `0`。\n\n!!! hint \"提示\"\n\n    该功能同时支持命令形式和函数形式。\n\n### 相关项目\n- MAXARRAY,MINARRAY",
+    "sourcePath": "docs/Reference/MAX.zh.md"
   },
   {
-    "id": "STOPCALLTRAIN",
-    "title": "STOPCALLTRAIN",
+    "id": "MAXMINARRAY",
+    "title": "MAXARRAY, MINARRAY",
     "names": [
-      "STOPCALLTRAIN"
+      "MAXARRAY",
+      "MINARRAY",
+      "MAXMINARRAY"
     ],
     "signatures": [
       {
-        "name": "STOPCALLTRAIN",
+        "name": "MAXARRAY",
+        "params": "`integerArray`, `int`, `int`",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "MINARRAY",
+        "params": "`integerArray`, `int`, `int`",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "返回数组最大值或最小值的函数。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tint MAXARRAY integerArray(, start, end)\n\tint MINARRAY integerArray(, start, end)\n    ```\n\t返回数组最大值或最小值的函数。\n\t在`integerArray`中指定要搜索的一维数组，并在`start`以上`end`未满的元素范围内进行搜索。\n\t如果省略`end`，则搜索范围直到数组的最后一个元素。\n\t`RESULT = MAXARRAY(X, A, B)`的结果等同于\n\n\t\tRESULT = X:A\n\t\tFOR COUNT, A, B\n\t\t\tIF X:COUNT > RESULT\n\t\t\t\tRESULT = X:COUNT\n\t\t\tENDIF\n\t\tREND\n\n    与以下代码等价。\n    `integerArray` 仅可指定数值型一维数组变量，不能指定字符串变量或多维数组。\n    若在 `integerArray` 中指定了 `CFLAG` 等角色数组，则仅搜索指定的角色。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。\n\n### 相关项目\n- MAX,MIN",
+    "sourcePath": "docs/Reference/MAXMINARRAY.zh.md"
+  },
+  {
+    "id": "MONEYSTR",
+    "title": "MONEYSTR",
+    "names": [
+      "MONEYSTR"
+    ],
+    "signatures": [
+      {
+        "name": "MONEYSTR",
+        "params": "`int`, `option`",
+        "returns": "`string`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "对于参数给定的数值，将附有已设定的货币单位的字符串赋值给RESULTS:0或返回。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tstring MONEYSTR\n    ```\n    对于参数给定的数值，将附有[已设定的货币单位](../Emuera/replace.zh.md)的字符串赋值给`RESULTS:0`或返回。\n    单位的前置/后置也会自动处理。\n    第二个参数与`TOSTR`指令类似，是数值字符串化时的转换格式指定符。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。",
+    "sourcePath": "docs/Reference/MONEYSTR.zh.md"
+  },
+  {
+    "id": "MOUSEB",
+    "title": "MOUSEB",
+    "names": [
+      "MOUSEB"
+    ],
+    "signatures": [
+      {
+        "name": "MOUSEB",
         "params": "无",
+        "returns": "`string`",
+        "engines": [
+          "ee"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "获取鼠标悬停中的按钮内容",
+    "body": "!!! info \"API\"\n\n\t```erb\n\tstring MOUSEB\n\t```\n\n\t获取鼠标悬停中的按钮内容\n\n!!! hint \"提示\"\n\n    支持在表达式中使用\n\t可与 AWAIT 组合使用\n\t由于执行时点无法确定是 `INPUT` 还是 `INPUTS`，因此返回字符串类型\n\n### 相关项目\n- AWAIT",
+    "sourcePath": "docs/Reference/MOUSEB.zh.md"
+  },
+  {
+    "id": "MOUSEXY",
+    "title": "MOUSEX, MOUSEY",
+    "names": [
+      "MOUSEX",
+      "MOUSEY",
+      "MOUSEXY"
+    ],
+    "signatures": [
+      {
+        "name": "MOUSEX",
+        "params": "无",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "MOUSEY",
+        "params": "无",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "获取鼠标光标当前的X坐标或Y坐标。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    MOUSEX\n    MOUSEY\n    ```\n    获取鼠标光标当前的X坐标或Y坐标。\n    坐标是相对于客户端区域左下角位置(0,0)的相对位置，右方向为x轴正方向，下方向为y轴正方向。\n    请注意，当光标位于客户端区域内时，MOUSEY会返回负值。\n    客户端区域的大小可以通过`CLIENTWIDTH`、`CLIENTHEIGHT`函数获取。\n    （如果需要以客户端区域左上角为基准的Y坐标，可以通过`MOUSEY()+CLIENTHEIGHT()`获取）\n    即使Emuera窗口未处于活动状态，或者鼠标光标位于窗口外，此函数也能正常工作。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。\n\n### 相关项目\n- AWAIT",
+    "sourcePath": "docs/Reference/MOUSEXY.zh.md"
+  },
+  {
+    "id": "ONEINPUT",
+    "title": "ONEINPUT(S)",
+    "names": [
+      "ONEINPUT",
+      "ONEINPUTS"
+    ],
+    "signatures": [
+      {
+        "name": "ONEINPUT",
+        "params": "`int`(, `int`)",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "ONEINPUTS",
+        "params": "`string`(, `int`)",
+        "returns": "`string`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "单字符限定输入自动处理指令 ONEINPUT、ONEINPUTS",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tONEINPUT defaultValue\n\tONEINPUTS defaultValue\n    ```\n\t单字符限定输入自动处理指令 `ONEINPUT`、`ONEINPUTS`\n\t格式：`ONEINPUT` 或 `ONEINPUTS`\n\t功能：仅接受单个字符的输入，输入后自动进行下一步处理\n\n    使用粘贴等方式一次性输入多位数（多个字符）时，仅第一个数字（字符）会被视为有效输入进行处理。\n    与`INPUT`和`INPUTS`类似，可以通过参数设置输入空字符串时的默认值。\n    但是，当`ONEINPUT`指定了负值，或`ONEINPUTS`指定了空字符串时，参数将无效，行为与无参数时相同。\n    此外，若参数为多位数（多个字符），则仅第一个数字（字符）会被作为默认值。\n    省略参数并输入空字符串时，`ONEINPUT`会要求重新输入，`ONEINPUTS`则会将空字符串赋值给`RESULTS`并继续执行后续处理，这与通常行为一致。\n    对于`ONEINPUTS`，即使直接按Enter键保持空字符串，也会被视为输入了空字符串。\n    需要注意的是，使用这些指令时，即使Emuera的CONFIG设置中启用了键盘宏功能，\n    也可能出现无法正常工作的情况，这是预期行为。\n    此外，在`ONEINPUTS`中，与`INPUTS`一样可以使用宏表达式。\n    若需将`()`作为字符串使用，请使用`\\`进行转义。\n\n!!! hint \"提示\"\n\n    仅支持命令。\n### 相关项目\n- INPUT\n- WAITANYKEY",
+    "sourcePath": "docs/Reference/ONEINPUT.zh.md"
+  },
+  {
+    "id": "OUTPUTLOG",
+    "title": "OUTPUTLOG",
+    "names": [
+      "OUTPUTLOG"
+    ],
+    "signatures": [
+      {
+        "name": "OUTPUTLOG",
+        "params": "(`string`)",
+        "returns": "无",
+        "engines": [
+          "emuera",
+          "ee"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "这是日志输出命令 OUTPUTLOG。过度使用会缩短磁盘寿命，请适度使用。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tOUTPUTLOG (filePath)\n    ```\n    这是日志输出命令 `OUTPUTLOG`。过度使用会缩短磁盘寿命，请适度使用。\n    另外，日志的字符编码是 Unicode。\n    在 EM+EE 中，通过指定参数，可以输出为指定的文件名.扩展名。字面量规则与 `PRINTS` 等相同。\n    `v5fix` 版本修复了可以指定父目录的漏洞。可以指定子目录。\n\n!!! hint \"提示\"\n\n    仅支持命令形式。\n\n### 相关项目\n- SAVETEXT",
+    "sourcePath": "docs/Reference/OUTPUTLOG.zh.md"
+  },
+  {
+    "id": "PICKUPCHARA",
+    "title": "PICKUPCHARA",
+    "names": [
+      "PICKUPCHARA"
+    ],
+    "signatures": [
+      {
+        "name": "PICKUPCHARA",
+        "params": "`int`(, `int`...)",
         "returns": "无",
         "engines": [
           "emuera"
@@ -644,19 +342,20 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "如果在 CALLTRAIN 指令正在运行时被调用，则会立即终止 CALLTRAIN 的处理。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tSTOPCALLTRAIN\n    ```\n\t如果在 `CALLTRAIN` 指令正在运行时被调用，则会立即终止 CALLTRAIN 的处理。\n\t其他情况下不执行任何操作。\n\n!!! hint \"提示\"\n\n    仅支持命令形式。\n\n### 相关项目\n- CALLTRAIN"
+    "summary": "此指令仅保留参数指定的角色，并删除所有其他角色。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PICKUPCHARA charaID(, charaID...)\n    ```\n    此指令仅保留参数指定的角色，并删除所有其他角色。\n    `MASTER:0`、`TARGET:0`、`ASSI:0` 等会自动跟随调整，指令执行后无需手动重新设置。\n    若为目标角色指定负值将导致错误，但若将 `MASTER`、`TARGET`、`ASSI` 等变量本身设为目标，\n    且这些变量内容为负值时，则作为例外不会出错（会被忽略）。\n\n!!! hint \"提示\"\n\n    仅支持指令形式。\n\n### 相关项目\n- DELCHARA\n- DELALLCHARA",
+    "sourcePath": "docs/Reference/PICKUPCHARA.zh.md"
   },
   {
-    "id": "STOPSOUND",
-    "title": "STOPSOUND",
+    "id": "PLAYBGM",
+    "title": "PLAYBGM",
     "names": [
-      "STOPSOUND"
+      "PLAYBGM"
     ],
     "signatures": [
       {
-        "name": "STOPSOUND",
-        "params": "`void`",
+        "name": "PLAYBGM",
+        "params": "`string`",
         "returns": "`void`",
         "engines": [
           "ee"
@@ -664,19 +363,292 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "停止 PLAYSOUND 正在播放的音轨。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    STOPSOUND\n    ```\n\n    停止 `PLAYSOUND` 正在播放的音轨。\n\n!!! hint \"提示\"\n\n    只能作为命令使用。\n\n### 相关项目\n- PLAYSOUND"
+    "summary": "循环播放指定的音频文件（位于 ./sound/ 目录下）。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PLAYBGM MediaFile\n    ```\n\n    循环播放指定的音频文件（位于 `./sound/` 目录下）。\n\n!!! hint \"提示\"\n\n    只能作为命令使用。\n    最多可以同时播放 10 个音频文件。\n    因为使用了 WMPLib 支持库，所以允许使用 Windows Media Player 进行播放。\n\n### 相关项目\n- PLAYSOUND\n- STOPBGM\n- SETBGMVOLUME",
+    "sourcePath": "docs/Reference/PLAYBGM.zh.md"
   },
   {
-    "id": "STRCOUNT",
-    "title": "STRCOUNT",
+    "id": "PLAYSOUND",
+    "title": "PLAYSOUND",
     "names": [
-      "STRCOUNT"
+      "PLAYSOUND"
     ],
     "signatures": [
       {
-        "name": "STRCOUNT",
-        "params": "`string`, `string`",
+        "name": "PLAYSOUND",
+        "params": "`string`",
+        "returns": "`void`",
+        "engines": [
+          "ee"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "播放一次指定的音频文件（位于 ./sound/ 目录下）。",
+    "body": "!!! info \"API\"\n\n\t```erb\n\tPLAYSOUND MediaFile\n\t```\n\n\t播放一次指定的音频文件（位于 `./sound/` 目录下）。\n\n!!! hint \"提示\"\n\n    只能作为命令使用。\n    最多可以同时播放 10 个音频文件。\n    因为使用了 WMPLib 支持库，所以允许使用 Windows Media Player 进行播放。\n\n### 関連項目\n- PLAYBGM\n- SETSOUNDVOLUME",
+    "sourcePath": "docs/Reference/PLAYSOUND.zh.md"
+  },
+  {
+    "id": "POWER",
+    "title": "POWER",
+    "names": [
+      "POWER"
+    ],
+    "signatures": [
+      {
+        "name": "POWER",
+        "params": "`integerVariable`, `int`, `int`",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": [
+          "`int`, `int`"
+        ]
+      }
+    ],
+    "summary": "命令和函数形式的参数不同。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tPOWER integerVariable, int, int\n\tint POWER int, int\n\tint/float POWER int/float, int/float\n    ```\n    命令和函数形式的参数不同。\n    命令形式下，会将第二个参数的数值以第三个参数为指数进行乘方运算，结果赋值给第一个参数的变量。\n    函数形式下，会将第一个参数的数值以第二个参数为指数进行乘方运算，并返回结果。\n\n    !!! warning \"Skia 版：函数形式的动态返回类型\"\n\n        Skia 版中，函数形式 `POWER` 传入 Float 型参数时返回 Float 型（`CanReturnFloat` 机制）。所有参数为 Integer 型时，仍返回 Integer 型。\n\n        ```erb\n        POWER(2, 32) - 1      ; Integer → 4294967295\n        POWER(1.1, 6) * 200   ; Float → 354.3122\n        ```\n\n!!! hint \"提示\"\n\n    同时支持命令形式和函数形式。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tADDVOIDCHARA\n\t\tTARGET = 0\n\t\tX = 11\n\t\tY = 2\n\t\tPOWER A, X, 2\n\t\tPRINTFORML <TEST1> = {A}\n\t\tPOWER CFLAG:2, X + 1, Y + 1\n\t\tPRINTFORML <TEST2> = {CFLAG:2}\n    ```\n    ```text\n\t<TEST1> = 121\n\t<TEST2> = 1728\n    ```\n\n### 相关项目\n- CBRT, LOG, LOG10, EXPOMENT",
+    "sourcePath": "docs/Reference/POWER.zh.md"
+  },
+  {
+    "id": "PRINT",
+    "title": "PRINT 系",
+    "names": [
+      "PRINT",
+      "PRINTV",
+      "PRINTS",
+      "PRINTFORM",
+      "PRINTFORMS"
+    ],
+    "signatures": [
+      {
+        "name": "PRINT",
+        "params": "`string`",
+        "returns": "无",
+        "engines": [
+          "eramaker",
+          "emuera",
+          "net"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "PRINT系列的基本指令。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINTV(|K|D)(|L|W|N) expression[, expression, ...]\n    PRINTS(|K|D)(|L|W|N) stringVariable\n    PRINTFORM(|K|D)(|L|W|N) formedString\n    PRINTFORMS(|K|D)(|L|W|N) string\n    ```\n    PRINT系列的基本指令。\n\n    [eramaker]第一个括号内的关键字指定参数类型。\n\n    - 无 - (<字符串>)\n    - V - (<表达式> [, <表达式> ……]) — 每个参数独立求值，整数表达式输出数值，字符串表达式输出文本\n    - S - <字符串表达式>\n    - FORM - (<格式化字符串>)\n    - FORMS - <格式化字符串表达式>\n\n    [Emuera]第二个括号内的关键字\"K\"指定应用FORCEKANA指令。关键字\"D\"指定忽略SETCOLOR指令。关键字K和D不能同时指定。\n\n    - 无 - 忽略`FORCEKANA`，并以`SETCOLOR`指定的颜色绘制。\n    - K - 应用`FORCEKANA`进行绘制。\n    - D - 忽略`SETCOLOR`，以配置中指定的默认颜色绘制。\n\n    [eramaker]第三个括号内的关键字指定绘制后的换行和WAIT是否存在。\n\n    - 无 - 仅`PRINT`，不换行也不执行`WAIT`。\n    - L - `PRINT`后换行。\n    - W - `PRINT`后换行并执行`WAIT`指令。\n    - [.NET]N - `PRINT`后不换行，仅执行`WAIT`指令。目前不能与第二个括号内的关键字K或D组合使用。\n    - 这些组合使得例如`PRINTSDW`意味着：以<字符串表达式>为参数，以默认颜色绘制，并在`PRINT`后执行`WAIT`指令。\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n    #DIM HOGE\n    #DIMS HOGES\n    \tPRINT 1+2=\n    \tHOGE = 3\n    \tPRINTV HOGE\n    \tPRINTL\n    \tPRINT HOGES is\n    \tHOGES = String\n    \tPRINTSL HOGES\n    \tPRINT HOGE*HOGE=\n    \tPRINTFORMSL HOGES*HOGE\n    \tSETCOLORBYNAME yellow\n    \tHOGE = GETCOLOR()\n    \tPRINTFORML Now color is R:{HOGE/0x10000} G:{HOGE/0x100%0x100} B:{HOGE%0x100}\n    \tHOGES = but PRINTD will ignore SETCOLOR\n    \tPRINTSDL HOGES\n    \tHOGES = 示例到此结束\n    \tFORCEKANA 2\n    \tPRINTK 打印的\n    \tPRINTFORMKW %HOGES%\n    ```\n    ![](../assets/images/PRINT.png)\n\n### 相关项目\n- [基本输出](../tutorial/basic-output.zh.md) — PRINT 系列教程：参数类型、行为后缀、输出颜色、按钮\n- PRINTBUTTON\n- BITMAP_CACHE_ENABLE\n- [Emuera新增语法>格式化字符串（FORM语法）扩展](../Emuera/expression.md#form_1)",
+    "sourcePath": "docs/Reference/PRINT.zh.md"
+  },
+  {
+    "id": "PRINT_IMG",
+    "title": "PRINT_IMG",
+    "names": [
+      "PRINT_IMG"
+    ],
+    "signatures": [
+      {
+        "name": "PRINT_IMG",
+        "params": "`string`",
+        "returns": "无",
+        "engines": [
+          "emuera",
+          "em"
+        ],
+        "overloads": [
+          "`string`, `int`, `int`, `int`",
+          "`string`, `string`, `int`, `int`, `int`",
+          "`string`, `string`, `2DIntegerVariable`, `int`, `int`, `int`"
+        ]
+      }
+    ],
+    "summary": "在行中显示指定的图像。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tPRINT_IMG spriteName\n\tPRINT_IMG spriteName, width, height, ypos\n\tPRINT_IMG spriteName, spriteNameBack, width, height, ypos\n\tPRINT_IMG spriteName, spriteNameBack, colorMatrix, width, height, ypos\n    ```\n\t在行中显示指定的图像。\n\t相当于 [`HTML_PRINT` 命令的 `<img>` 标签](../Emuera/HTML_PRINT.md#img)。\n\tEM+EE 中扩展了语法。详情请参阅[摘要](../EMEE/EMEE_Summary.zh.md)。\n\n!!! hint \"提示\"\n\n    仅支持命令形式。\n\n### 相关项目\n- SPRITECREATE",
+    "sourcePath": "docs/Reference/PRINT_IMG.zh.md"
+  },
+  {
+    "id": "PRINT_RECT",
+    "title": "PRINT_RECT",
+    "names": [
+      "PRINT_RECT"
+    ],
+    "signatures": [
+      {
+        "name": "PRINT_RECT",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": [
+          "`int`, `int`, `int`, `int`"
+        ]
+      }
+    ],
+    "summary": "在行内显示一个宽度为字体大小参数百分比的长方形。或者，在行内显示一个x、y、宽度、高度分别为参数百分比的长方形。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tPRINT_RECT width\n\tPRINT_RECT xPos, yPos, width, height\n    ```\n\t在行内显示一个宽度为字体大小参数百分比的长方形。或者，在行内显示一个`x`、`y`、`宽度`、`高度`分别为参数百分比的长方形。\n\t可以通过`SETCOLOR`命令像改变字体颜色一样改变其颜色。\n\t相当于[`HTML_PRINT`命令的`<shape type='rect'>`标签](../Emuera/HTML_PRINT.md#shape)。\n\t在EM+EE中，也支持使用`px`单位进行指定。\n\n!!! hint \"提示\"\n\n    仅支持命令形式。",
+    "sourcePath": "docs/Reference/PRINT_RECT.zh.md"
+  },
+  {
+    "id": "PRINT_SPACE",
+    "title": "PRINT_SPACE",
+    "names": [
+      "PRINT_SPACE"
+    ],
+    "signatures": [
+      {
+        "name": "PRINT_SPACE",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "创建一个宽度为参数指定字体大小百分比的无内容显示空间。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINT_SPACE width\n    ```\n    创建一个宽度为参数指定字体大小百分比的无内容显示空间。\n    相当于 [`HTML_PRINT` 命令的 `<shape type='space'>` 标签](../Emuera/HTML_PRINT.md#shape)。\n    在 EM+EE 中，现在也可以使用 `px` 单位来指定宽度。\n\n!!! hint \"提示\"\n\n    仅支持作为命令使用。",
+    "sourcePath": "docs/Reference/PRINT_SPACE.zh.md"
+  },
+  {
+    "id": "PRINT_STATUS",
+    "title": "PRINT_STATUS 相关函数",
+    "names": [
+      "PRINT_ABL",
+      "PRINT_TALENT",
+      "PRINT_MARK",
+      "PRINT_EXP",
+      "PRINT_PALAM",
+      "PRINT_ITEM",
+      "PRINT_SHOPITEM",
+      "PRINT_STATUS"
+    ],
+    "signatures": [
+      {
+        "name": "PRINT_ABL",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "PRINT_TALENT",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "PRINT_MARK",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "PRINT_EXP",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "PRINT_PALAM",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "PRINT_ITEM",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "PRINT_SHOPITEM",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "分别简易显示当前状态。PRINTABL、PRINTTALENT、PRINTMARK、PRINTEXP、PRINT_PALAM 请将角色登记编号 (CharaID) 指定为参数。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tPRINT_ABL charaID\n\tPRINT_TALENT charaID\n\tPRINT_MARK charaID\n\tPRINT_EXP charaID\n\tPRINT_PALAM charaID\n\tPRINT_ITEM\n\tPRINT_SHOPITEM\n    ```\n    分别简易显示当前状态。`PRINT_ABL`、`PRINT_TALENT`、`PRINT_MARK`、`PRINT_EXP`、`PRINT_PALAM` 请将角色登记编号 (CharaID) 指定为参数。\n\n!!! hint \"提示\"\n\n    仅支持指令。\n\n!!! example \"示例\"\n\n    ```erb\n\t0,能力0\n\t1,能力1\n\t2,能力2\n\t```\n\n    ```erb\n    @SYSTEM_TITLE\n            ADDVOIDCHARA\n            ABL:0:0 = 2\n            ABL:0:2 = 3\n\n            PRINT_ABL 0\n            WAIT\n    ```\n    ```text\n    能力0LV2 能力2LV3\n    ```",
+    "sourcePath": "docs/Reference/PRINT_STATUS.zh.md"
+  },
+  {
+    "id": "PRINTBUTTON",
+    "title": "PRINTBUTTON 系列",
+    "names": [
+      "PRINTBUTTON",
+      "PRINT",
+      "INPUT",
+      "PRINTS",
+      "PRINTL",
+      "INPUTS"
+    ],
+    "signatures": [
+      {
+        "name": "PRINTBUTTON",
+        "params": "`string`, `any`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "PRINTBUTTON 指令用于生成可通过鼠标点击的按钮。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINTBUTTON(|C|LC) string, buttonValue\n    ```\n    `PRINTBUTTON` 指令用于生成可通过鼠标点击的按钮。\n    其格式与 `PRINTS` 指令相似，但需要指定第二个参数，即点击按钮时输入的数字或字符串。如果第一个参数中包含换行符，该换行符将被忽略且不会导致换行。\n\n    Emuera 会自动将类似 `[300] 保存` 这样用 `[]` 括起来的数字及其前后的字符串转换为按钮。\n    `PRINTBUTTON` 指令的作用就是强制生成此类按钮，而非依赖自动转换。\n    该指令在以下情况下特别有用：\n\n    ```erb\n    PRINT 这样可以吗？ [0] 是    [1] 否\n    INPUT\n    ```\n\n    对于这样的行，Emuera 无法正确识别按钮，会将其识别为 `これでいい？ [0] はい` 和 `[1] いいえ` 两个按钮。\n    使用 `PRINTBUTTON` 重写后如下所示：\n\n    ```erb\n    PRINTS \"これでいい？ \"\n    PRINTBUTTON \"[0] はい\", 0\n    PRINTS \"     \"\n    PRINTBUTTON \"[1] いいえ\", 1\n    INPUT\n    ```\n\n    （这里使用`PRINTS`命令代替`PRINT`是为了明确显示半角空格的数量）\n    这样处理后，`これでいい？ `将不再是按钮，只有`[0] はい`和`[1] いいえ`会成为按钮。\n    需要注意的是，`PRINTBUTTON`命令中显示的字符串并非必须包含`[0]`或`[1]`等数字，但如果完全不显示对应的数字，可能会让使用数字键盘等设备进行操作的玩家感到困惑。因此建议仍按惯例显示`[0]`等数字。\n    此外，`PRINTBUTTON`命令不仅可以创建输入数字的按钮，还可以创建输入字符串的按钮。这样创建的按钮可以在执行`INPUTS`命令时被点击。\n\n    ```erb\n    PRINTL 请输入姓名。\n    PRINTBUTTON \"[HogeHoge] \", \"HogeHoge\"\n    PRINTBUTTON \"[PugePuge] \", \"PugePuge\"\n    PRINTBUTTON \"[FooBar] \", \"FooBar\"\n    INPUTS\n    ```\n\n    括号内的关键字用于指定文本对齐方式。\n\n    - 无 - 不对齐\n    - `C` - 与 `PRINTC` 类似，向右对齐\n    - `LC` - 与 `PRINTLC` 类似，向左对齐\n\n!!! hint \"提示\"\n\n    仅支持命令。\n\n### 相关项目\n- PRINT",
+    "sourcePath": "docs/Reference/PRINTBUTTON.zh.md"
+  },
+  {
+    "id": "PRINTC",
+    "title": "PRINTC 系列",
+    "names": [
+      "PRINT",
+      "PRINTFORM",
+      "PRINTC"
+    ],
+    "signatures": [
+      {
+        "name": "PRINT",
+        "params": "`string`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "这是 PRINTC 系列命令。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINT(C|L)(|K|D) string\n    PRINTFORM(C|L)(|K|D)(|L|W) formedString\n    ```\n    这是 `PRINTC` 系列命令。\n    这些命令会根据配置 [`PRINTC的字符数`](../Emuera/config.md#printc_1)（默认值 25）指定的字符数，通过补充半角空格来对齐并打印字符串。\n    此外，在 Emuera 中，对已 `PRINT` 的字符串进行按钮化处理时，会对 `PRINTC` 系列命令进行一些特殊处理。\n\n    第一个括号内的关键字指定参数类型。\n\n    - 无 - <字符串>\n    - `FORM` - <格式化字符串>\n\n    第二个括号内的关键字指定对齐方式。\n\n    - `C` - 右对齐（在左侧添加半角空格）\n    - `LC` - 左对齐。\n\n    第三个括号内的 `K`、`D` 与 `PRINT` 系列命令相同。\n\n    !!! hint \"提示\"\n\n        仅支持命令形式。\n\n    !!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        PRINTC AAA\n        PRINT |\n        PRINTC BBB\n        PRINT |\n        PRINTC CCC\n        PRINTL |\n        PRINTLC DDD\n        PRINT |\n        PRINTLC EEE\n        PRINT |\n        PRINTLC FFF\n        PRINTL |\n        PRINTC GGG\n        PRINT |\n        PRINTLC HHH\n        PRINT |\n        PRINTC III\n        PRINTW |\n    ```\n    ```text\n                            AAA|                      BBB|                      CCC|\n    DDD                        |EEE                      |FFF                      |\n                            GGG|HHH                      |                      III|\n\n    ```\n\n### 相关项目\n- PRINTCPERLINE\n- PRINTCLENGTH",
+    "sourcePath": "docs/Reference/PRINTC.zh.md"
+  },
+  {
+    "id": "PRINTCLENGTH",
+    "title": "PRINTCLENGTH",
+    "names": [
+      "PRINTCLENGTH"
+    ],
+    "signatures": [
+      {
+        "name": "PRINTCLENGTH",
+        "params": "无",
         "returns": "`int`",
         "engines": [
           "emuera"
@@ -684,14 +656,36 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "获取字符串中指定子字符串的数量的指令。将匹配的数量赋值给RESULT:0或返回该值。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint STRCOUNT string, searchWord\n    ```\n\t获取字符串中指定子字符串的数量的指令。将匹配的数量赋值给`RESULT:0`或返回该值。\n\t搜索字符串的格式遵循C#正则表达式的规范。\n\n!!! hint \"提示\"\n\n    支持指令和表达式函数两种用法。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tPRINTFORML 「も」的数目:{STRCOUNT(\"すもももももももものうち\", \"も\")}\n\t\tPRINTFORMW 半角数字的数目:{STRCOUNT(\"1日1歩 3日で3歩 3歩進んで2歩下がる\", \"[0-9]\")}\n    ```\n    ```text\n\t「も」的数目:8\n\t半角数字的数目:6\n    ```\n\n### 相关项目\n- STRFIND"
+    "summary": "返回配置项PRINTC的字符数的值。与 RESULT = GETCONFIG(\"PRINTC的字符数\") 同义。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tint PRINTCLENGTH\n    ```\n\t返回配置项[`PRINTC的字符数`](../Emuera/config.md#printc_1)的值。与 RESULT = GETCONFIG(\"PRINTC的字符数\") 同义。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数。\n\n### 相关项目\n- PRINTCPERLINE",
+    "sourcePath": "docs/Reference/PRINTCLENGTH.zh.md"
   },
   {
-    "id": "STRDATA",
-    "title": "STRDATA",
+    "id": "PRINTCPERLINE",
+    "title": "PRINTCPERLINE",
     "names": [
-      "STRDATA",
+      "PRINTCPERLINE"
+    ],
+    "signatures": [
+      {
+        "name": "PRINTCPERLINE",
+        "params": "无",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "将配置PRINTC排列数量中指定的数值赋值给RESULT:0，或返回该值。默认值为3。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tint PRINTCPERLINE\n    ```\n\t将[配置`PRINTC排列数量`](../Emuera/config.md#printc)中指定的数值赋值给RESULT:0，或返回该值。默认值为3。\n\t等同于`RESULT = GETCONFIG(\"PRINTC排列数量\")`\n\n!!! hint \"提示\"\n\n    支持指令和表达式函数两种用法。\n\n### 相关项目\n- PRINTCLENGTH",
+    "sourcePath": "docs/Reference/PRINTCPERLINE.zh.md"
+  },
+  {
+    "id": "PRINTDATA",
+    "title": "PRINTDATA 系列",
+    "names": [
+      "PRINTDATA",
       "DATA",
       "DATAFORM",
       "DATALIST",
@@ -700,340 +694,99 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
     ],
     "signatures": [
       {
-        "name": "STRDATA",
-        "params": "`stringVariable`",
-        "returns": "无",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "此指令用于将字符串赋值给指定的字符串型变量，而非使用 PRINTDATA 来显示字符串。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    STRDATA stringVariable\n        DATA\n        DATAFORM\n        DATALIST\n        ENDLIST\n    ENDDATA\n    ```\n    此指令用于将字符串赋值给指定的字符串型变量，而非使用 `PRINTDATA` 来显示字符串。\n    各格式与 `PRINTDATA` 相同，请参阅该页面。\n\n!!! hint \"提示\"\n\n    仅该指令同时支持两种用法。\n### 相关项目\n- PRINTDATA"
-  },
-  {
-    "id": "STRFIND",
-    "title": "STRFIND",
-    "names": [
-      "STRFIND",
-      "STRFINDU"
-    ],
-    "signatures": [
-      {
-        "name": "STRFIND",
-        "params": "`string`, `string`(, `int`)",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "STRFINDU",
-        "params": "`string`, `string`(, `int`)",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "字符串搜索指令。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    int STRFIND string, searchWord(, startPosition)\n    int STRFINDU string, searchWord(, startPosition)\n    ```\n    字符串搜索指令。\n    第一参数指定被搜索的目标字符串，使用字符串表达式。第二参数指定要搜索的字符串，使用字符串表达式。\n    `STRFIND` 将全角字符计为2个字符，`STRFINDU` 将全角字符计为1个字符，并返回从0开始的索引。如果未找到，则返回-1。\n    自1.712版本起，STRFIND(U)指令可以指定第三参数。\n    第三参数指定搜索的起始位置，使用从0开始的索引。\n\n    ```erb\n    STRFIND \"abcdeabced\",\"a\",3\n    ```\n\n\t根据上一行的结果，`RESULT` 将被赋值为 `5`。\n\t虽然 `a` 也存在于位置 0，但由于指定了第三参数，搜索将从位置 3（即 `d`）开始，因此找到的第一个 `a` 位于位置 5。\n\n!!! hint \"提示\"\n\n    该功能同时支持命令形式和函数形式。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tSTR:0 = abcdefghi\n\t\tSTR:1 = あいうえお\n\t\tSTR:2 = うえ\n\t\tSTRFIND STR:0, \"cde\"\n\t\tPRINTFORML <TEST1> = {RESULT:0}\n\t\tSTRFIND STR:1, \"いうえ\"\n\t\tPRINTFORML <TEST2> = {RESULT:0}\n\t\tSTRFIND STR:1, STR:2\n\t\tPRINTFORML <TEST3> = {RESULT:0}\n\t\tSTRFIND STR:1, \"か\"\n\t\tPRINTFORML <TEST4> = {RESULT:0}\n    ```\n    ```text\n\t<TEST1> = 2\n\t<TEST2> = 2\n\t<TEST3> = 4\n\t<TEST4> = -1\n    ```\n\n### 相关项目\n- STRCOUNT\n- SUBSTRING"
-  },
-  {
-    "id": "STRFORM",
-    "title": "STRFORM",
-    "names": [
-      "STRFORM",
-      "STRFORMCHECK"
-    ],
-    "signatures": [
-      {
-        "name": "STRFORM",
-        "params": "`string`",
-        "returns": "`string`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "将给定的字符串视为与PRINTFORM等相同的格式化字符串，并返回展开后的字符串。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tstring STRFORM formedString\n    ```\n    将给定的字符串视为与PRINTFORM等相同的格式化字符串，并返回展开后的字符串。\n\n!!! hint \"提示\"\n\n    同时支持指令和表达式函数两种形式。\n\n---\n\n# STRFORMCHECK [Skia]\n\n| 函数名 | 参数 | 返回值 |\n| :--- | :--- | :--- |\n| [Skia][`STRFORMCHECK`](./STRFORM.zh.md#strformcheck) | `string` | `integer` |\n\n!!! info \"API\"\n\n    ```erb\n\tint STRFORMCHECK formedString\n    ```\n    将给定的字符串视为与STRFORM相同的格式化字符串，判断其是否可展开。可展开返回 `1`，不可展开返回 `0`。\n\n    - 语法错误（如未闭合大括号）→ `0`\n    - 运行时求值失败（如变量不存在）→ `0`\n    - 与STRFORM共享同一套解析器，语义一致性有保证\n\n!!! warning \"注意\"\n\n    由于 `CanRestructure = false`，该函数不是常量折叠的候选。\n\n### 相关项目\n- GETVAR,GETVARS\n- GETMETH,GETMETHS"
-  },
-  {
-    "id": "STRICT_FONT_FALLBACK",
-    "title": "STRICT_FONT_FALLBACK",
-    "names": [
-      "STRICT_FONT_FALLBACK"
-    ],
-    "signatures": [
-      {
-        "name": "STRICT_FONT_FALLBACK",
-        "params": "`int`",
-        "returns": "void",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "切换字体回退的严格模式。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    STRICT_FONT_FALLBACK value\n    ```\n\n    切换字体回退的严格模式。\n\n    - `value` 设为 `1` 启用严格模式，设为 `0` 禁用\n    - 严格模式启用时，指定字体中不存在字形的字符不会使用回退字体替代，而是显示为 □（tofu）\n    - 严格模式禁用（默认）时，不存在字形的字符会自动使用回退字体绘制\n\n!!! hint \"提示\"\n\n    该功能同时支持指令和表达式函数两种形式。\n\n!!! example \"例\"\n\n    ```erb\n    ; 启用严格模式（无字体回退）\n    STRICT_FONT_FALLBACK 1\n    PRINTL 此文本不会回退到其他字体\n    ; 禁用严格模式（默认回退行为）\n    STRICT_FONT_FALLBACK 0\n    ```\n\n### 関連項目\n- SETFONT\n- SKIA_RENDER"
-  },
-  {
-    "id": "STRLEN",
-    "title": "STRLEN系",
-    "names": [
-      "STRLEN",
-      "STRLENS",
-      "STRLENFORM",
-      "STRLENU",
-      "STRLENSU",
-      "STRLENFORMU"
-    ],
-    "signatures": [
-      {
-        "name": "STRLEN",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "STRLENS",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "STRLENFORM",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "STRLENU",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "STRLENSU",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "STRLENFORMU",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "STRLEN、STRLENS、STRLENFORM 用于测量字符串长度，并将结果赋值给 RESULT:0。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tSTRLEN string\n\tint STRLENS string\n\tSTRLENFORM formedString\n\tSTRLENU string\n\tint STRLENSU string\n\tSTRLENFORMU formedString\n    ```\n\t`STRLEN`、`STRLENS`、`STRLENFORM` 用于测量字符串长度，并将结果赋值给 `RESULT:0`。\n\t长度以 `SHIFT-JIS` 编码的字节数为准。即全角字符按 2 个字符计数。\n\n\t`STRLENU`、`STRLENSU`、`STRLENFORMU` 是 Unicode 版本。区别在于全角字符也按 1 个字符计数。\n\n!!! hint \"提示\"\n\n    `STRLENS`、`STRLENSU` 支持在表达式中作为函数使用。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tSTRLEN ABCあいう\n\t\tPRINTFORML <TEST1> = {RESULT}\n\t\tSTR:0 = ABCあいう\n\t\tSTRLENS STR:0\n\t\tPRINTFORML <TEST2> = {RESULT}\n\t\tSTRLENFORM abc%STR:0%\n\t\tPRINTFORML <TEST3> = {RESULT}\n\n\t\t;STRLENSは文字列式にも対応\n\t\tSTRLENS \"abc\" + STR:0\n\t\tPRINTFORML <TEST4> = {RESULT}\n\t\tWAIT\n    ```\n    ```text\n\t<TEST1> = 9\n\t<TEST2> = 9\n\t<TEST3> = 12\n\t<TEST4> = 12\n    ```"
-  },
-  {
-    "id": "SUBSTRING",
-    "title": "SUBSTRING",
-    "names": [
-      "SUBSTRING",
-      "SUBSTRINGU"
-    ],
-    "signatures": [
-      {
-        "name": "SUBSTRING",
-        "params": "`string`, `int`, `int`",
-        "returns": "`string`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "SUBSTRINGU",
-        "params": "`string`, `int`, `int`",
-        "returns": "`string`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "返回指定字符串表达式中，从第一个参数指定的位置开始、长度为第二个参数指定字符数的子字符串。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tstring SUBSTRING string, startPosition, characterCount\n\tstring SUBSTRINGU string, startPosition, characterCount\n    ```\n\t返回指定字符串表达式中，从第一个参数指定的位置开始、长度为第二个参数指定字符数的子字符串。\n\t起始位置以字符串开头为`0`。如果指定的起始位置超过原字符串长度，则返回空字符串。\n\t对于字符数，`SUBSTRING` 以 SHIFT-JIS 编码的字节数指定。即全角字符计为2个字符。`SUBSTRINGU` 则以 Unicode 字符数计数，全角字符也计为1个字符。\n\t如果指定的字符数为负值，或者指定的结束位置超过原字符串末尾，则返回从起始位置到字符串末尾的字符串。\n\t如果起始位置或结束位置无法在字符边界处切割（例如指向全角字符的中间部分），则会被视为指定了下一个字符边界。\n\t请注意，这可能导致返回的子字符串长度比指定的字符数多一个字符。\n\n!!! hint \"提示\"\n\n    支持命令和表达式函数两种形式。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tSTR:0 = 01234あいうえお\n\t\tSUBSTRING STR:0, 0, -1\n\t\tPRINTFORML <TEST1> = %RESULTS:0%\n\t\tSUBSTRING STR:0, 1, 3\n\t\tPRINTFORML <TEST2> = %RESULTS:0%\n\t\tSUBSTRING STR:0, 6, 3\n\t\tPRINTFORML <TEST3> = %RESULTS:0%\n\t\tWAIT\n    ```\n    ```text\n\t<TEST1> = 01234あいうえお\n\t<TEST2> = 123\n\t<TEST3> = いう\n    ```\n\n### 相关项目\n- STRFIND"
-  },
-  {
-    "id": "SUMARRAY",
-    "title": "SUMARRAY",
-    "names": [
-      "SUMARRAY"
-    ],
-    "signatures": [
-      {
-        "name": "SUMARRAY",
-        "params": "`integerArray`(, `int`, `int`)",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "此函数用于返回数组值的总和。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint SUMARRAY integerArray(, startIndex, endIndex)\n    ```\n\t此函数用于返回数组值的总和。\n\t指定 `integerArray` 为要求总和的1维数值型数组，并合计 `startIndex` 以上、`endIndex` 未满的元素范围。\n\t若省略 `endIndex`，则合计至数组末尾。\n\t`RESULT = SUMARRAY(X, A, B)` 的结果等同于：\n\n\t\tRESULT = 0\n\t\tFOR COUNT, A, B\n\t\t\tRESULT += X:COUNT\n\t\tREND\n\n\t请注意，被加算的值到 `X:(B - 1)` 为止，`X:B` 不会被加算。\n\t`integerArray` 仅可指定数值型1维数组变量，不能指定字符串变量或多维数组。\n\t若为 `integerArray` 指定了 `CFLAG` 等角色数组，则仅合计指定的角色。\n\n!!! hint \"提示\"\n\n    命令和表达式函数两种形式均支持。"
-  },
-  {
-    "id": "SWAP",
-    "title": "SWAP",
-    "names": [
-      "SWAP"
-    ],
-    "signatures": [
-      {
-        "name": "SWAP",
-        "params": "`variable`, `variable`",
-        "returns": "无",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "交换变量1和变量2的内容。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tSWAP variable, variable\n    ```\n\t交换变量1和变量2的内容。\n\t用于交换的两个变量必须是相同类型（整数型与整数型、字符串型与字符串型）。\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\t#DIM AAA\n\t\t#DIM BBB\n\n\t\tAAA = 123\n\t\tBBB = 456\n\n\t\tREPEAT 2\n\t\t\tPRINTFORML AAA:{AAA} BBB:{BBB}\n\t\t\tSWAP AAA, BBB\n\t\tREND\n\t\tWAIT\n    ```\n    ```text\n\tAAA:123 BBB:456\n\tAAA:456 BBB:123\n    ```"
-  },
-  {
-    "id": "SWAPCHARA",
-    "title": "SWAPCHARA",
-    "names": [
-      "SWAPCHARA"
-    ],
-    "signatures": [
-      {
-        "name": "SWAPCHARA",
-        "params": "`int`, `int`",
-        "returns": "无",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "交换指定两个角色的登记编号 (CharaID)。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tSWAPCHARA charaID, charaID\n    ```\n    交换指定两个角色的登记编号 (CharaID)。\n\n!!! hint \"提示\"\n\n    仅支持指令形式。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\t;假设初始只有MASTER\n\t\tADDCHARA 10\n\t\tADDCHARA 11\n\t\tPRINTFORML NO:1 = {NO:1}, NO:2 = {NO:2}\n\t\tSWAPCHARA 1,2\n\t\tPRINTFORMW NO:1 = {NO:1}, NO:2 = {NO:2}\n    ```\n    ```text\n\tNO:1 = 10, NO:2 = 11\n\tNO:1 = 11, NO:2 = 10\n    ```\n\n### 相关项目\n- SORTCHARA"
-  },
-  {
-    "id": "TEXT_BGC",
-    "title": "TEXT_BGC_ON / TEXT_BGC_OFF",
-    "names": [
-      "TEXT_BGC_ON",
-      "TEXT_BGC_OFF",
-      "TEXT_BGC"
-    ],
-    "signatures": [
-      {
-        "name": "TEXT_BGC_ON",
-        "params": "`int`, `int`, `int`, `int`",
-        "returns": "void",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "TEXT_BGC_OFF",
+        "name": "PRINTDATA",
         "params": "无",
-        "returns": "void",
+        "returns": "无",
         "engines": [
-          "skia"
+          "emuera"
         ],
         "overloads": []
-      }
-    ],
-    "summary": "TEXTBGCON 为后续所有行设置整行背景色。TEXTBGCOFF 清除背景色，恢复透明。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    TEXT_BGC_ON R, G, B, Alpha%\n    TEXT_BGC_OFF\n    ```\n\n    `TEXT_BGC_ON` 为后续所有行设置**整行**背景色。`TEXT_BGC_OFF` 清除背景色，恢复透明。\n\n    - `R`, `G`, `B`：背景色的 RGB 值（0～255）\n    - `Alpha%`：不透明度（0～100）。0=完全透明，100=完全不透明\n    - 背景以行全宽（`ClientWidth`）× 行高（`LineHeight`）的矩形绘制\n    - 仅当行内存在实际文本时才绘制背景（空行不绘制）\n    - 设置在调用 `TEXT_BGC_OFF` 之前持续生效\n\n!!! warning \"注意\"\n\n    - 背景色以**行**为单位应用。如需单个文字或 span 级别的背景色，请使用 HTML 内联样式\n    - 不支持嵌套（save/restore）。设置新颜色会覆盖旧颜色\n\n!!! example \"例\"\n\n    ```erb\n    ; 红色背景显示警告文本\n    TEXT_BGC_ON 255, 0, 0, 30\n    PRINTL 警告：HP已降低！\n    TEXT_BGC_OFF\n\n    ; 半透明蓝色背景\n    TEXT_BGC_ON 0, 0, 128, 50\n    PRINTL 这行有蓝色背景\n    PRINTL 这行也是同样的背景色\n    TEXT_BGC_OFF\n    ```\n\n### 関連項目\n- SETCOLOR\n- SETBGCOLOR\n- HTML_PRINT"
-  },
-  {
-    "id": "TEXTBOX",
-    "title": "输入框相关命令",
-    "names": [
-      "SETTEXTBOX",
-      "GETTEXTBOX",
-      "MOVETEXTBOX",
-      "RESUMETEXTBOX",
-      "TEXTBOX"
-    ],
-    "signatures": [
+      },
       {
-        "name": "SETTEXTBOX",
+        "name": "DATA",
         "params": "`string`",
-        "returns": "`1`",
+        "returns": "无",
         "engines": [
-          "ee"
+          "emuera"
         ],
         "overloads": []
       },
       {
-        "name": "GETTEXTBOX",
+        "name": "DATAFORM",
+        "params": "`formedString`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "DATALIST",
         "params": "无",
-        "returns": "`string`",
+        "returns": "无",
         "engines": [
-          "ee"
+          "emuera"
         ],
         "overloads": []
       },
       {
-        "name": "MOVETEXTBOX",
-        "params": "`int`, `int`, `int`",
-        "returns": "`1`",
-        "engines": [
-          "em"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "RESUMETEXTBOX",
+        "name": "ENDLIST",
         "params": "无",
-        "returns": "`1`",
+        "returns": "无",
         "engines": [
-          "em"
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "ENDDATA",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "emuera"
         ],
         "overloads": []
       }
     ],
-    "summary": "命令 / 行内函数两种写法均有效。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    1 SETTEXTBOX text\n    string GETTEXTBOX\n    1 MOVETEXTBOX xPos, yPos, width\n    1 RESUMETEXTBOX\n    ```\n\n    - `SETTEXTBOX`：将输入框内容替换为 `text`。\n    - `GETTEXTBOX`：返回执行时输入框内的字符串。\n    - `MOVETEXTBOX`：下次执行 `INPUT` / `INPUTS` 时将输入框移的宽度设置为`width`，并移动端指定位置。\n        - 基准位置 (`xPos`, `yPos`) = (`0`, `0`) 为画面左下角。`yPos` 为正时向上移动。\n        - 画面向上卷动（浏览历史记录）时，输入框会暂时返回原本位置。\n        - `INPUT` / `INPUTS` 结束后，输入框返回原本位置。\n    - `RESUMETEXTBOX`：无效上一次 `MOVETEXTBOX` 的设置，令输入框返回原本位置。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。"
+    "summary": "这是 PRINTDATA 系列指令。根据私家改造版 readme 的说明，",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINTDATA(|K|D)(|L|W)\n    \tDATA string\n    \tDATAFORM formedString\n    \tDATALIST\n    \tENDLIST\n    ENDDATA\n    ```\n    这是 `PRINTDATA` 系列指令。根据私家改造版 readme 的说明，\n\n    ```erb\n    ;*格式*\n    PRINTDATA (数值变量：可省略)\n    \tDATA (字符串)\n    \tDATAFORM (FORM字符串)\n    \tDATALIST\n    \t\t(DATA 或 DATAFORM 的罗列)\n    \tENDLIST\n    ENDDATA\n    ```\n\n\t    *内容*\n\t    将DATA、DATAFORM以及DATALIST～ENDLIST中指定的字符串以等概率随机显示\n\t    无需使用IF和RAND即可实现随机显示\n\t    若在参数中指定了数值变量，则会存入所显示的变量DATA的编号\n\t    适用于想根据显示的字符串来调整后续处理的情况\n\t    DATALIST～ENDLIST内部，每个DATA或DATAFORM相当于一行\n\n\t如上所述。\n\t`K`、`D`、`L`、`W`关键字的效果与`PRINT`系命令相同。\n\t若`PRINTDATA`系～`ENDDATA`内部没有通过`DATA`系提供显示数据，则不执行任何操作并继续执行后续命令。\n\t不能在`PRINTDATA`系～`ENDDATA`以及`DATALIST`～`ENDLIST`内部书写上述语法以外的内容。\n\n!!! hint \"提示\"\n\n\t仅支持命令形式。\n\n!!! example \"示例\"\n\n```erb\n@SYSTEM_TITLE\n\tREPEAT 10\n\t\tPRINTDATA\n\t\t\tDATA A\n\t\t\tDATA B\n\t\t\tDATA C\n\t\t\tDATA D\n\t\t\tDATA E\n\t\tENDDATA\n\tREND\n\n\tWAIT\n```\n```text\nDBDAEACDAE\n```\n\n### 相关项目\n- STRDATA\n- SELECTCASE\n- RAND",
+    "sourcePath": "docs/Reference/PRINTDATA.zh.md"
   },
   {
-    "id": "THROW",
-    "title": "THROW",
+    "id": "PRINTN",
+    "title": "PRINTN 系列",
     "names": [
-      "THROW"
+      "PRINT",
+      "PRINTN",
+      "PRINTVN",
+      "PRINTSN",
+      "PRINTFORMN",
+      "PRINTFORMSN"
     ],
     "signatures": [
       {
-        "name": "THROW",
+        "name": "PRINT",
+        "params": "`string`",
+        "returns": "无",
+        "engines": [
+          "net"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "这是不换行的 PRINTW 命令。仅添加在上述基本的 PRINT 命令中。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINTN string\n    PRINTVN expression[, expression, ...]\n    PRINTSN stringVariable\n    PRINTFORMN formedString\n    PRINTFORMSN string\n    ```\n    这是不换行的 `PRINTW` 命令。仅添加在上述基本的 `PRINT` 命令中。\n    各命令的行为和字面量与 `PRINT` 系列命令 相同。\n\n!!! hint \"提示\"\n\n    仅命令本身支持此功能。\n\n### 相关项目\n- PRINT",
+    "sourcePath": "docs/Reference/PRINTN.zh.md"
+  },
+  {
+    "id": "PRINTPLAIN",
+    "title": "PRINTPLAIN",
+    "names": [
+      "PRINTPLAIN"
+    ],
+    "signatures": [
+      {
+        "name": "PRINTPLAIN",
         "params": "`string`",
         "returns": "无",
         "engines": [
@@ -1042,19 +795,45 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "此命令会强制引发错误，并使用给定的参数字符串进行错误显示。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tTHROW formedString\n    ```\n    此命令会强制引发错误，并使用给定的参数字符串进行错误显示。\n\n!!! hint \"提示\"\n\n    仅支持作为命令使用。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tTHROW お気の毒ですが、冒険の書は消えてしまいました\n    ```\n    ```text\n\tNow Loading...\n\tMAIN.ERB第2行发生THROW\n\tTHROW お気の毒ですが、冒険の書は消えてしまいました\n\tTHROW内容：お気の毒ですが、冒険の書は消えてしまいました\n\t当前函数：@SYSTEM_TITLE（MAIN.ERB第1行）\n\t函数调用栈：\n\t※※※日志文件已输出至emuera.log※※※\n    ```"
+    "summary": "将参数字符串作为纯文本输出。此时即使存在按钮字符串（如0等）也不会将其按钮化。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINTPLAIN(|FORM) string\n    ```\n    将参数字符串作为纯文本输出。此时即使存在按钮字符串（如0等）也不会将其按钮化。\n    括号内的关键字用于指定参数类型。\n\n    - 不加上`FORM` - <字符串>\n    - 加上`FORM` - <格式化字符串>\n\n!!! hint \"提示\"\n\n    仅支持指令形式。\n\n### 相关项目\n- PRINT",
+    "sourcePath": "docs/Reference/PRINTPLAIN.zh.md"
   },
   {
-    "id": "TIMES",
-    "title": "TIMES",
+    "id": "PRINTSINGLE",
+    "title": "PRINTSINGLE 系列",
     "names": [
-      "TIMES"
+      "PRINTSINGLE",
+      "PRINTSINGLEV",
+      "PRINTSINGLES",
+      "PRINTSINGLEFORM",
+      "PRINTSINGLEFORMS"
     ],
     "signatures": [
       {
-        "name": "TIMES",
-        "params": "`int`, `float`",
+        "name": "PRINTSINGLE",
+        "params": "`string`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "PRINTSINGLE 系列与 PRINTL 几乎相同，但 PRINTSINGLE 系列不会对字符串进行换行，始终在一行内显示。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PRINTSINGLEV(|K|D) expression[, expression, ...]\n    PRINTSINGLES(|K|D) stringVariable\n    PRINTSINGLEFORM(|K|D) formedString\n    PRINTSINGLEFORMS(|K|D) string\n    ```\n    `PRINTSINGLE` 系列与 `PRINTL` 几乎相同，但 `PRINTSINGLE` 系列不会对字符串进行换行，始终在一行内显示。\n    超出屏幕边缘的字符不会被绘制。\n    此外，由于会自动添加换行，因此没有 `(|L|W)` 关键字。\n    其他关键字的含义与 PRINT 系列 相同。\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n### 相关项目\n- PRINT",
+    "sourcePath": "docs/Reference/PRINTSINGLE.zh.md"
+  },
+  {
+    "id": "PUTFORM",
+    "title": "PUTFORM",
+    "names": [
+      "PUTFORM"
+    ],
+    "signatures": [
+      {
+        "name": "PUTFORM",
+        "params": "`string`",
         "returns": "无",
         "engines": [
           "eramaker"
@@ -1062,29 +841,212 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "将第二参数的浮点数乘以第一参数的变量。默认设置下会舍去小数部分。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tTIMES integerVariable, float\n    ```\n    将第二参数的浮点数乘以第一参数的变量。默认设置下会舍去小数部分。\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\t#DIM HOGE\n\n\t\tHOGE = 100\n\t\tTIMES HOGE, 1.25\n\t\tPRINTFORML {HOGE}\n\t\tTIMES HOGE, 2.672\n\t\tPRINTFORMW {HOGE}\n    ```\n    ```text\n\t125\n\t334\n    ```"
+    "summary": "PUTFORM 只能在名为 @SAVEINFO 的特殊函数中使用。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    PUTFORM saveInfo\n    ```\n    `PUTFORM` 只能在名为 `@SAVEINFO` 的特殊函数中使用。\n    通过使用与 `PRINTFORM` 相同的格式书写，可以为存档数据添加概要。\n    建议写入诸如第几天、角色能力如何、正在调教哪个角色等数据。\n\n!!! hint \"提示\"\n\n    仅支持指令。\n\n### 相关项目\n- SAVEDATA\n- [流程图>SAVEGAME](../Emuera/system_flow.md#savegame)",
+    "sourcePath": "docs/Reference/PUTFORM.zh.md"
   },
   {
-    "id": "TINPUT",
-    "title": "TINPUT(S)",
+    "id": "QUIT",
+    "title": "QUIT",
     "names": [
-      "TINPUT",
-      "TINPUTS"
+      "QUIT"
     ],
     "signatures": [
       {
-        "name": "TINPUT",
-        "params": "`int`, `int`(, `int`, `string`, `int`)",
+        "name": "QUIT",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "执行一次 WAIT 后结束 Emuera",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tQUIT\n    ```\n    执行一次 `WAIT` 后结束 `Emuera`\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n### 相关项目\n- FORCE_QUIT\n- QUIT_AND_RESTART",
+    "sourcePath": "docs/Reference/QUIT.zh.md"
+  },
+  {
+    "id": "QUIT_AND_RESTART",
+    "title": "QUIT_AND_RESTART",
+    "names": [
+      "QUIT_AND_RESTART"
+    ],
+    "signatures": [
+      {
+        "name": "QUIT_AND_RESTART",
+        "params": "`void`",
+        "returns": "`void`",
+        "engines": [
+          "ee"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "和 QUIT 一样，插入 WAIT 后重启 Emuera。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    QUIT_AND_RESTART\n    ```\n\n    和 `QUIT` 一样，插入 WAIT 后重启 Emuera。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n### 相关项目\n- QUIT\n- FORCE_QUIT_AND_RESTART",
+    "sourcePath": "docs/Reference/QUIT_AND_RESTART.zh.md"
+  },
+  {
+    "id": "RAND",
+    "title": "RAND",
+    "names": [
+      "RAND"
+    ],
+    "signatures": [
+      {
+        "name": "RAND",
+        "params": "`int`(, `int`)",
         "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "与同名的变量功能几乎相同。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tint RAND min(, max)\n    ```\n\t与同名的变量功能几乎相同。\n\t`RAND(X)` 与 `RAND:X` 的行为完全相同。\n\t使用完全相同的随机数生成器，可以通过 `RANDOMIZE` 或 `INITRAND` 来控制随机数。\n\t`RAND` 函数可以指定两个参数，当指定两个参数时，第一个参数将用作随机数的最小值。\n\t此函数生成一个 `0～18446744073709551615` (2的64次方-1) 之间的随机数，将其除以 `max-min` 取余数，然后加上 `min` 并返回结果。\n\t因此，`max` 必须是一个大于 `min` 的值（不能相等）。\n\t如果 `max-min` 超过有符号64位整数 (`9223372036854775807`) 的最大值，将会出错。\n\t此外，当 `max-min` 非常大时（大约1京？），由取余方法导致的偏差将变得不可忽视。\n\n!!! hint \"提示\"\n\n    命令和表达式函数均支持。\n\n!!! warning \"Skia 扩展\"\n\n    Skia 版在参数非法时不再弹出错误中断脚本（v12.2.0）。\n\n    - `RAND:n` 且 `n ≤ 0` 时：返回 `0`\n    - `RAND(max)` / `RAND(min,max)` 且 `max ≤ min` 时：返回下界 `min`（浮点参数同理）\n    - 仅首次触发时向控制台输出一次警告，之后静默钳制\n\n    原版在 `max` 不大于 `min` 或 `RAND:0` 等情况下会弹出错误并终止脚本。\n\n### 相关项目\n- PRINTDATA\n- STRDATA",
+    "sourcePath": "docs/Reference/RAND.zh.md"
+  },
+  {
+    "id": "RANDOMIZE",
+    "title": "RANDOMIZE, DUMPRAND, INITRAND",
+    "names": [
+      "RANDOMIZE",
+      "DUMPRAND",
+      "INITRAND",
+      "PRINTFORML"
+    ],
+    "signatures": [
+      {
+        "name": "RANDOMIZE",
+        "params": "`int`",
+        "returns": "无",
         "engines": [
           "emuera"
         ],
         "overloads": []
       },
       {
-        "name": "TINPUTS",
-        "params": "`int`, `int`(, `int`, `string`, `int`)",
+        "name": "DUMPRAND",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "INITRAND",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "这些是用于控制通过 RAND:X 获取的随机数的指令。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tRANDOMIZE int\n\tDUMPRAND\n\tINITRAND\n    ```\n\t这些是用于控制通过 `RAND:X` 获取的随机数的指令。\n\n\t`RANDOMIZE` 指令使用指定的值初始化随机数。\n\t如果使用相同的值进行初始化，`RAND` 必定会返回相同的结果。\n\t对于 `PRINTDATA` 和 `STRDATA` 也会返回相同的结果。\n\n\t`DUMPRAND` 将当前的随机数状态保存到 `RANDDATA` 变量中。\n\t`INITRAND` 从 `RANDDATA` 变量中读取保存的数据。\n\t请注意，不要在 `DUMPRAND` 之前执行 `INITRAND`。\n\t如果 `RANDDATA` 变量的内容不合适，`RAND` 将无法正常工作。\n\n    **示例**\n    ```erb\n\tPRINTFORML {RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}\n\tRANDOMIZE 23478612\n\tPRINTFORML {RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}\n\tRANDOMIZE 23478612\n\tPRINTFORML {RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}\n\tDUMPRAND\n\tPRINTFORML {RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}\n\tINITRAND\n\tPRINTFORML {RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}\n\tINITRAND\n\tPRINTFORML {RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}/{RAND:100000}\n\t```\n\n    **结果**\n\t```\n\t92539/49469/48337/15839/48368/1604\n\t34536/91889/81167/22434/87922/95565\n\t34536/91889/81167/22434/87922/95565\n\t68286/10690/68868/82610/90769/60789\n\t68286/10690/68868/82610/90769/60789\n\t68286/10690/68868/82610/90769/60789\n\t```\n\n    在上述结果中，第一行的结果是随机的。每次运行时结果都会变化。\n    第二行和第三行由于在`RANDOMIZE`之后立即执行，因此结果必定相同。\n    在第四行之前执行了`DUMPRAND`命令。\n    通过在第五行之前执行`INITRAND`命令，将`RAND`的状态恢复到了`DUMPRAND`命令保存的状态。\n    因此，第四行和第五行的结果相同。\n    第六行通过再次执行`INITRAND`命令，重复获得了相同的结果。\n    由于`RANDDATA`变量是可保存的变量，通过在保存前执行`DUMPRAND`，并在加载后立即执行`INITRAND`，可以继续使用相同的随机数状态。\n\n!!! hint \"提示\"\n\n    仅支持命令。\n\n### [Skia]Skia 版变更\n\n!!! info \"与新随机数算法解耦\"\n\n    原版中 `UseNewRandom=true` 时，`INITRAND`/`DUMPRAND` 会输出警告并跳过。Skia 版移除了此检查，`INITRAND`/`DUMPRAND` 始终操作 MTRandom 状态，不影响 `GetNextRand`。",
+    "sourcePath": "docs/Reference/RANDOMIZE.zh.md"
+  },
+  {
+    "id": "REDRAW",
+    "title": "REDRAW, CURRENTREDRAW",
+    "names": [
+      "REDRAW",
+      "CURRENTREDRAW",
+      "CUREENTREDRAW",
+      "PREV_REDRAW"
+    ],
+    "signatures": [
+      {
+        "name": "REDRAW",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "CURRENTREDRAW",
+        "params": "无",
+        "returns": "`int`",
+        "engines": [
+          "emuera"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "这是绘图控制命令。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    REDRAW int\n    int CUREENTREDRAW\n    ```\n\t这是绘图控制命令。\n\t当参数指定为`0`时，**抑制非强制性的绘图请求**（仅在需要用户输入的时刻等强制绘图时机进行绘图）。\n\t当参数指定为`1`时，将如常进行绘图。此时非强制性的绘图若未满足[配置中的`每秒帧数`](../Emuera/config.zh.md#fps)所决定的最小间隔（`1000 / 每秒帧数` 毫秒），则不会绘图。\n\t若在参数上加上`2`（例如`REDRAW 2`或`REDRAW 3`），则在上述效果的基础上，还会在执行`REDRAW`命令的瞬间强制进行绘图。\n\t当前的`REDRAW`状态（`0`或`1`）可以通过`CURRENTREDRAW`获取。\n\n!!! info \"详细\"\n\n\t`REDRAW`只持有`0`（抑制）与`1`（常规）两种状态，`CURRENTREDRAW`也只返回`0`或`1`。\n\t`REDRAW 1`仅恢复状态，**其本身不会进行绘图**。若想在`REDRAW`命令之后立刻绘图，请使用加上`2`的`REDRAW 3`。\n\t`REDRAW 0`抑制的只是非强制性的绘图。进入等待用户输入的命令（`INPUT`・`INPUTS`・`INPUTSNF`・`TINPUT`系）时的绘图，以及鼠标移动到按钮上引起的绘图，都不受抑制。\n\n!!! warning \"注意（批量绘图与滚动位置）\"\n\n\t对于\"先清掉、再重画\"的画面（动画循环、动态地图等），请用`REDRAW 0`包住从清除到重绘的区间，并在进入输入等待之前恢复原状。\n\n\t```erb\n\tPREV_REDRAW = CURRENTREDRAW()\n\tREDRAW 0\n\t;\tCLEARLINE 与重绘\n\tREDRAW PREV_REDRAW\n\t;\t之后的输入等待会强制绘图\n\t```\n\n\t若不做批量绘图，清除已完成、重绘未完成的中途状态会被真的绘制出来。由于绘图同时会同步滚动位置，**画面将无法固定在最新行**（表现为行删掉又回来、窗口晃动）。\n\n\t另外，请不要把`REDRAW 1`当作\"恢复绘图\"的收尾使用，它会覆盖调用方的设定。恢复请使用事先保存的值（`REDRAW PREV_REDRAW`）。\n\n!!! hint \"提示\"\n\n    `CURRENTREDRAW`支持在表达式中作为函数使用。",
+    "sourcePath": "docs/Reference/REDRAW.zh.md"
+  },
+  {
+    "id": "REGEXPMATCH",
+    "title": "REGEXPMATCH",
+    "names": [
+      "REGEXPMATCH"
+    ],
+    "signatures": [
+      {
+        "name": "REGEXPMATCH",
+        "params": "`string`, `string`(, `int`)",
+        "returns": "`int`",
+        "engines": [
+          "em"
+        ],
+        "overloads": [
+          "`string`, `string`, `ref` `int`, `ref` `string[]`"
+        ]
+      }
+    ],
+    "summary": "如果 str 符合 pattern 正则表达式规则，返回匹配到的结果数量，否则返回 0。",
+    "body": "!!! info \"API\"\n\n    ```erb\n    1. int REGEXPMATCH str, pattern(, output)\n    2. int REGEXPMATCH str, pattern, ref groupCount, ref matches\n    ```\n\n    如果 `str` 符合 `pattern` 正则表达式规则，返回匹配到的结果数量，否则返回 `0`。\n\n    1. `output` 参数为 `0` 以外的整数时(默认为`0`)，匹配到的子表达式组数保存到 `RESULT:1`，所有的匹配结果全部保存到 `RESULTS` 数组（共「子表达式组数量」×「返回值（匹配结果数量）」个）。\n    2. 匹配到的子表达式组数保存到 `groupCount`，所有的匹配结果全部保存到 `matches`（数量同上）。\n\n!!! hint \"提示\"\n\n    命令 / 行内函数两种写法均有效。\n\n!!! example \"示例代码\"\n\n    ```erb\n    @SYSTEM_TITLE\n        #DIM groupCount\n        #DIMS matches, 10\n        #DIM i\n        #DIM j\n        #DIM count\n\n        REGEXPMATCH \"Apple Banana Car\", \"(.{2})\\\\b\"\n        PRINTFORML 匹配结果数量: {RESULT}\n        count = REGEXPMATCH(\"Apple Banana Car\", \".(.{2})\\\\b\", groupCount, matches)\n        PRINTFORML 匹配结果数量: {count}  子表达式组数量: {groupCount}\n        PRINTL\n        FOR i, 0, count\n            PRINTFORML 匹配结果{i+1}:\n            FOR j, 0, groupCount\n                PRINTFORML 子表达式组{j}: %matches:(i*groupCount+j)%\n            NEXT\n            PRINTL\n        NEXT\n\n        ONEINPUT\n\n    ```\n    ```text\n    匹配结果数量: 3\n    匹配结果数量: 3  子表达式组数量: 2\n\n    匹配结果1:\n    子表达式组0: ple\n    子表达式组1: le\n\n    匹配结果2:\n    子表达式组0: ana\n    子表达式组1: na\n\n    匹配结果3:\n    子表达式组0: Car\n    子表达式组1: ar\n    ```",
+    "sourcePath": "docs/Reference/REGEXPMATCH.zh.md"
+  },
+  {
+    "id": "REPEAT",
+    "title": "REPEAT-REND",
+    "names": [
+      "REPEAT",
+      "REND"
+    ],
+    "signatures": [
+      {
+        "name": "REPEAT",
+        "params": "`int`",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      },
+      {
+        "name": "REND",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "REPEAT～REND之间的代码块，将按照参数指定的次数进行循环。循环次数被记录在COUNT变量中。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tREPEAT loopCount\n\tREND\n    ```\n    `REPEAT`～`REND`之间的代码块，将按照参数指定的次数进行循环。循环次数被记录在`COUNT`变量中。\n\t当执行`CONTINUE`时，将返回到`REPEAT`行，并将`COUNT`变量加1。\n\t当执行`BREAK`时，将终止后续的循环处理，并跳转到`REND`行。\n\n!!! hint \"提示\"\n\n    仅支持指令形式。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tREPEAT 5\n\t\t\tSIF COUNT == 2\n\t\t\t\tCONTINUE\n\t\t\tSIF COUNT == 4\n\t\t\t\tBREAK\n\t\t\tPRINTFORML {COUNT}\n\t\tREND\n\t\tPRINTFORMW {COUNT}\n    ```\n    ```text\n\t0\n\t1\n\t3\n\t5\n    ```\n\n### 相关项目\n- FOR-NEXT\n- WHILE_WEND\n- CONTINUE,BREAK",
+    "sourcePath": "docs/Reference/REPEAT.zh.md"
+  },
+  {
+    "id": "REPLACE",
+    "title": "REPLACE",
+    "names": [
+      "REPLACE"
+    ],
+    "signatures": [
+      {
+        "name": "REPLACE",
+        "params": "`string`, `string`, `string`",
         "returns": "`string`",
         "engines": [
           "emuera"
@@ -1092,137 +1054,92 @@ export const ENTRIES_PART_07: readonly ReferenceEntry[] = [
         "overloads": []
       }
     ],
-    "summary": "这是带有时间限制的输入接收命令。第一个参数是时间限制（毫秒），但即使设置小于100ms的值也无法精确运作。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tTINPUT timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n\tTINPUTS timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n    ```\n\t这是带有时间限制的输入接收命令。第一个参数是时间限制（毫秒），但即使设置小于100ms的值也无法精确运作。\n\t第二个参数是超时时的默认返回值。\n\t第三个参数控制是否显示剩余时间，0为不显示，其他值为显示。省略时默认为1（显示）。\n\t第四个参数是超时时显示的字符串。如果为空字符串，则会清除计时器显示并继续执行后续处理。\n\t请注意，如果设置了第四个参数，则不能省略第三个参数。\n\t此外，在`TINPUTS`中，与`INPUTS`一样，可以使用宏表达式。\n\t若要在字符串中使用`()`，请使用``进行转义。\n\n    EM+EE中可设置可选的第五个参数。\n    非0时，将鼠标点击视为回车键（向`RESULTS`赋值空字符串。若按下按钮，则将按钮索引赋值给`RESULTS:1`），左键点击时`RESULT:1`设为`1`，右键点击时`RESULT:1`设为`2`。同时，若按下++shift++、++ctrl++、++alt++，则将其按键状态保存至`RESULT:2`。（bit 16 17 18）\n\n!!! hint \"提示\"\n\n    仅支持指令。\n\n### 相关项目\n- INPUT\n- TINPUTNF\n- TONEINPUT"
+    "summary": "在目标字符串中搜索目标模式，如果匹配成功，则用替换字符串进行替换。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tstring REPLACE string, searchWord, replaceWord\n    ```\n\t在目标字符串中搜索目标模式，如果匹配成功，则用替换字符串进行替换。\n\t内部处理完全基于正则表达式。第二个参数遵循 C# 正则表达式的规范进行操作。\n\t因此，对于正则表达式中使用的符号，如 `()`、`[]`、`$`、`/`、`.`、`*`、`+` 等，必须进行转义。\n\n!!! hint \"提示\"\n\n    该函数同时支持指令和表达式内函数两种形式。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tPRINTFORMW %REPLACE(\"12億3456万7890円\", \"[^0-9]\", \"\")%\n    ```\n    ```text\n\t1234567890\n    ```",
+    "sourcePath": "docs/Reference/REPLACE.zh.md"
   },
   {
-    "id": "TINPUTNF",
-    "title": "TINPUT(S)NF",
+    "id": "RESET_STAIN",
+    "title": "RESET_STAIN",
     "names": [
-      "TINPUTNF",
-      "TINPUTSNF"
+      "RESET_STAIN"
     ],
     "signatures": [
       {
-        "name": "TINPUTNF",
-        "params": "`int`, `int`(, `int`, `string`, `int`)",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "TINPUTSNF",
-        "params": "`int`, `int`(, `int`, `string`, `int`)",
-        "returns": "`string`",
+        "name": "RESET_STAIN",
+        "params": "`int`",
+        "returns": "无",
         "engines": [
           "emuera"
         ],
         "overloads": []
       }
     ],
-    "summary": "与 TINPUT / TINPUTS 功能完全相同，但不强制滚动到底部。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    TINPUTNF timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n    TINPUTSNF timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n    ```\n    与 `TINPUT` / `TINPUTS` 功能完全相同，但**不强制滚动到底部**。\n\n    NF = NoFocus。执行时进入 `WaitInputNoFocus` 状态，与 `WaitInput` 的唯一区别是不调用文本框定位，因此用户可以自由滚动浏览历史输出。\n\n    效果：\n    - ✅ 按钮高亮和 Tooltip 正常工作\n    - ✅ 输入可靠性（引擎原生输入管线）\n    - ✅ 用户可自由滚动，滚动位置不会被强制拉回底部\n    - ✅ 超时机制与原版 TINPUT 相同\n\n    参数和返回值与原版完全一致，参见 `TINPUT` / `TINPUTS`。\n\n!!! hint \"提示\"\n\n    仅支持指令。\n\n### 典型用途\n\n需要定时刷新界面但又不希望强制滚动的场景——例如动态地图动画、实时标题画面等。\n\n```erb\n; 动态地图动画：每帧刷新，按钮可点击，用户可自由滚动\n$MAP_LOOP\nCALL DRAW_MAP\nIF ANIM_INTERVAL > 0\n    TINPUTSNF ANIM_INTERVAL, \"UPDATE\", 0, \"\"\nELSE\n    INPUTS\nENDIF\nSELECTCASE RESULTS\nCASE \"UPDATE\"\n    ; 超时 → 刷新动画帧\n    GOTO MAP_LOOP\nCASEELSE\n    ; 用户点击按钮 → 正常处理\nENDSELECT\n```\n\n### 相关项目\n- TINPUT\n- TONEINPUTNF\n- AWAIT"
+    "summary": "这是初始化第1个参数所指定角色的STAIN的指令。初始值与BEGIN TRAIN时赋入的值相同，可通过_replace.csv的污渍初始值进行指定。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tRESET_STAIN charaID\n    ```\n\t这是初始化第1个参数所指定角色的`STAIN`的指令。初始值与`BEGIN TRAIN`时赋入的值相同，可通过[`_replace.csv`的`污渍初始值`](../Emuera/replace.zh.md)进行指定。\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n### 相关项目\n- [_replace.csv>污渍初始值](../Emuera/replace.zh.md)",
+    "sourcePath": "docs/Reference/RESET_STAIN.zh.md"
   },
   {
-    "id": "TOINT",
-    "title": "TOINT, ISNUMERIC, TOFLOAT",
+    "id": "RESETDATA",
+    "title": "RESETDATA",
     "names": [
-      "TOINT",
-      "ISNUMERIC",
-      "TOFLOAT"
+      "RESETDATA"
     ],
     "signatures": [
       {
-        "name": "TOINT",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "ISNUMERIC",
-        "params": "`string`",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "TOFLOAT",
-        "params": "`string`",
-        "returns": "`float`",
-        "engines": [
-          "skia"
-        ],
-        "overloads": []
-      }
-    ],
-    "summary": "TOINT 将参数字符串数值化，并将结果赋值给 RESULT:0 或直接返回。但是，只有由半角数字构成的字符串才能被数值化。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tint TOINT string\n\tint ISNUMERIC string\n    ```\n    `TOINT` 将参数字符串数值化，并将结果赋值给 `RESULT:0` 或直接返回。但是，只有由半角数字构成的字符串才能被数值化。\n    如果参数无法被解释为数值，则将 `0` 赋值给 `RESULT:0` 或直接返回。全角数字的情况也同样处理。\n    当传入的值不确定时，在 `TOINT` 之前使用 `ISNUMERIC` 可以提高代码的稳定性。\n\n    `ISNUMERIC` 用于判断字符串是否可以被解析为数值（即是否可以通过 `TOINT` 获取值）。\n    如果参数可以被解释为数值，则将 `1` 赋值给 `RESULT:0` 或直接返回；否则，赋值或返回 `0`。\n\n!!! hint \"提示\"\n\n    该函数同时支持作为指令和表达式函数使用。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        #DIMS HOGES\n        REPEAT 3\n            SELECTCASE COUNT\n                CASE 0\n                    HOGES = 123\n                CASE 1\n                    HOGES = 一二三\n                CASE 2\n                    HOGES = １２３\n            ENDSELECT\n            IF ISNUMERIC(HOGES)\n                PRINTFORML 变量HOGES可以转换为数值类型({TOINT(HOGES)})\n            ELSE\n                PRINTFORML 变量HOGES无法转换为数值类型(%HOGES%)\n            ENDIF\n        REND\n        WAIT\n    ```\n    ```text\n    变量HOGES可以转换为数值类型(123)\n    变量HOGES无法转换为数值类型(一二三)\n    变量HOGES无法转换为数值类型(１２３)\n    ```\n\n!!! info \"API — TOFLOAT\"\n\n    [Skia] Skia 新增\n\n    ```erb\n\tfloat TOFLOAT string\n    ```\n    将字符串转换为浮点数。\n    将参数字符串解释为浮点数，并将结果赋值给 `RESULTF:0` 或直接返回。\n    如果参数无法被解释为数值，则将 `0.0` 赋值给 `RESULTF:0` 或直接返回。\n\n!!! hint \"提示\"\n\n    该函数同时支持作为指令和表达式函数使用。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n        #DIMF L_F\n        L_F = TOFLOAT(\"3.14\")          ; → 3.14\n        L_F = TOFLOAT(\"-1.5e2\")        ; → -150.0\n        L_F = TOFLOAT(\"abc\")           ; → 0.0（解析失败）\n        PRINTFORML {L_F}\n        WAIT\n    ```\n    ```text\n    0.0\n    ```\n\n### 相关项目\n- TOSTR"
-  },
-  {
-    "id": "TONEINPUT",
-    "title": "TONEINPUT",
-    "names": [
-      "TONEINPUT",
-      "TONEINPUTS"
-    ],
-    "signatures": [
-      {
-        "name": "TONEINPUT",
-        "params": "`int`, `int`(, `int`, `string`, `int`)",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "TONEINPUTS",
-        "params": "`int`, `string`(, `int`, `string`, `int`)",
-        "returns": "`string`",
+        "name": "RESETDATA",
+        "params": "无",
+        "returns": "无",
         "engines": [
           "emuera"
         ],
         "overloads": []
       }
     ],
-    "summary": "参数分别与 TINPUT、TINPUTS 相同。",
-    "body": "!!! info \"API\"\n\n    ```erb\n\tTONEINPUT timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n\tTONEINPUTS timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n    ```\n\t参数分别与 `TINPUT`、`TINPUTS` 相同。\n\t这是兼具 `ONEINPUT` 与 TINPUT、`ONEINPUTS` 与 TINPUTS 性质的输入接收命令。\n\t使用这些命令时，即使在 Emuera 的 CONFIG 设置中启用了键盘宏功能，\n\t也可能出现无法正常工作的情况，这是已知的特性。\n\t此外，在 `TONEINPUTS` 中，与 `INPUTS` 一样，可以使用宏表达式。\n\t若要在字符串中使用 `()`，请使用 `\\` 进行转义。\n\n\t在EM+EE中，第5个参数变为可选设置。\n\t当该参数非0时，将鼠标点击视为回车键（向`RESULTS`赋值空字符串。若按下按钮，则将按钮的索引赋值给`RESULTS:1`），左键点击时`RESULT:1`设为`1`，右键点击时`RESULT:1`设为`2`。同时，若按下++shift++、++ctrl++、++alt++键，则将该按键状态保存到`RESULT:2`中。（bit 16 17 18）\n\n!!! hint \"提示\"\n\n    仅支持命令形式。\n\n### 相关项目\n- TINPUT\n- ONEINPUT"
+    "summary": "初始化除全局变量外的所有变量。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tRESETDATA\n    ```\n\t初始化除全局变量外的所有变量。\n\t具体来说，会删除所有角色，并将所有局部变量及所有普通变量赋值为`0`或空字符串。\n\t此外，对于`PALAMLV`或`STR`等设置了初始值的变量，会为其赋予初始值。\n\n!!! hint \"提示\"\n\n    仅支持指令。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tRESULT = 123\n\t\tLOCAL = 456\n\n\t\tRESETDATA\n\t\tPRINTFORMW {RESULT} {LOCAL}\n    ```\n    ```text\n\t0 0\n    ```\n\n### 相关项目\n- RESETGLOBAL",
+    "sourcePath": "docs/Reference/RESETDATA.zh.md"
   },
   {
-    "id": "TONEINPUTNF",
-    "title": "TONEINPUT(S)NF",
+    "id": "RESETGLOBAL",
+    "title": "RESETGLOBAL",
     "names": [
-      "TONEINPUTNF",
-      "TONEINPUTSNF"
+      "RESETGLOBAL"
     ],
     "signatures": [
       {
-        "name": "TONEINPUTNF",
-        "params": "`int`, `int`(, `int`, `string`, `int`)",
-        "returns": "`int`",
-        "engines": [
-          "emuera"
-        ],
-        "overloads": []
-      },
-      {
-        "name": "TONEINPUTSNF",
-        "params": "`int`, `string`(, `int`, `string`, `int`)",
-        "returns": "`string`",
+        "name": "RESETGLOBAL",
+        "params": "无",
+        "returns": "无",
         "engines": [
           "emuera"
         ],
         "overloads": []
       }
     ],
-    "summary": "与 TONEINPUT / TONEINPUTS 功能完全相同，但不强制滚动到底部。",
-    "body": "!!! info \"API\"\n\n    ```erb\n    TONEINPUTNF timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n    TONEINPUTSNF timeLimit, defaultValue(, displayTimeRemain, timeOverMessage, allowClick)\n    ```\n    与 `TONEINPUT` / `TONEINPUTS` 功能完全相同，但**不强制滚动到底部**。\n\n    NF = NoFocus。执行时进入 `WaitInputNoFocus` 状态，与 `WaitInput` 的唯一区别是不调用文本框定位，因此用户可以自由滚动浏览历史输出。\n\n    效果：\n    - ✅ 按钮高亮和 Tooltip 正常工作\n    - ✅ 输入可靠性（引擎原生输入管线）\n    - ✅ 用户可自由滚动，滚动位置不会被强制拉回底部\n    - ✅ 超时机制与原版 TONEINPUT 相同\n\n    参数和返回值与原版完全一致，参见 `TONEINPUT` / `TONEINPUTS`。\n\n!!! hint \"提示\"\n\n    仅支持命令形式。\n\n### 典型用途\n\n需要定时刷新界面但又不希望强制滚动的场景——例如动态地图动画、实时标题画面等。\n\n```erb\n; 动态地图动画：每帧刷新，按钮可点击，用户可自由滚动\n$MAP_LOOP\nCALL DRAW_MAP\nIF ANIM_INTERVAL > 0\n    TONEINPUTSNF ANIM_INTERVAL, \"UPDATE\", 0, \"\"\nELSE\n    INPUTS\nENDIF\nSELECTCASE RESULTS\nCASE \"UPDATE\"\n    ; 超时 → 刷新动画帧\n    GOTO MAP_LOOP\nCASEELSE\n    ; 用户点击按钮 → 正常处理\nENDSELECT\n```\n\n### 相关项目\n- TONEINPUT\n- TONEINPUTS\n- TINPUTNF\n- AWAIT"
+    "summary": "初始化全局变量。",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tRESETGLOBAL\n    ```\n\t初始化全局变量。\n\t具体来说，将数值型全局变量赋值为`0`，将字符串型全局变量赋值为空字符串。\n\n!!! hint \"提示\"\n\n    仅支持指令形式。\n\n!!! example \"例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\tGLOBAL = 123\n\n\t\tRESETGLOBAL\n\t\tPRINTFORMW {GLOBAL}\n    ```\n    ```text\n\t0\n    ```\n\n### 相关项目\n- RESETDATA",
+    "sourcePath": "docs/Reference/RESETGLOBAL.zh.md"
+  },
+  {
+    "id": "RESTART",
+    "title": "RESTART",
+    "names": [
+      "RESTART"
+    ],
+    "signatures": [
+      {
+        "name": "RESTART",
+        "params": "无",
+        "returns": "无",
+        "engines": [
+          "eramaker"
+        ],
+        "overloads": []
+      }
+    ],
+    "summary": "返回当前正在执行的函数的开头。使用DYNAMIC定义的动态变量不会被初始化",
+    "body": "!!! info \"API\"\n\n    ```erb\n\tRESTART\n    ```\n    返回当前正在执行的函数的开头。使用`DYNAMIC`定义的动态变量不会被初始化\n\n!!! hint \"提示\"\n\n    仅支持作为指令使用。\n\n!!! example \"示例\"\n\n    ```erb\n    @SYSTEM_TITLE\n\t\t#DIM DYNAMIC RESTARTCOUNT\n\n\t\tRESTARTCOUNT++\n\n\t\tSELECTCASE RESTARTCOUNT\n\t\t\tCASE 1\n\t\t\t\tPRINTL Doe, a deer, a female deer\n\t\t\t\tRESTART\n\t\t\tCASE 2\n\t\t\t\tPRINTL Ray, a drop of golden sun\n\t\t\t\tRESTART\n\t\t\tCASE 3\n\t\t\t\tPRINTL Me, a name I call my self\n\t\t\t\tRESTART\n\t\t\tCASE 4\n\t\t\t\tPRINTL Far, a long, long way to run\n\t\t\t\tRESTART\n\t\t\tCASE 5\n\t\t\t\tPRINTL Sew, a needle pulling thread\n\t\t\t\tRESTART\n\t\t\tCASE 6\n\t\t\t\tPRINTL La, a note to follow Sew\n\t\t\t\tRESTART\n\t\t\tCASE 7\n\t\t\t\tPRINTL Tea, a drink with jam and bread\n\t\t\t\tRESTART\n\t\tENDSELECT\n\n\t\tPRINTW That will bring us back to Do\n    ```\n    ```text\n\tDoe, a deer, a female deer\n\tRay, a drop of golden sun\n\tMe, a name I call my self\n\tFar, a long, long way to run\n\tSew, a needle pulling thread\n\tLa, a note to follow Sew\n\tTea, a drink with jam and bread\n\tThat will bring us back to Do\n    ```\n\n### 相关项目\n- RETURN",
+    "sourcePath": "docs/Reference/RESTART.zh.md"
   }
 ];

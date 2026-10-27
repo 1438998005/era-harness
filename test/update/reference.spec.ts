@@ -31,7 +31,7 @@ test("内置快照: 条目数与元数据自洽", () => {
 	assert.ok(REFERENCE_ENTRY_COUNT > 300)
 })
 
-test("内置快照: 每条都有名字与签名表，id 不重复", () => {
+test("内置快照: id 不重复，Reference 页必须有签名表", () => {
 	const ids = new Set<string>()
 	const broken: string[] = []
 	for (const entry of REFERENCE_ENTRIES) {
@@ -39,14 +39,38 @@ test("内置快照: 每条都有名字与签名表，id 不重复", () => {
 			broken.push(`${entry.id}(id 重复)`)
 		}
 		ids.add(entry.id)
-		if (entry.names.length === 0) {
-			broken.push(`${entry.id}(无名字)`)
+		if (!entry.sourcePath) {
+			broken.push(`${entry.id}(缺 sourcePath)`)
 		}
-		if (entry.signatures.length === 0) {
-			broken.push(`${entry.id}(无签名表)`)
+		// Reference 是 API 页，签名表是它的结构化产物；
+		// Emuera 规格页（语法/预处理器）与 tutorial 页本来就没有签名表
+		if (entry.sourcePath?.startsWith("docs/Reference/") && entry.signatures.length === 0) {
+			broken.push(`${entry.id}(Reference 页无签名表)`)
 		}
 	}
 	assert.deepEqual(broken, [])
+})
+
+test("内置快照: 函数头指令已入库（#LOCALSIZE 曾被当重复定义删掉）", () => {
+	const localsize = findReference(REFERENCE_ENTRIES, "#LOCALSIZE")
+	assert.ok(localsize, "#LOCALSIZE 必须能查到")
+	assert.equal(localsize!.entry.id, "Emuera/function#LOCALSIZE")
+	assert.equal(localsize!.entry.localOnly, true, "切段条目不能被在线整页替换")
+	assert.match(localsize!.entry.body, /大于0的整数/)
+	assert.match(localsize!.entry.body, /VariableSize\.csv/)
+	// 模型通常不带 `#` 写
+	assert.equal(findReference(REFERENCE_ENTRIES, "LOCALSIZE")?.entry.id, "Emuera/function#LOCALSIZE")
+	assert.ok(findReference(REFERENCE_ENTRIES, "#DIM"))
+	assert.ok(findReference(REFERENCE_ENTRIES, "@EVENTLOAD"))
+})
+
+test("内置快照: 旧 Reference id 保持扁平，零回归", () => {
+	const referenceEntries = REFERENCE_ENTRIES.filter((entry) => entry.sourcePath?.startsWith("docs/Reference/"))
+	assert.equal(referenceEntries.length, 312)
+	for (const entry of referenceEntries) {
+		assert.ok(!entry.id.includes("/"), `${entry.id} 不该带目录前缀`)
+		assert.equal(entry.pageId, undefined)
+	}
 })
 
 test("findReference: 主名与别名都能落到同一页", () => {
@@ -78,6 +102,16 @@ test("referencePageUrl: 只拼安全 id，挡住路径穿越", () => {
 	assert.equal(referencePageUrl("../etc/passwd"), undefined)
 	assert.equal(referencePageUrl("A/B"), undefined)
 	assert.equal(referencePageUrl(""), undefined)
+})
+
+test("referencePageUrl: 条目形态按 sourcePath 拼目录，`#` 不进 URL", () => {
+	const url = referencePageUrl({
+		id: "Emuera/function#LOCALSIZE",
+		sourcePath: "docs/Emuera/function.zh.md",
+	})
+	assert.ok(url?.endsWith("/docs/Emuera/function.zh.md"))
+	assert.ok(!url!.includes("#"), "id 里的 # 会截断 URL")
+	assert.equal(referencePageUrl({ id: "x", sourcePath: "docs/../../etc/passwd.zh.md" }), undefined)
 })
 
 test("resolveReferenceOnline: mode=off 只走本地快照", async () => {

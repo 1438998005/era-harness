@@ -16,10 +16,15 @@ export {
 } from './parse.js';
 export {
   DEFAULT_REFERENCE_BASE,
+  UPSTREAM_INDEX_URL,
+  describeNetworkError,
+  discoverReference,
   fetchRemoteReference,
+  normalizeReferenceQuery,
   referencePageUrl,
   resetOnlineFailureCache,
   resolveReferenceOnline,
+  slugFromIndexLocation,
 } from './online.js';
 export type {
   OnlineMode,

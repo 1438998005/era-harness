@@ -1,9 +1,14 @@
 /**
- * 指令知识库（emuera.sk.doc Reference）的运行时结构。
+ * 指令知识库（emuera.sk.doc）的运行时结构。
  *
- * 数据来源：https://github.com/qirchen421/emuera.sk.doc 的 `docs/Reference/*.zh.md`，
- * 由 `scripts/build-reference.ts` 离线抓取并生成为 `src/reference/data/*.ts`。
- * 该数据沿用上游 **CC BY-NC 4.0**，与本仓库代码的 Apache-2.0 **分开管理**（见 NOTICE）。
+ * 数据来源：https://github.com/qirchen421/emuera.sk.doc 的
+ * `docs/Reference/*.zh.md`（API 指令）、`docs/Emuera/*.zh.md`（语法/规格）、
+ * `docs/tutorial/*.zh.md`（教程），由 `scripts/build-reference.ts` 离线抓取并生成
+ * `src/reference/data/*.ts`。该数据沿用上游 **CC BY-NC 4.0**，
+ * 与本仓库代码的 Apache-2.0 **分开管理**（见 NOTICE）。
+ *
+ * ⚠ 不变量：`id` **永不**拼进 URL 或文件名（规格页切段后会含 `#` 与 `/`）。
+ * 需要取上游页面时一律用 `sourcePath`，见 `online.ts` 的 `referencePageUrl`。
  */
 
 /**
@@ -29,20 +34,40 @@ export interface ReferenceSignature {
   overloads: string[];
 }
 
-/** 一个 Reference 页面 = 一个条目（同页可能覆盖多个名字，如 SETCOLOR / RESETCOLOR） */
+/** 一个条目（Reference 一页一条；Emuera 规格页按 `###` 切段，一页可能多条） */
 export interface ReferenceEntry {
-  /** 页面文件名主干，唯一，如 `SELECTCASE` / `DT_ROW` */
+  /**
+   * 条目唯一 id。
+   * - Reference 页：页面文件名主干，如 `SELECTCASE` / `DT_ROW`（历史形态，保持不变）
+   * - Emuera 规格页切段：`<页面 slug>#<指令名>`，如 `Emuera/function#LOCALSIZE`
+   * - tutorial 页：`<页面 slug>`，如 `tutorial/erb-format-extension`
+   */
   id: string;
-  /** 页面标题（H1），如「PRINT 系」「SETCOLOR, RESETCOLOR」 */
+  /** 页面标题（H1），如「PRINT 系」「SETCOLOR, RESETCOLOR」「函数·预处理器」 */
   title: string;
   /** 本页覆盖的全部名字，去重保序 */
   names: string[];
-  /** 签名表；个别页面没有表格时为空数组 */
+  /** 签名表；规格页与教程页没有签名表，为空数组 */
   signatures: ReferenceSignature[];
   /** 首段摘要，用于搜索结果预览 */
   summary: string;
   /** 正文：已去掉 frontmatter / 标题 / 签名表，图标与内部链接已归一 */
   body: string;
+  /**
+   * 页面 slug —— **仅切段条目**有，用于指回被切开的同一页，如 `Emuera/function`。
+   * 页面级条目（Reference / tutorial）不设此字段，此时页面 slug 就等于 `id`。
+   */
+  pageId?: string;
+  /**
+   * 上游仓库内相对路径，如 `docs/Emuera/function.zh.md`。
+   * 在线取数与溯源都用它；缺省时按历史形态回退 `docs/Reference/<id>.zh.md`。
+   */
+  sourcePath?: string;
+  /**
+   * 只读内置快照，不随线上刷新。
+   * 规格页切段条目置 true：整页替换会把切开的段并回一页，再被正文上限截断。
+   */
+  localOnly?: boolean;
 }
 
 /** 检索命中 */

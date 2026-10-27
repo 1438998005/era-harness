@@ -34,7 +34,7 @@ const SEARCH_LIMIT = 8
 
 /** 每次返回都自报家门：条目数是快照值，模型据此判断「这是内置快照，不是最新正本」 */
 function originHeader(): string {
-	return `> 内置知识库 ${KNOWLEDGE_ENTRY_COUNT} 条（快照 ${KNOWLEDGE_SNAPSHOT_AT}）。内嵌副本是集群知识库的快照，⛔ 当作本工程实测结论；本工程的事实要读代码确认。`
+	return `> 内置知识库 ${KNOWLEDGE_ENTRY_COUNT} 条精选（快照 ${KNOWLEDGE_SNAPSHOT_AT}）。**这是精选子集，不是全量文档**：语法/预处理器（#LOCALSIZE、#DIM）与 API 签名请用 era_reference。内嵌副本是集群知识库的快照，⛔ 当作本工程实测结论；本工程的事实要读代码确认。`
 }
 
 function formatCatalog(): string {
@@ -44,17 +44,21 @@ function formatCatalog(): string {
 		lines.join("\n"),
 		"",
 		"取全文：mode=lookup + entry_id=<条目 id>；按关键词：mode=search + query=<词>。",
+		"语法/预处理器（#LOCALSIZE、#DIM）不在本库，用 era_reference。",
 	].join("\n")
 }
 
 /** 查不到 id 时给全目录，让模型自己挑，⛔ 只回「没有这条」 */
 function suggestEntries(id: string): string {
 	const hits = searchKnowledge(KNOWLEDGE_ENTRIES, id, 5)
-	const head = `知识库没有 id 为「${id}」的条目（id 要精确匹配）。`
+	const head = `知识库没有 id 为「${id}」的条目（id 要精确匹配）。本库只有 ${KNOWLEDGE_ENTRY_COUNT} 条精选纪律，不是全量文档。`
+	const exits =
+		"如果问的是语法/预处理器（如 #LOCALSIZE、#DIM）或 API 签名，改用 era_reference；" +
+		"都没有时可直接 web_fetch 上游文档站 https://qirchen421.github.io/emuera.sk.doc/zh/index.html 。"
 	if (hits.length > 0) {
-		return `${head}\n按「${id}」检索到的相近条目：\n${formatKnowledgeHits(hits, id)}`
+		return `${head}\n按「${id}」检索到的相近条目：\n${formatKnowledgeHits(hits, id)}\n\n${exits}`
 	}
-	return `${head}\n${formatCatalog()}`
+	return `${head}\n${formatCatalog()}\n\n${exits}`
 }
 
 export class EraKnowledgeToolHandler implements IFullyManagedTool {

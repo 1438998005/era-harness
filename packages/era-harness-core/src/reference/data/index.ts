@@ -8,14 +8,17 @@ import { ENTRIES_PART_05 } from './part-05.js';
 import { ENTRIES_PART_06 } from './part-06.js';
 import { ENTRIES_PART_07 } from './part-07.js';
 import { ENTRIES_PART_08 } from './part-08.js';
+import { ENTRIES_PART_09 } from './part-09.js';
+import { ENTRIES_PART_10 } from './part-10.js';
+import { ENTRIES_PART_11 } from './part-11.js';
 
 /** 上游版本（commit sha），改数据后必须一并更新 */
-export const REFERENCE_SOURCE_SHA = '606670cd78b58f5d9a050013d1d3f41db5a87a1b';
+export const REFERENCE_SOURCE_SHA = '41451be6091363e37ed066aaf04416decbf0127f';
 
 /** 抓取时间（ISO） */
-export const REFERENCE_FETCHED_AT = '2026-10-20T04:53:43.987Z';
+export const REFERENCE_FETCHED_AT = '2026-10-27T16:57:06.893Z';
 
-/** 全部指令条目，按页面文件名排序 */
+/** 全部指令条目，按 id 排序 */
 export const REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
 	...ENTRIES_PART_01,
 	...ENTRIES_PART_02,
@@ -25,10 +28,13 @@ export const REFERENCE_ENTRIES: readonly ReferenceEntry[] = [
 	...ENTRIES_PART_06,
 	...ENTRIES_PART_07,
 	...ENTRIES_PART_08,
+	...ENTRIES_PART_09,
+	...ENTRIES_PART_10,
+	...ENTRIES_PART_11,
 ];
 
-/** 条目数（≈ 上游 Reference 页数） */
-export const REFERENCE_ENTRY_COUNT = 312;
+/** 条目数（Reference 页 + Emuera 规格页切段 + tutorial 页） */
+export const REFERENCE_ENTRY_COUNT = 404;
 
 /** 可检索的名字总数（一个页可能覆盖多个名字，如 SETCOLOR / RESETCOLOR） */
-export const REFERENCE_NAME_COUNT = 653;
+export const REFERENCE_NAME_COUNT = 725;

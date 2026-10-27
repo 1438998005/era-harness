@@ -9,10 +9,10 @@ import { TASK_PROGRESS_PARAMETER } from "../types"
 const id = ClineDefaultTool.ERA_KNOWLEDGE
 
 const DESCRIPTION_EN =
-	"Look up the built-in discipline/mechanism knowledge base for Emuera (EraBasic) script work: encoding discipline, upstream-merge gates, kojo naming & dispatch contracts, project structure and variable slots, the command lifecycle pipeline, OBJ/qol data conventions. mode=lookup returns one full entry (rules + pitfalls + body); mode=search finds entries by keyword; mode=list shows the catalog. Entries are bundled snapshots and work offline. Use this before reasoning about a mechanism you have not verified in this project's code: these are the traps that fail silently."
+	"Look up the built-in discipline/mechanism knowledge base for Emuera (EraBasic) script work: encoding discipline, upstream-merge gates, kojo naming & dispatch contracts, project structure and variable slots, the command lifecycle pipeline, OBJ/qol data conventions, and function-header directives. mode=lookup returns one full entry (rules + pitfalls + body); mode=search finds entries by keyword; mode=list shows the catalog. Entries are bundled snapshots and work offline, but this is a **curated subset, not the full documentation**: use era_reference for syntax/preprocessor directives (#LOCALSIZE, #DIM) and API signatures. Use this before reasoning about a mechanism you have not verified in this project's code: these are the traps that fail silently."
 
 const DESCRIPTION_ZH_CN =
-	"查内置的 Emuera / EraBasic 纪律与机制知识库：解释器编码纪律、上游内容合并闸门、口上命名与分发契约、工程结构与变量槽位、指令主流程与回合快照、OBJ/qol 数据层约定。mode=lookup 按 entry_id 取完整内容（铁律＋反模式＋正文）；mode=search 按关键词检索条目；mode=list 列出全部条目。知识库随插件内置，离线可用。凡「不看本工程代码就判不准的机制问题」先查这里——这些条目收的就是那些静默失效的坑。"
+	"查内置的 Emuera / EraBasic 纪律与机制知识库：解释器编码纪律、上游内容合并闸门、口上命名与分发契约、工程结构与变量槽位、指令主流程与回合快照、OBJ/qol 数据层约定、函数头指令与局部变量元素数。mode=lookup 按 entry_id 取完整内容（铁律＋反模式＋正文）；mode=search 按关键词检索条目；mode=list 列出全部条目。知识库随插件内置、离线可用，但只有**精选条目，不是全量文档**：语法/预处理器（#LOCALSIZE、#DIM）与 API 签名请用 era_reference。凡「不看本工程代码就判不准的机制问题」先查这里——这些条目收的就是那些静默失效的坑。"
 
 const INSTRUCTION_MODE_EN = "One of: lookup (default when entry_id is given), search (default when query is given), list."
 const INSTRUCTION_MODE_ZH_CN = "取值：lookup（给了 entry_id 时默认）、search（给了 query 时默认）、list。"

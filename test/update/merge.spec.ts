@@ -152,6 +152,53 @@ test("校验：上游原版就不配平时，保持一致即可通过（相对�
 	assert.deepEqual(check(unbalanced, unbalanced, unbalanced, unbalanced), { ok: true, issues: [] })
 })
 
+// ── 四·二、容量指令（#LOCALSIZE 被当重复定义删掉的那次事故） ────────────────
+
+const WITH_SIZE = ["@FOO", "#LOCALSIZE 100", "#LOCALSSIZE 23", "#DIM DYNAMIC L_TMP", "\tPRINTL 1", "RETURN"].join("\n")
+
+test("校验：删掉 #LOCALSIZE → directive-loss", () => {
+	const merged = WITH_SIZE.split("\n")
+		.filter((line) => !line.startsWith("#LOCALSIZE"))
+		.join("\n")
+	const issues = check(merged, WITH_SIZE, WITH_SIZE, WITH_SIZE).issues
+	assert.ok(
+		issues.some((i) => i.code === "directive-loss"),
+		"删容量声明必须报 directive-loss",
+	)
+	const detail = issues.find((i) => i.code === "directive-loss")?.detail ?? ""
+	assert.match(detail, /@FOO/)
+	assert.match(detail, /#LOCALSIZE/)
+})
+
+test("校验：只调整容量声明之间的顺序 → 通过", () => {
+	const reordered = ["@FOO", "#LOCALSSIZE 23", "#LOCALSIZE 100", "#DIM DYNAMIC L_TMP", "\tPRINTL 1", "RETURN"].join("\n")
+	assert.deepEqual(check(reordered, WITH_SIZE, WITH_SIZE, WITH_SIZE), { ok: true, issues: [] })
+})
+
+test("校验：只改容量数值 → 通过（缩容量应改数值，不是删行）", () => {
+	const resized = WITH_SIZE.replace("#LOCALSIZE 100", "#LOCALSIZE 50")
+	assert.deepEqual(check(resized, WITH_SIZE, WITH_SIZE, WITH_SIZE), { ok: true, issues: [] })
+})
+
+test("校验：整个函数被删 → 只报 missing-label，不重复报 directive-loss", () => {
+	const merged = ["@OTHER", "\tPRINTL 2", "RETURN"].join("\n")
+	const local = [WITH_SIZE, "@OTHER", "\tPRINTL 2", "RETURN"].join("\n")
+	const issues = check(merged, local, local, local).issues
+	assert.ok(issues.some((i) => i.code === "missing-label"))
+	assert.ok(!issues.some((i) => i.code === "directive-loss"), "整函数删除交给 missing-label")
+})
+
+test("合并系统提示：写明容量指令不得删除/去重", () => {
+	const prompt = buildMergePrompt({
+		path: "ERB/t.ERB",
+		base: BASE.split("\n"),
+		local: BASE.split("\n"),
+		theirs: BASE.split("\n"),
+	}).system
+	assert.ok(prompt.includes("#LOCALSIZE"))
+	assert.ok(prompt.includes("不得删除、合并或去重"))
+})
+
 test("校验：出现乱码 → mojibake", () => {
 	const merged = BASE.replace("PRINTL 1", "PRINTL \uFFFD")
 	const issues = check(merged).issues

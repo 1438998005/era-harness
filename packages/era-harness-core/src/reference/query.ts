@@ -16,6 +16,28 @@ function normalizeName(value: string): string {
   return value.trim().toUpperCase();
 }
 
+/**
+ * 去掉指令名的前缀/括号记号。
+ *
+ * 库里存的是 `#LOCALSIZE`、`@EVENTLOAD`、`[SKIPSTART]`，而模型和用户几乎总是写成
+ * `LOCALSIZE` / `EVENTLOAD` / `SKIPSTART`。不做这一层归一，查 `LOCALSIZE` 会直接落空，
+ * 模型就退回训练记忆去猜 —— 这正是容量指令被误删的起点。
+ */
+function stripSigil(name: string): string {
+  return name.replace(/^[#@]/, '').replace(/^\[/, '').replace(/\]$/, '');
+}
+
+/** id 的末段：`Emuera/function#LOCALSIZE` → `LOCALSIZE`；`PRINT` → `PRINT` */
+function idTail(id: string): string {
+  const tail = id.split(/[#/]/).pop();
+  return (tail ?? id).toUpperCase();
+}
+
+/** 同页标识：切段条目共用一个 `pageId`，搜索时用来限制同页霸榜 */
+function pageKey(entry: ReferenceEntry): string {
+  return entry.pageId ?? entry.sourcePath ?? entry.id;
+}
+
 /** 全部可检索名字（去重、排序），用于告诉模型「库里有什么」 */
 export function listReferenceNames(entries: readonly ReferenceEntry[]): string[] {
   const names = new Set<string>();
@@ -31,7 +53,9 @@ export function listReferenceNames(entries: readonly ReferenceEntry[]): string[]
  * 按名字精确查。
  *
  * 同名可能出现在多页（如 `PRINT` 既是 PRINT 页的主名，也被 PRINTC/PRINTN 页引用），
- * 所以优先返回**文件名主干与名字相同**的那页，其次返回第一个覆盖该名字的页。
+ * 所以优先返回**id 末段与名字相同**的那条，其次返回第一个覆盖该名字的条目。
+ *
+ * 第二轮是「去记号」匹配：`LOCALSIZE` 能查到 `#LOCALSIZE`，`EVENTLOAD` 能查到 `@EVENTLOAD`。
  */
 export function findReference(
   entries: readonly ReferenceEntry[],
@@ -41,12 +65,31 @@ export function findReference(
   if (!target) {
     return undefined;
   }
+
   const owners = entries.filter((entry) => entry.names.includes(target));
-  if (owners.length === 0) {
+  if (owners.length > 0) {
+    const exact = owners.find((entry) => idTail(entry.id) === target);
+    return { entry: exact ?? owners[0]!, name: target };
+  }
+
+  const bare = stripSigil(target);
+  if (!bare) {
     return undefined;
   }
-  const exact = owners.find((entry) => entry.id.toUpperCase() === target);
-  return { entry: exact ?? owners[0]!, name: target };
+  const relaxed: { entry: ReferenceEntry; name: string }[] = [];
+  for (const entry of entries) {
+    for (const candidate of entry.names) {
+      if (stripSigil(candidate) === bare) {
+        relaxed.push({ entry, name: candidate });
+        break;
+      }
+    }
+  }
+  if (relaxed.length === 0) {
+    return undefined;
+  }
+  const exact = relaxed.find((item) => idTail(item.entry.id) === bare);
+  return exact ?? relaxed[0]!;
 }
 
 /** 找出所有覆盖某个名字的条目（含同名多页） */
@@ -139,9 +182,27 @@ export function searchReference(
     }
   }
 
-  return [...best.values()]
-    .sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id))
-    .slice(0, Math.max(1, limit));
+  const sorted = [...best.values()].sort(
+    (a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id),
+  );
+
+  // 同页最多 2 条：规格页一页切成几十段，不限制的话搜 `function` 会被整页小节霸榜
+  const perPage = new Map<string, number>();
+  const limited: ReferenceHit[] = [];
+  const cap = Math.max(1, limit);
+  for (const hit of sorted) {
+    const key = pageKey(hit.entry);
+    const used = perPage.get(key) ?? 0;
+    if (used >= 2) {
+      continue;
+    }
+    perPage.set(key, used + 1);
+    limited.push(hit);
+    if (limited.length >= cap) {
+      break;
+    }
+  }
+  return limited;
 }
 
 /** 把一条签名排成一行 */
@@ -157,7 +218,10 @@ function formatSignature(signature: ReferenceSignature): string {
 /** 单条指令的完整排版（工具返回给模型的就是这个） */
 export function formatReferenceEntry(entry: ReferenceEntry): string {
   const lines: string[] = [];
-  lines.push(`# ${entry.title}${entry.title.toUpperCase() === entry.id.toUpperCase() ? '' : `（${entry.id}）`}`);
+  const primary = entry.names[0] ?? entry.id;
+  // 标题里已经写了名字就不再重复；`Emuera/function#LOCALSIZE` 这种路径式 id 不该出现在正文
+  const needsLabel = primary.length > 0 && !entry.title.toUpperCase().includes(primary.toUpperCase());
+  lines.push(`# ${entry.title}${needsLabel ? `（${primary}）` : ''}`);
   if (entry.names.length > 0) {
     lines.push(`覆盖名字：${entry.names.join('、')}`);
   }
@@ -174,13 +238,19 @@ export function formatReferenceEntry(entry: ReferenceEntry): string {
 /** 检索结果的列表排版 */
 export function formatReferenceHits(hits: readonly ReferenceHit[], query: string): string {
   if (hits.length === 0) {
-    return `指令库里没有找到与「${query}」相关的条目。可以换更短的关键词，或用 mode=names 先列出可用的指令名。`;
+    return (
+      `指令库里没有找到与「${query}」相关的条目。\n` +
+      '可以：① 换更短的关键词或英文原名（如 LOCALSIZE 而不是「局部容量」）；' +
+      '② 用 mode=names 先看库里有什么；③ 直接用 web_fetch 读上游规格页 ' +
+      'https://qirchen421.github.io/emuera.sk.doc/zh/index.html 。'
+    );
   }
   const lines = hits.map((hit) => {
     const names = hit.entry.names.slice(0, 6).join('、');
+    const label = hit.entry.names[0] ?? hit.entry.id;
     const where = hit.field === 'body' ? '正文' : hit.field === 'name' ? '名字' : '标题';
     const snippet = hit.snippet ? `\n    ${hit.snippet}` : '';
-    return `- [${hit.entry.id}] ${hit.entry.title}（${where}命中）\n    名字：${names}${snippet}`;
+    return `- [${label}] ${hit.entry.title}（${where}命中）\n    名字：${names}${snippet}`;
   });
   return `找到 ${hits.length} 条：\n${lines.join('\n')}\n\n用 mode=lookup + name=<名字> 取完整说明。`;
 }

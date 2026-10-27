@@ -1,15 +1,15 @@
 {
 	"schemaVersion": 1,
-	"updatedAt": "2026-10-21",
+	"updatedAt": "2026-10-28",
 	"about": "内嵌知识库候选池（T1.2＝持续补充机制，不设终点）。本文件是候选清单的机器可读正本；NOTICE-knowledge-sources.md 的来源表只登记已落地条目。校验：node scripts/check-knowledge-pool.mjs（已并入 npm run gate）。",
 	"sharedTrae": {
 		"envOverride": "SHARED_TRAE_PATH",
 		"defaultRelative": "../shared-trae",
-		"note": "⛔ 硬编码集群绝对路径；默认按仓根相对定位，跨机器用环境变量指路。"
+		"note": "⛔ 硬编码集群绝对路径；默认按仓根相对定位，跨机器用环境变量指路。正本不在 shared-trae 的条目（例如直接来自上游文档站的语法条目）用 `external:<可检索引用>` 声明，改为校验 NOTICE 里是否逐字登记。"
 	},
 	"judgement": [
 		"跨整合包版本稳定（⛔ 收某一工程的魔改现状现算值）",
-		"能指回 shared-trae 正本（sources 必须逐条存在）",
+		"能指回正本（shared-trae 路径，或 `external:` 外部引用 + NOTICE 登记）",
 		"与在册条目不重叠（重叠就补进已有条目，不新开）",
 		"装得进一条（装不下＝该切分或暂缓，残缺判据比没有更危险）"
 	],
@@ -19,6 +19,18 @@
 		"note": "常驻＝几乎所有 era 改动都要遵守；其余默认只进检索（常驻会让 era 域提示多约 10 条 / 900 字，要常驻必须单独论证）。"
 	},
 	"candidates": [
+		{
+			"id": "erabasic-syntax-directives",
+			"status": "landed",
+			"landedAt": "2026-10-28",
+			"domain": "syntax",
+			"consumption": "search",
+			"sources": ["external:docs/Emuera/function.zh.md"],
+			"surface": "中（6 铁律＋3 反模式，只覆盖 # 预处理器与局部变量元素数）",
+			"stability": "稳（语言规格，ver1800 起的规则，不含工程现算值）",
+			"verdict": "补上语法类零覆盖的缺口；与 7 条工程纪律条目互补不重叠，且刻意避开「容量」排序锁",
+			"note": "正本为上游文档站 emuera.sk.doc 的 docs/Emuera/function.zh.md（CC BY-NC 4.0），非 shared-trae；数量为本机真项目 grep 实扫（#LOCALSIZE 10,970 / #LOCALSSIZE 10,908）"
+		},
 		{
 			"id": "version-up-and-save-migration",
 			"status": "landed",

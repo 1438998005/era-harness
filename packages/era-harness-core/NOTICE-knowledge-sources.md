@@ -4,6 +4,8 @@
 
 ## 来源
 
+**A 类 · 正本在 shared-trae**（机制与纪律的事实性提炼）
+
 | 条目 id | 正本（shared-trae 仓内路径） | 快照日期 |
 |---|---|---|
 | `interpreter-encoding-discipline` | `knowledge/lazyloading/encoding-discipline.md` | 2026-10-20 |
@@ -16,6 +18,17 @@
 
 shared-trae 是 Emuera 集群的私有枢纽仓（`$EMUERA_WS/emuera/shared-trae`）。
 **内嵌副本是快照，正本在 shared-trae**；正本变更（commit/日期变化）时按下方流程同步。
+
+**B 类 · 正本在上游文档站**（语言规格，许可与 A 类不同）
+
+| 条目 id | 正本（外部引用） | 快照日期 |
+|---|---|---|
+| `erabasic-syntax-directives` | `docs/Emuera/function.zh.md`（上游仓库 <https://github.com/qirchen421/emuera.sk.doc>，同 `NOTICE-emuera-sk-doc.md` 的抓取版本 `41451be6`）；变量侧对照 `docs/Emuera/variables.zh.md` 的 `LOCAL`/`LOCALS` 条目 | 2026-10-28 |
+
+B 类的正本**不在 shared-trae**，因此：
+- 候选池里用 `sources: ["external:<外部引用>"]` 声明（`check-knowledge-pool.mjs` 会改为校验本文件里是否逐字登记该引用）；
+- 内容是**改写**而非逐字摘录，数值（如目标工程 `#LOCALSIZE` 10,970 处 / `#LOCALSSIZE` 10,908 处）来自本机真项目 `grep` 实扫，不是上游原文；
+- 许可随上游走 **CC BY-NC 4.0**，⛔ 不得按 Apache-2.0 再分发，也不得用于商业用途。
 
 ## 许可与边界
 
@@ -51,6 +64,7 @@ shared-trae 是 Emuera 集群的私有枢纽仓（`$EMUERA_WS/emuera/shared-trae
 4. 新增条目五步：`knowledge-candidates.json` 立候选（三要素填全）→ 建 `data/` 文件 →
    `data/index.ts` 登记 → 更新本表来源行 → 测试计数与排序锁补一行；
    收尾 `npm run gate`（其中的「知识候选池核对」就是查这条链有没有断）。
+   正本不在 shared-trae 的，候选 `sources` 写 `external:<引用>`，并在本文件「B 类」逐字登记该引用与许可。
 5. 常驻/检索档位改了，要同步 `knowledge-candidates.json` 的 `consumption.resident`
    （体检脚本会拿它和 `era_domain.ts` 的 `injectedKnowledgeIds` 对表，不一致即报）。
 

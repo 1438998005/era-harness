@@ -85,7 +85,16 @@ export function formatKnowledgeEntry(entry: KnowledgeEntry): string {
 
 /** 检索命中列表的 markdown（MCP search_knowledge 的输出） */
 export function formatKnowledgeHits(hits: KnowledgeHit[], query: string): string {
-  if (hits.length === 0) return `（未命中「${query}」）`;
+  if (hits.length === 0) {
+    return [
+      `（未命中「${query}」）`,
+      '',
+      '内嵌知识库只有**精选**纪律/机制条目，不是全量文档。可以：',
+      '① 换同义词或英文原名（如「乱码」→ BOM / CP932）；',
+      '② 语法/预处理器/API 签名改用 era_reference（`#LOCALSIZE`、`#DIM` 这类在那里）；',
+      '③ 直接读上游文档站 https://qirchen421.github.io/emuera.sk.doc/zh/index.html 。',
+    ].join('\n');
+  }
   return hits
     .map((hit) => `- **${hit.entry.title}**（\`${hit.entry.id}\`，命中 ${hit.field}）——${hit.entry.summary}`)
     .join('\n');

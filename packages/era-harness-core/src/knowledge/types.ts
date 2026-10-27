@@ -12,7 +12,7 @@
  */
 
 /** 知识域（与 shared-trae knowledge/<domain>/ 对应，产品侧只收稳定子集） */
-export type KnowledgeDomain = 'encoding' | 'update' | 'kojo' | 'project' | 'gameflow';
+export type KnowledgeDomain = 'encoding' | 'update' | 'kojo' | 'project' | 'gameflow' | 'syntax';
 
 /** 一条铁律（提示层注入的最小单位） */
 export interface KnowledgeRule {

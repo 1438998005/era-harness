@@ -1,6 +1,7 @@
 import type { ToolUse } from "@core/assistant-message"
 import { formatResponse } from "@core/prompts/responses"
 import {
+	discoverReference,
 	findReference,
 	formatReferenceEntry,
 	formatReferenceHits,
@@ -42,38 +43,79 @@ function referenceSourceOptions(): ReferenceSourceOptions {
 }
 
 /** 一条命中在返回里必须自报家门：模型据此判断「这批参数是不是最新版」 */
-function describeOrigin(origin: "online" | "local", sourceNote: string, fallbackReason?: string): string {
+function describeOrigin(origin: "online" | "local" | "discovered", sourceNote: string, fallbackReason?: string): string {
 	if (origin === "online") {
 		return "> 来源：在线上游（本次为最新版本）"
+	}
+	if (origin === "discovered") {
+		return "> 来源：上游文档站（本地快照未收录，本次在线发现）"
 	}
 	const reason = fallbackReason ? `；在线不可用（${fallbackReason}）` : ""
 	return `> 来源：${sourceNote}${reason}`
 }
 
+/** 目录归属：Reference 是 API 页，Emuera 是语法/规格，tutorial 是教程 */
+function sourceGroup(entry: ReferenceEntry): string {
+	const dir = entry.sourcePath?.split("/")[1]
+	if (dir === "Reference") {
+		return "Reference（API 指令）"
+	}
+	if (dir === "Emuera") {
+		return "Emuera（语法/规格）"
+	}
+	if (dir === "tutorial") {
+		return "tutorial（教程）"
+	}
+	return "其他"
+}
+
 function formatNameIndex(): string {
-	const pages = REFERENCE_ENTRIES.map((entry) => entry.id).sort()
-	const names = listReferenceNames(REFERENCE_ENTRIES)
+	const groups = new Map<string, number>()
+	for (const entry of REFERENCE_ENTRIES) {
+		const group = sourceGroup(entry)
+		groups.set(group, (groups.get(group) ?? 0) + 1)
+	}
+
+	const allNames = listReferenceNames(REFERENCE_ENTRIES)
+	const directives = allNames.filter((name) => /^[#@[]/.test(name))
+	const plain = allNames.filter((name) => !/^[#@[]/.test(name))
+	// 725 个名字全列会撑爆输出上限，这里只给「抓取抓手」：全部函数头指令 + 常用 API 的前 200 个
+	const shownPlain = plain.slice(0, 200)
+
 	return [
-		`内置指令库共 ${REFERENCE_ENTRY_COUNT} 页 / ${REFERENCE_NAME_COUNT} 个可检索名字。`,
+		`内置指令库共 ${REFERENCE_ENTRY_COUNT} 条 / ${REFERENCE_NAME_COUNT} 个可检索名字。`,
+		`来源分布：${[...groups].map(([group, count]) => `${group} ${count}`).join("，")}。`,
 		`快照对应上游 ${REFERENCE_SOURCE_SHA.slice(0, 8)}（抓取于 ${REFERENCE_FETCHED_AT}）。`,
 		"",
-		"## 页面",
-		pages.join(" "),
+		"> ⚠ 这是**精选子集**，不是上游文档全量。manual / eramaker / EMEE / Skia 等目录未收录；",
+		"> lookup 未命中时会自动向上游文档站检索一次。",
+		"",
+		"## 函数头指令与特殊块（`#` / `@` / `[ ]`）",
+		directives.length > 0 ? directives.join(" ") : "（无）",
+		"",
+		`## 常用 API（前 ${shownPlain.length} 个，共 ${plain.length} 个）`,
+		shownPlain.join(" "),
 		"",
 		"## 用法",
-		"- 精确查某条：mode=lookup + name=<指令名>",
+		"- 精确查某条：mode=lookup + name=<指令名>（`#LOCALSIZE` 与 `LOCALSIZE` 都能查到）",
 		"- 按关键词检索：mode=search + query=<关键字>",
-		`- 别名（如 ${names.slice(0, 3).join("、")} 这类同页变体）可以直接 lookup，不必先查页面名。`,
+		"- 别名（同页变体）可以直接 lookup，不必先查页面名。",
 	].join("\n")
 }
 
 /** 查不到时的降级建议：先用检索找相近的，再让模型自己挑 */
 function suggestAlternatives(name: string): string {
 	const hits = searchReference(REFERENCE_ENTRIES, name, 5)
+	const boundary =
+		"（内置库覆盖 Reference API + Emuera 语法/规格 + tutorial 教程，不是上游全量；" + "中文关键词命中率低于英文原名。）"
 	if (hits.length === 0) {
-		return `指令库里没有「${name}」。可以换更短的关键词用 mode=search 检索，或用 mode=names 看看库里有哪些页面。`
+		return (
+			`指令库里没有「${name}」${boundary}\n` +
+			"可以：① 换成英文原名或更短的关键词用 mode=search；② 用 mode=names 看库里有什么；" +
+			"③ 直接用 web_fetch 读上游文档站 https://qirchen421.github.io/emuera.sk.doc/zh/index.html 。"
+		)
 	}
-	return `指令库里没有「${name}」。相近的有：\n${formatReferenceHits(hits, name)}`
+	return `指令库里没有「${name}」${boundary}。相近的有：\n${formatReferenceHits(hits, name)}`
 }
 
 function withOriginHeader(entry: ReferenceEntry, header: string): string {
@@ -128,14 +170,27 @@ export class EraReferenceToolHandler implements IFullyManagedTool {
 					return await config.callbacks.sayAndCreateMissingParamError(this.name, "name")
 				}
 				const found = findReference(REFERENCE_ENTRIES, name)
-				if (!found) {
-					body = suggestAlternatives(name)
-				} else {
+				if (found) {
 					const resolved = await resolveReferenceOnline(found.entry, REFERENCE_SOURCE_SHA, referenceSourceOptions())
 					body = withOriginHeader(
 						resolved.entry,
 						describeOrigin(resolved.origin, resolved.sourceNote, resolved.fallbackReason),
 					)
+				} else {
+					// 本地没有 ≠ 上游没有：用上游搜索索引定位那一页再解析回来。
+					// 这是「库里没有就凭记忆猜」这个死角的唯一出口。
+					const discovered = await discoverReference(name, referenceSourceOptions())
+					if ("entries" in discovered) {
+						body = [
+							describeOrigin("discovered", ""),
+							"",
+							...discovered.entries.map((entry) => formatReferenceEntry(entry)),
+							"",
+							`> 该页（${discovered.slug}）未进内置快照，下次重新打包会收录。`,
+						].join("\n")
+					} else {
+						body = `${suggestAlternatives(name)}\n\n（在线发现也未成功：${discovered.error}）`
+					}
 				}
 			}
 

@@ -23,7 +23,14 @@ import {
   REFERENCE_NAME_COUNT,
   REFERENCE_SOURCE_SHA,
 } from '../src/reference/data/index.js';
-import { fetchRemoteReference, referencePageUrl, resolveReferenceOnline } from '../src/reference/online.js';
+import {
+  DEFAULT_REFERENCE_BASE,
+  discoverReference,
+  fetchRemoteReference,
+  referencePageUrl,
+  resetOnlineFailureCache,
+  resolveReferenceOnline,
+} from '../src/reference/online.js';
 
 // —— 合成 fixture：形似上游页面，但命令名是虚构的（不含上游正文）——
 const FIXTURE = [
@@ -173,7 +180,7 @@ test('内置数据: 条目数与名字数自洽', () => {
   assert.ok(REFERENCE_FETCHED_AT.length > 0);
 });
 
-test('内置数据: 每条都有 id / 名字 / 签名表 / 摘要且 id 唯一', () => {
+test('内置数据: id 唯一、都有摘要与 sourcePath；Reference 页必须有签名表', () => {
   const ids = new Set<string>();
   const broken: string[] = [];
   for (const entry of REFERENCE_ENTRIES) {
@@ -181,17 +188,70 @@ test('内置数据: 每条都有 id / 名字 / 签名表 / 摘要且 id 唯一',
       broken.push(`${entry.id}(id 重复)`);
     }
     ids.add(entry.id);
-    if (entry.names.length === 0) {
-      broken.push(`${entry.id}(无名字)`);
-    }
-    if (entry.signatures.length === 0) {
-      broken.push(`${entry.id}(无签名表)`);
-    }
     if (!entry.summary) {
       broken.push(`${entry.id}(无摘要)`);
     }
+    if (!entry.sourcePath) {
+      broken.push(`${entry.id}(缺 sourcePath，在线取数会拼错目录)`);
+    }
+    // Reference 是 API 页，签名表是它的结构化产物；
+    // Emuera 规格页与 tutorial 页本来就没有签名表，不能一并要求
+    if (entry.sourcePath?.startsWith('docs/Reference/') && entry.signatures.length === 0) {
+      broken.push(`${entry.id}(Reference 页缺签名表)`);
+    }
   }
   assert.deepEqual(broken, []);
+});
+
+test('内置数据: 旧 Reference id 保持扁平形态（312 条零回归）', () => {
+  const referenceEntries = REFERENCE_ENTRIES.filter((entry) =>
+    entry.sourcePath?.startsWith('docs/Reference/'),
+  );
+  assert.equal(referenceEntries.length, 312);
+  for (const entry of referenceEntries) {
+    assert.ok(!entry.id.includes('/'), `${entry.id} 不该带目录前缀`);
+    assert.equal(entry.pageId, undefined, `${entry.id} 不该有 pageId`);
+  }
+});
+
+test('内置数据: 函数头指令与规格页已入库（#LOCALSIZE 是这次的根因）', () => {
+  const localsize = findReference(REFERENCE_ENTRIES, '#LOCALSIZE');
+  assert.ok(localsize, '#LOCALSIZE 必须能查到');
+  assert.equal(localsize!.entry.id, 'Emuera/function#LOCALSIZE');
+  assert.deepEqual(localsize!.entry.names, ['#LOCALSIZE', '#LOCALSSIZE']);
+  assert.equal(localsize!.entry.pageId, 'Emuera/function');
+  assert.equal(localsize!.entry.localOnly, true, '切段条目必须 localOnly');
+  assert.match(localsize!.entry.body, /大于0的整数/);
+  assert.match(localsize!.entry.body, /每个函数单独指定/);
+  assert.match(localsize!.entry.body, /VariableSize\.csv/);
+
+  // 模型通常不带 `#` 写，去记号匹配必须成立
+  assert.equal(findReference(REFERENCE_ENTRIES, 'LOCALSIZE')?.entry.id, 'Emuera/function#LOCALSIZE');
+  assert.equal(findReference(REFERENCE_ENTRIES, 'EVENTLOAD')?.entry.id, 'Emuera/function#EVENTLOAD');
+
+  for (const name of ['#DIM', '#DIMS', '#FUNCTION', '#FUNCTIONS', '#ONLY', '@EVENTLOAD', '[SKIPSTART]']) {
+    assert.ok(findReference(REFERENCE_ENTRIES, name), `${name} 应能查到`);
+  }
+  assert.ok(searchReference(REFERENCE_ENTRIES, 'LOCALSIZE', 5).length > 0);
+});
+
+test('内置数据: 规格页按小节切段，同一页不霸榜', () => {
+  const split = REFERENCE_ENTRIES.filter((entry) => entry.pageId !== undefined);
+  assert.ok(split.length >= 40, `切段条目过少：${split.length}`);
+  for (const entry of split) {
+    assert.ok(entry.id.startsWith(`${entry.pageId}#`), `${entry.id} 与 pageId ${entry.pageId} 不一致`);
+    assert.equal(entry.localOnly, true);
+  }
+
+  const hits = searchReference(REFERENCE_ENTRIES, '函数', 8);
+  const perPage = new Map<string, number>();
+  for (const hit of hits) {
+    const key = hit.entry.pageId ?? hit.entry.id;
+    perPage.set(key, (perPage.get(key) ?? 0) + 1);
+  }
+  for (const [key, count] of perPage) {
+    assert.ok(count <= 2, `${key} 一页占了 ${count} 个检索位`);
+  }
 });
 
 test('内置数据: 分组页覆盖到成员名，且能查到主名', () => {
@@ -272,4 +332,105 @@ test('resolveReferenceOnline: mode=off 只走本地快照', async () => {
   assert.equal(resolved.entry.id, entry.id);
   assert.equal(resolved.fallbackReason, undefined);
   assert.ok(resolved.sourceNote.includes('内置快照'));
+});
+
+test('referencePageUrl: 条目形态按 sourcePath 拼目录，`#` 不进 URL', () => {
+  const url = referencePageUrl({
+    id: 'Emuera/function#LOCALSIZE',
+    sourcePath: 'docs/Emuera/function.zh.md',
+  });
+  assert.equal(url, `${DEFAULT_REFERENCE_BASE}/docs/Emuera/function.zh.md`);
+  assert.ok(!url!.includes('#'));
+
+  // 路径穿越与非法路径仍要挡住
+  assert.equal(referencePageUrl({ id: 'x', sourcePath: 'docs/../../etc/passwd.zh.md' }), undefined);
+  assert.equal(referencePageUrl({ id: 'x', sourcePath: 'etc/passwd.zh.md' }), undefined);
+  assert.equal(referencePageUrl({ id: 'x', sourcePath: '/abs/path.zh.md' }), undefined);
+
+  // 没有 sourcePath 的旧条目回退历史形态
+  assert.ok(referencePageUrl({ id: 'SETCOLOR' })?.endsWith('/docs/Reference/SETCOLOR.zh.md'));
+});
+
+test('resolveReferenceOnline: localOnly 条目不触网（切段不能被整页替换）', async () => {
+  const entry = findReference(REFERENCE_ENTRIES, '#LOCALSIZE')!.entry;
+  const resolved = await resolveReferenceOnline(entry, REFERENCE_SOURCE_SHA);
+  assert.equal(resolved.origin, 'local');
+  assert.equal(resolved.entry.id, entry.id);
+  assert.match(resolved.sourceNote, /不随线上刷新/);
+  assert.equal(resolved.fallbackReason, undefined);
+});
+
+test('fetchRemoteReference: 单页失败不污染其它页（失败记忆按页面）', async () => {
+  const original = globalThis.fetch;
+  resetOnlineFailureCache();
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes('Emuera/broken')) {
+      return new Response('boom', { status: 500 });
+    }
+    return new Response('# OK\n\n正文。\n', { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const broken = await fetchRemoteReference({
+      id: 'Emuera/broken#X',
+      sourcePath: 'docs/Emuera/broken.zh.md',
+    });
+    assert.ok('error' in broken);
+    // 500 是页面级失败，不应让同域其它页面直接短路
+    const ok = await fetchRemoteReference({
+      id: 'Emuera/function#Y',
+      sourcePath: 'docs/Emuera/function.zh.md',
+    });
+    assert.ok('entry' in ok, '另一页应照常取回');
+    assert.equal(calls.filter((url) => url.includes('Emuera/function')).length, 1);
+  } finally {
+    globalThis.fetch = original;
+    resetOnlineFailureCache();
+  }
+});
+
+test('discoverReference: 用上游索引定位缺失页并解析出指令', async () => {
+  const original = globalThis.fetch;
+  resetOnlineFailureCache();
+  const index = {
+    docs: [
+      {
+        location: 'Emuera/function.html#localsize-localssize',
+        title: '<code>#LOCALSIZE</code>',
+        text: '为每个函数单独指定元素数量的预处理器。',
+      },
+    ],
+  };
+  const page = '## 定义\n\n### `#LOCALSIZE <常量表达式>`,`#LOCALSSIZE <常量表达式>`\n\n为每个函数单独指定`LOCAL`和`LOCALS`元素数量的预处理器。\n';
+
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input);
+    if (url.includes('search_index.json')) {
+      return new Response(JSON.stringify(index), { status: 200 });
+    }
+    if (url.endsWith('/docs/Emuera/function.zh.md')) {
+      return new Response(page, { status: 200 });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const found = await discoverReference('#LOCALSIZE');
+    assert.ok(!('error' in found), 'error' in found ? found.error : '');
+    assert.equal(found.slug, 'Emuera/function');
+    assert.equal(found.entries[0]?.names[0], '#LOCALSIZE');
+    assert.match(found.entries[0]?.body ?? '', /每个函数单独指定/);
+  } finally {
+    globalThis.fetch = original;
+    resetOnlineFailureCache();
+  }
+});
+
+test('discoverReference: mode=off 时不出网', async () => {
+  resetOnlineFailureCache();
+  const result = await discoverReference('#LOCALSIZE', { mode: 'off' });
+  assert.ok('error' in result);
 });

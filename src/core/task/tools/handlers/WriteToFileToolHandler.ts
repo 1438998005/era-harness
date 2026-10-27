@@ -5,8 +5,11 @@ import type { ToolUse } from "@core/assistant-message"
 import { constructNewFileContent, getLineNumberFromCharIndex } from "@core/assistant-message/diff"
 import { appendEncodingNote } from "@core/era/encoding-write"
 import { appendErbStructureWarning, isErbLikePath } from "@core/era/erb-check"
+import { checkEraWriteTarget } from "@core/era/write-guard"
 import { formatResponse } from "@core/prompts/responses"
 import { getWorkspaceBasename, resolveWorkspacePath } from "@core/workspace"
+import { readTextFile } from "@eraharness/encoding/encoding"
+import { findLostLocalSizeDirectives, formatLostDirectivesError } from "@eraharness/erb/directives"
 import { processFilesIntoText } from "@integrations/misc/extract-text"
 import { ClineSayTool } from "@shared/ExtensionMessage"
 import { getLastApiReqTotalTokens } from "@shared/getApiMetrics"
@@ -30,6 +33,8 @@ import { ToolResultUtils } from "../utils/ToolResultUtils"
 const LARGE_FILE_OVERWRITE_THRESHOLD_BYTES = 200 * 1024
 /** 新内容不足原文这个比例时，判定为「模型只写了一小段」 */
 const LARGE_FILE_SHRINK_RATIO = 0.6
+/** 容量指令检查的读取上限；超过就只看开头，并跳过这项检查 */
+const DIRECTIVE_CHECK_MAX_BYTES = 8 * 1024 * 1024
 
 export class WriteToFileToolHandler implements IFullyManagedTool {
 	readonly name = ClineDefaultTool.FILE_NEW // This handler supports write_to_file, replace_in_file, and new_rule
@@ -66,6 +71,46 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 
 	getDescription(block: ToolUse): string {
 		return `[${block.name} for '${block.params.path || block.params.absolutePath}']`
+	}
+
+	/**
+	 * `#LOCALSIZE` / `#LOCALSSIZE` / `#LOCALFSIZE` 丢失检查。
+	 *
+	 * 这三条是**每个函数各自的局部变量元素数**，不是变量定义。实测最典型的破坏性编辑是
+	 * 「同一条 `#LOCALSIZE 500` 在几十个函数里重复出现 → 判定为重复定义 → 去重删掉」。
+	 * 删掉不会立刻报错，但容量回退 `VariableSize.csv` 默认值，函数用到 `LOCAL:M` 时越界。
+	 *
+	 * 只读检查，不写盘；原文优先用 diff 视图缓存（`replace_in_file` 一定已有），
+	 * 否则回落到磁盘读取（`write_to_file` 的 `open()` 还没发生）。
+	 */
+	private async checkLostLocalSizeDirectives(
+		config: TaskConfig,
+		absolutePath: string,
+		relPath: string,
+		newContent: string,
+	): Promise<string | undefined> {
+		let original = config.services.diffViewProvider.originalContent
+		if (original === undefined) {
+			try {
+				const read = await readTextFile(absolutePath, { maxBytes: DIRECTIVE_CHECK_MAX_BYTES })
+				// 只读到开头就没法判断「是不是删了」——宁可漏报，也不误拒
+				if (read.truncated) {
+					return undefined
+				}
+				original = read.text
+			} catch (_error) {
+				return undefined
+			}
+		}
+		if (!original) {
+			return undefined
+		}
+
+		const lost = findLostLocalSizeDirectives(original, newContent)
+		if (lost.length === 0) {
+			return undefined
+		}
+		return formatLostDirectivesError(relPath, lost)
 	}
 
 	async handlePartialBlock(block: ToolUse, uiHelpers: StronglyTypedUIHelpers): Promise<void> {
@@ -537,6 +582,13 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			return formatResponse.toolError(formatResponse.clineIgnoreError(resolvedPath))
 		}
 
+		// 备份落点守卫：必须在 diffViewProvider.open 之前拦，否则 open 会先 mkdir 出目录再失败。
+		// 只对「像备份」的路径做完整判定，普通写入零开销。
+		const writeGuard = checkEraWriteTarget({ absolutePath, cwd: config.cwd })
+		if (!writeGuard.allowed) {
+			return formatResponse.toolError(writeGuard.reason ?? "⛔ 备份不能写进脚本目录。")
+		}
+
 		// Check if file exists to determine the correct UI message
 		let fileExists: boolean
 		if (config.services.diffViewProvider.editType !== undefined) {
@@ -634,6 +686,20 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			if (overwriteWarning) {
 				// 只 return，不在 handler 里 push：投递交给 ToolExecutor，否则这次失败会被记成 ok。
 				return formatResponse.toolError(overwriteWarning)
+			}
+		}
+
+		// 局部变量元素数声明丢失：实测最高频的破坏性编辑，硬拦。
+		// 只在完整块 + 已存在文件 + ERB 类文件上做，partial 阶段内容本来就不全。
+		if (!block.partial && fileExists && isErbLikePath(absolutePath)) {
+			const directiveError = await this.checkLostLocalSizeDirectives(config, absolutePath, resolvedPath, newContent)
+			if (directiveError) {
+				// 这里可能已经 open 过编辑器（replace_in_file 分支必开），先还原再报错，
+				// 否则编辑器里会留下一个「已改但没保存」的假象。
+				await config.services.diffViewProvider.revertChanges()
+				await config.services.diffViewProvider.reset()
+				// 只 return，不在 handler 里 push：投递交给 ToolExecutor，否则这次失败会被记成 ok。
+				return formatResponse.toolError(directiveError)
 			}
 		}
 

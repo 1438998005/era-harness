@@ -16,7 +16,7 @@ import {
 import type { KnowledgeEntry } from '../src/knowledge/types.js';
 
 test('条目登记：数量与唯一 id', () => {
-  assert.equal(KNOWLEDGE_ENTRY_COUNT, 7);
+  assert.equal(KNOWLEDGE_ENTRY_COUNT, 8);
   const ids = KNOWLEDGE_ENTRIES.map((entry) => entry.id);
   assert.equal(new Set(ids).size, ids.length, 'id 必须唯一');
 });
@@ -91,6 +91,19 @@ test('searchKnowledge：OBJ 数据框架条目可命中（T3 第三批）', () =
   assert.ok(clothes.includes('obj-qol-conventions'), '「衣物」应命中 OBJ 约定');
 });
 
+test('searchKnowledge：语法条目能被中英关键词命中，且不抢工程结构的「容量」', () => {
+  // 模型/用户最可能这样问
+  for (const query of ['#LOCALSIZE', 'LOCALSIZE', 'LOCALSSIZE', '局部变量', '局部变量容量', '预处理器']) {
+    assert.equal(
+      searchKnowledge(KNOWLEDGE_ENTRIES, query)[0]?.entry.id,
+      'erabasic-syntax-directives',
+      `「${query}」首条应为语法条目`,
+    );
+  }
+  // 「容量」仍归工程结构纪律（讲 VariableSize.csv 的那层），不能被新条目抢走
+  assert.equal(searchKnowledge(KNOWLEDGE_ENTRIES, '容量')[0]?.entry.id, 'project-structure-discipline');
+});
+
 test('新增条目：域与规则量（结构纪律 8 条、主流程 9 条）', () => {
   const structure = findKnowledge(KNOWLEDGE_ENTRIES, 'project-structure-discipline');
   const flow = findKnowledge(KNOWLEDGE_ENTRIES, 'main-flow-pipeline');
@@ -132,6 +145,11 @@ const RANKING_LOCKS: Array<{ query: string; entryId: string }> = [
   { query: 'bump', entryId: 'version-up-and-save-migration' },
   { query: '静默失声', entryId: 'version-up-and-save-migration' },
   { query: 'idx0', entryId: 'version-up-and-save-migration' },
+  // 语法条目：函数头指令的主关键词不能被工程结构条目的 `容量` / `VariableSize` 抢走，
+  // 反过来新条目也绝不能把 `容量` 抢过去（见上一个测试）
+  { query: '#LOCALSIZE', entryId: 'erabasic-syntax-directives' },
+  { query: 'LOCALSSIZE', entryId: 'erabasic-syntax-directives' },
+  { query: '预处理器', entryId: 'erabasic-syntax-directives' },
 ];
 
 test('searchKnowledge：排序锁全部命中归属条目（新增条目不得抢走老条目的主关键词）', () => {
