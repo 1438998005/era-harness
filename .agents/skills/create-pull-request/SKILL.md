@@ -5,6 +5,8 @@ description: Create a GitHub pull request following project conventions. Use whe
 
 # Create Pull Request
 
+> ⛔ **本项目禁用**：本 skill 只可执行到「本地 commit + 生成 PR 描述」为止。`git push`、`gh pr create/edit`、`gh pr merge` 一律不执行，改为把命令与 PR 正文原样打印给用户手动跑（工作区根 `AGENTS.md` §3.8；用户 GitHub 账号已因自动化推送被风控）。
+
 This skill guides you through creating a well-structured GitHub pull request that follows project conventions and best practices.
 
 ## Prerequisites Check

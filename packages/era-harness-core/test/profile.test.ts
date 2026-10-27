@@ -6,7 +6,7 @@ import path from 'node:path';
 import { profileProject } from '../src/profile/profiler.js';
 import { parseEmueraConfig, configGet, configGetBoolean, configGetNumber } from '../src/profile/config.js';
 import { parseDimFile } from '../src/profile/dim.js';
-import { parseAlsEntries, parseCsvEntries } from '../src/profile/csv.js';
+import { parseAlsEntries } from '../src/profile/csv.js';
 import { detectEncoding, sampleErbEncodings } from '../src/profile/scan.js';
 
 let projectRoot: string;
@@ -64,9 +64,9 @@ before(async () => {
   await w('ERB/口上・メッセージ関連/個人口上/002 Marisa [魔理沙]/M_KOJO_K2_events.ERB', '@EVENT_K2\nRETURN\n');
   await w('ERB/魔改内容/qol/weather.ERB', '@QOL_WEATHER\nRETURN\n');
 
-  await w('CSV/CFLAG.als', '1,\n;(BIT 0=キス)\n2,好感度\n3,\n');
-  await w('CSV/CFLAG.csv', '1,既成事实\n2,好感度\n3,异常经验\n');
-  await w('CSV/Talent.csv', '1,素质\n2,\n');
+  await w('CSV/CFLAG.als', '2,好感度\n');
+  await w('CSV/CFLAG.csv', '2,好感度\n');
+  await w('CSV/Talent.csv', '1,素质\n');
   await w('CSV/_Rename.csv', '1,ignored\n');
   await w('CSV/VariableSize.csv', ';仅注释\n');
   await w('CSV/Chara/Chara1 Reimu [霊夢].csv', '1,x\n');
@@ -111,19 +111,10 @@ test('dim: constants extraction', () => {
 });
 
 test('als: entry parsing', () => {
-  const entries = parseAlsEntries('1,\n;(BIT 0=キス)\n2,好感度\n无逗号行\n3,异常,经验\n');
-  assert.equal(entries.length, 3);
-  assert.deepEqual(entries[0], { id: 1, name: '' });
-  assert.equal(entries[2]?.name, '异常,经验'); // 名称可含逗号
-});
-
-test('csv: multi-column enum files take first two fields only', () => {
-  const entries = parseCsvEntries('1,,3000,\n2,,9000,\n1,,;(1= )\n;comment\n');
-  assert.deepEqual(
-    entries.map((e) => e.name),
-    ['', '', ''],
-  );
-  assert.equal(entries[0]?.id, 1);
+  const entries = parseAlsEntries('2,好感度\n无逗号行\n3,异常,经验\n');
+  assert.equal(entries.length, 2);
+  assert.deepEqual(entries[0], { id: 2, name: '好感度' });
+  assert.equal(entries[1]?.name, '异常,经验'); // 名称可含逗号
 });
 
 test('encoding: detection', () => {
@@ -156,10 +147,10 @@ test('profile: full extraction on synthetic project', async () => {
   assert.ok(p.directories.some((d) => d.name === '魔改内容' && d.erbCount === 1));
 
   const cflag = p.variableFamilies.find((f) => f.name === 'CFLAG');
-  assert.equal(cflag?.alsEnumCount, 3);
-  assert.equal(cflag?.csvEnumCount, 3);
-  assert.deepEqual(cflag?.sampleNames, ['既成事实', '好感度', '异常经验']);
-  assert.ok(p.variableFamilies.some((f) => f.name === 'TALENT' && f.csvEnumCount === 2));
+  assert.equal(cflag?.alsEnumCount, 1);
+  assert.equal(cflag?.csvEnumCount, 1);
+  assert.deepEqual(cflag?.sampleNames, ['好感度']);
+  assert.ok(p.variableFamilies.some((f) => f.name === 'TALENT' && f.csvEnumCount === 1));
   assert.ok(!p.variableFamilies.some((f) => f.name === '_RENAME' || f.name === 'VARIABLESIZE'));
 
   assert.equal(p.characters.charaCsvCount, 2);

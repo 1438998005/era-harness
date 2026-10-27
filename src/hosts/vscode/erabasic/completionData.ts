@@ -482,7 +482,7 @@ export const BuiltinComplationItems = localizedComplationItems([
 	{
 		label: "UPCHECK",
 		kind: Command,
-		nlsDetail: { ja: "パラメータの変化を表示", en: "Display changes in training parameters" },
+		nlsDetail: { ja: "パラメータの変化を表示", en: "Display changes in parameters" },
 	},
 	{
 		label: "DRAWLINE",

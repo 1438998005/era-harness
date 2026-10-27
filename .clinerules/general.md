@@ -1,3 +1,5 @@
+⛔ **Never push or publish.** 本项目的 AI 不得执行 `git push`、`gh pr create/edit/merge`、PR 合并、Release 发布等任何**向远程写入或对外可见**的动作——只做到本地 commit，其余命令原样打印给用户手动跑。这条覆盖本文件与其他 workflow / skill 里的推送步骤（项目级硬约束见工作区根 `AGENTS.md` §3.8；用户 GitHub 账号已因自动化推送被风控）。
+
 This file is the secret sauce for working effectively in this codebase. It captures tribal knowledge—the nuanced, non-obvious patterns that make the difference between a quick fix and hours of back-and-forth & human intervention.
 
 **When to add to this file:**

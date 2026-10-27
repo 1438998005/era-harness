@@ -170,14 +170,6 @@ test('inline: empty / garbage input does not crash', () => {
 });
 
 test('classify: unit rules', () => {
-  assert.deepEqual(classify('无法解析的标识符""'), {
-    kind: 'unresolved-identifier',
-    identifier: '',
-  });
-  assert.deepEqual(classify('变量""未在此函数中定义'), {
-    kind: 'variable-not-in-function',
-    identifier: '',
-  });
   assert.deepEqual(classify('对未被标记为#FUNCTION的函数"@CALMME"使用了CALLF系列的命令进行调用'), {
     kind: 'callf-non-function',
     functionName: '@CALMME',

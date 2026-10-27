@@ -1232,6 +1232,27 @@ export class Task {
 		await this.initiateTaskLoop(userContent)
 	}
 
+	/**
+	 * 恢复任务时重建身份。
+	 *
+	 * 身份（可写范围）是进程内单例，只在两处被同步：initTask（新任务首条消息）与
+	 * handleWebviewAskResponse（用户手打的消息，webview 会给每条消息拼 <era-identity> 前缀）。
+	 * 扩展宿主重启后（关掉 VS Code 再开、Reload Window）会退回默认 "self"，而 resume 路径
+	 * 既不经过 initTask、也没有用户消息，于是 currentMode 一直停在 "self"：
+	 * persona 任务里的口上文件被 isWriteAllowedByScope 判成「范围外」，
+	 * 即使勾了「自动编辑」也会逐条弹人工确认。
+	 *
+	 * 这里从历史消息里第一条 say:"task" 重新解析身份，保证恢复后的判定与任务创建时一致。
+	 */
+	private restoreIdentityFromSavedMessages(messages: ClineMessage[]): void {
+		const taskMessage = messages.find((m) => m.say === "task")
+		const identity = parseIdentityFromText(taskMessage?.text)
+		if (identity) {
+			setCurrentIdentityMode(identity)
+			Logger.log(`[Task] identity restored on resume: ${identity}`)
+		}
+	}
+
 	public async resumeTaskFromHistory() {
 		try {
 			await this.clineIgnoreController.initialize()
@@ -1241,6 +1262,9 @@ export class Task {
 		}
 
 		const savedClineMessages = await getSavedClineMessages(this.taskId)
+
+		// 必须先于任何工具调用重建身份，否则恢复后的第一轮写盘就会被判成范围外
+		this.restoreIdentityFromSavedMessages(savedClineMessages)
 
 		// Remove any resume messages that may have been added before
 
@@ -2209,6 +2233,21 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 
 					// Calculate delay: 2s, 4s, 8s
 					const delay = 2000 * 2 ** (this.taskState.autoRetryAttempts - 1)
+
+					// era harness（D1 请求层审计，2026-10-25）：retry 审计事件此前只挂在
+					// withRetry（429 路径），这条任务层自动重试链只有逐次 error 事件，
+					// 审计分不清自动重试与手动重试。与 withRetry 口径对齐。
+					recordAudit({
+						event: "api",
+						action: "retry",
+						taskId: this.taskId,
+						turn: this.taskState.apiRequestCount,
+						attempt: this.taskState.autoRetryAttempts,
+						maxAttempts: 3,
+						delayMs: delay,
+						message: streamingFailedMessage || undefined,
+						...this.auditTaskMeta(),
+					})
 
 					await updateApiReqMsg({
 						messageStateHandler: this.messageStateHandler,

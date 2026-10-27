@@ -12,8 +12,45 @@ export interface ReleaseAsset {
 	digest?: string
 }
 
-/** 只接受本仓库 Release 的下载地址，防止被引导去装任意 vsix */
-export const TRUSTED_RELEASE_PREFIX = "https://github.com/1438998005/era-harness/releases/download/"
+/**
+ * 两条**互相独立**的发布渠道：各自查、各自下，下载地址都来自各自接口。
+ *
+ * 刻意不做「一个源 + 一个加速前缀」的拼接——jihulab 的地址不是 GitHub 地址的变形，
+ * 而且账号受限时 GitHub 整条链路都不通，前缀方案救不了。
+ */
+export type ReleaseSource = "github" | "jihulab"
+
+export interface ReleaseSourceMeta {
+	/** 按钮与文案里显示的名字 */
+	label: string
+	/** 取 Release 列表的 REST 接口 */
+	apiUrl: string
+	/** 资产下载地址的受信前缀：不在这个前缀下一律不认 */
+	assetPrefix: string
+	/** 给人看的 Release 页面 */
+	releasesPage: string
+}
+
+export const GITHUB_REPO = "1438998005/era-harness"
+export const JIHULAB_PROJECT = "eraharness/era-harness"
+
+export const RELEASE_SOURCES: Record<ReleaseSource, ReleaseSourceMeta> = {
+	github: {
+		label: "GitHub",
+		apiUrl: `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+		assetPrefix: `https://github.com/${GITHUB_REPO}/releases/download/`,
+		releasesPage: `https://github.com/${GITHUB_REPO}/releases/latest`,
+	},
+	jihulab: {
+		label: "jihulab",
+		apiUrl: `https://jihulab.com/api/v4/projects/${encodeURIComponent(JIHULAB_PROJECT)}/releases?per_page=20`,
+		assetPrefix: `https://jihulab.com/${JIHULAB_PROJECT}/-/releases/`,
+		releasesPage: `https://jihulab.com/${JIHULAB_PROJECT}/-/releases`,
+	},
+}
+
+/** 检查顺序：先 GitHub，连不上再问 jihulab */
+export const RELEASE_SOURCE_ORDER: readonly ReleaseSource[] = ["github", "jihulab"]
 
 /** 单个 vsix 的体积上限：超过即视为异常资产 */
 export const MAX_VSIX_BYTES = 200 * 1024 * 1024
@@ -62,11 +99,18 @@ export function isNewerVersion(current: string, latest: string): boolean {
 	return compareVersions(latest, current) > 0
 }
 
-export function isTrustedReleaseAsset(asset: ReleaseAsset): boolean {
+/**
+ * 资产是否来自指定渠道的受信地址。
+ *
+ * `size` 允许为 0：GitLab 的 Release 资产不返回体积，只能用 0 表示「未知」，
+ * 真实体积在下载完成后由 `isValidDownloadedVsix` 兜底（上限仍然卡死）。
+ */
+export function isTrustedReleaseAsset(asset: ReleaseAsset, source: ReleaseSource): boolean {
 	return (
 		asset.name.toLowerCase().endsWith(".vsix") &&
-		asset.browser_download_url.startsWith(TRUSTED_RELEASE_PREFIX) &&
-		asset.size > 0 &&
+		asset.browser_download_url.startsWith(RELEASE_SOURCES[source].assetPrefix) &&
+		Number.isFinite(asset.size) &&
+		asset.size >= 0 &&
 		asset.size <= MAX_VSIX_BYTES
 	)
 }
@@ -94,12 +138,16 @@ export function isValidDownloadedVsix(byteLength: number, assetSize?: number): b
  */
 const PLATFORM_SPECIFIC_ASSET = /-(linux|win32|darwin|darwin-arm64|android|web)(-[a-z0-9_]+)?\.vsix$/i
 
-export function pickVsixAsset(assets: ReadonlyArray<ReleaseAsset> | undefined, tag: string): ReleaseAsset | undefined {
+export function pickVsixAsset(
+	assets: ReadonlyArray<ReleaseAsset> | undefined,
+	tag: string,
+	source: ReleaseSource,
+): ReleaseAsset | undefined {
 	if (!assets?.length) {
 		return undefined
 	}
 
-	const trusted = assets.filter(isTrustedReleaseAsset)
+	const trusted = assets.filter((asset) => isTrustedReleaseAsset(asset, source))
 	const generic = trusted.filter((candidate) => !PLATFORM_SPECIFIC_ASSET.test(candidate.name))
 	const normalizedTag = tag.trim().replace(/^v/i, "")
 	const preferredNames = [`era-harness-${normalizedTag}.vsix`, `era-harness-v${normalizedTag}.vsix`]
@@ -157,55 +205,23 @@ export function matchesSha256(expectedHex: string, actualHex: string): boolean {
 }
 
 // ————————————————————————————————————————————————
-// 镜像（3.91.1）：只在用户点了「用镜像下载」时才拼地址
+// 渠道选择：两个按钮 = 两条互不相干的渠道
 // ————————————————————————————————————————————————
 
 /**
- * 把官方下载地址拼到镜像前缀后面。
+ * 这个资产能不能从指定渠道下载；不能就返回 undefined（调用方据此连按钮都不给）。
  *
- * 刻意不提供"按速度自动切镜像"的判据：那等于替用户决定把 8MB 交给第三方。
- * 因此这里只做纯拼接，是否使用完全由调用方（=用户点没点按钮）决定。
- *
- * 拒绝的情况：前缀为空/非 http(s)、原地址不在 `TRUSTED_RELEASE_PREFIX` 下。
+ * 只判断「地址是否落在该渠道的受信前缀下」。摘要的前置条件按渠道各自处理：
+ * GitHub 看接口返回的 `digest`，jihulab 看同一 Release 里配套的 `.sha256` 资产。
  */
-export function buildMirrorUrl(mirrorPrefix: string, trustedUrl: string): string | undefined {
-	const prefix = mirrorPrefix.trim().replace(/\/+$/, "")
-	if (!prefix || !trustedUrl.startsWith(TRUSTED_RELEASE_PREFIX)) {
-		return undefined
-	}
-
-	let parsed: URL
-	try {
-		parsed = new URL(prefix)
-	} catch {
-		return undefined
-	}
-	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-		return undefined
-	}
-
-	return `${prefix}/${trustedUrl}`
+export function pickDownloadUrl(asset: ReleaseAsset, source: ReleaseSource): string | undefined {
+	return isTrustedReleaseAsset(asset, source) ? asset.browser_download_url : undefined
 }
 
-/**
- * 决定这一跳到底从哪下。
- *
- * - `direct`：永远官方地址，永不改道。
- * - `mirror`：仅当前缀非空**且**资产带可用 digest 时给出地址。没有 digest 就
- *   无法验证镜像给的字节，此时返回 undefined → 调用方连「用镜像下载」按钮都不显示。
- */
-export function pickDownloadUrl(asset: ReleaseAsset, mirrorPrefix: string, via: "direct" | "mirror"): string | undefined {
-	if (!isTrustedReleaseAsset(asset)) {
-		return undefined
-	}
-	if (via === "direct") {
-		return asset.browser_download_url
-	}
-	if (!parseSha256Digest(asset.digest)) {
-		return undefined
-	}
-
-	return buildMirrorUrl(mirrorPrefix, asset.browser_download_url)
+/** 同一 Release 里配套的 `<vsix>.sha256` 校验文件 */
+export function findChecksumAsset(assets: ReadonlyArray<ReleaseAsset> | undefined, vsixName: string): ReleaseAsset | undefined {
+	const wanted = `${vsixName}.sha256`.toLowerCase()
+	return assets?.find((asset) => asset.name.toLowerCase() === wanted)
 }
 
 // ————————————————————————————————————————————————

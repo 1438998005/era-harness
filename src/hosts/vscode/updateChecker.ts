@@ -15,6 +15,8 @@ import {
 	streamDownloadToPart,
 } from "@/shared/utils/download"
 import {
+	compareVersions,
+	findChecksumAsset,
 	formatBytes,
 	isNewerVersion,
 	MAX_VSIX_BYTES,
@@ -22,7 +24,10 @@ import {
 	parseSha256Digest,
 	pickDownloadUrl,
 	pickVsixAsset,
+	RELEASE_SOURCE_ORDER,
+	RELEASE_SOURCES,
 	type ReleaseAsset,
+	type ReleaseSource,
 } from "@/shared/utils/version"
 
 /**
@@ -40,18 +45,14 @@ import {
  *   一 await 就是几分钟的"按钮假死"；这里 `void runUserApprovedUpdate(...)` 立刻返回。
  *
  * 安全边界：
- * - 只查本仓库的 GitHub Release，只装官方 assets 里、下载域名对得上的 `.vsix`；
- * - 镜像**只是传输**：域名白名单一个字都不放宽，镜像来的字节必须通过 sha256 校验才落盘，
- *   没有 digest 就根本不给镜像选项（无法验证就不引入第三方）；
+ * - 两条渠道（GitHub / jihulab）**各自独立**：下载地址必须落在该渠道的受信前缀下，否则不认；
+ * - 校验按渠道各自来：GitHub 用接口返回的 `digest`，jihulab 用同一 Release 里配套的
+ *   `<vsix>.sha256`；拿不到校验依据就不给那个按钮（无法验证就不下载）；
  * - 下载先写 `.part`，全部校验通过才改名；失败/取消一律删掉 `.part`，不破坏当前版本。
  */
 
-const RELEASES_API = "https://api.github.com/repos/1438998005/era-harness/releases/latest"
-export const RELEASES_PAGE = "https://github.com/1438998005/era-harness/releases/latest"
-
-/** 镜像前缀只是「用镜像下载」按钮背后的地址，不点按钮永远走直连 */
-export const MIRROR_PREFIX_SETTING = "eraHarness.update.mirrorPrefix"
-const DEFAULT_MIRROR_PREFIX = "https://gh-proxy.com"
+const COPY_LINK = "复制下载链接"
+const OPEN_RELEASES = "打开 Release 页面"
 
 /** 首字节 15s：连接建立了却一个字节都不来，基本是墙/代理在挂 */
 const FIRST_BYTE_TIMEOUT_MS = 15_000
@@ -63,6 +64,8 @@ const TOTAL_TIMEOUT_MS = 10 * 60_000
 const INSTALL_TIMEOUT_MS = 90_000
 /** 查 GitHub API 也要有超时，否则「检查更新」会一直转圈且锁不释放 */
 const CHECK_TIMEOUT_MS = 20_000
+/** 单个渠道的查询上限：两条渠道各 8s，留足余量给另一条 */
+const PER_SOURCE_TIMEOUT_MS = 8_000
 /** updates/ 里超过一小时的 vsix 视为残留（90s 超时那次的可能还在被 VS Code 读） */
 const STALE_VSIX_MS = 60 * 60_000
 
@@ -78,16 +81,35 @@ const DOWNLOAD_TIMEOUTS = {
 	totalMs: TOTAL_TIMEOUT_MS,
 }
 
-const DOWNLOAD_DIRECT = "直接下载"
-const DOWNLOAD_MIRROR = "用镜像下载"
-const COPY_LINK = "复制下载链接"
-const OPEN_RELEASES = "打开 Release 页面"
+/** 按钮文案跟着渠道走：两个按钮 = 两条互不相干的下载链路 */
+function downloadLabel(source: ReleaseSource): string {
+	return `从 ${RELEASE_SOURCES[source].label} 下载`
+}
 
 interface GithubRelease {
 	tag_name?: string
 	draft?: boolean
 	prerelease?: boolean
 	assets?: ReleaseAsset[]
+}
+
+/** GitLab（含 jihulab）Release 的资产链接：`direct_asset_url` 才是固定直链 */
+interface GitlabReleaseLink {
+	name?: string
+	url?: string
+	direct_asset_url?: string
+}
+
+interface GitlabRelease {
+	tag_name?: string
+	upcoming_release?: boolean
+	assets?: { links?: GitlabReleaseLink[] }
+}
+
+/** 一条渠道查到的结果，已归一成两渠道通用的形状 */
+interface ReleaseInfo {
+	tag: string
+	assets: ReleaseAsset[]
 }
 
 // ————————————————————————————————————————————————
@@ -185,33 +207,54 @@ function createReporter(progress: Progress): Reporter {
 // 配置与网络
 // ————————————————————————————————————————————————
 
-/** 读镜像前缀。空串 = 用户明确关掉了镜像选项（此时连按钮都不出现） */
-function readMirrorPrefix(): string {
-	const configured = vscode.workspace.getConfiguration().get<string>(MIRROR_PREFIX_SETTING)
-	if (typeof configured !== "string") {
-		return DEFAULT_MIRROR_PREFIX
+/**
+ * 拉一条渠道的 Release，归一成两渠道通用的 `{ tag, assets }`。
+ *
+ * GitHub 返回单个对象；GitLab（jihulab）返回数组，取第一条非 upcoming 的（接口按时间倒序）。
+ * GitLab 的资产既没有体积也没有 digest：`size` 记 0 表示未知，校验改由同一 Release 里
+ * 配套的 `<vsix>.sha256` 承担。
+ */
+async function fetchRelease(source: ReleaseSource, signal: AbortSignal): Promise<ReleaseInfo | undefined> {
+	const meta = RELEASE_SOURCES[source]
+	const headers: Record<string, string> = { "User-Agent": `era-harness/${ExtensionRegistryInfo.version}` }
+	if (source === "github") {
+		headers.Accept = "application/vnd.github+json"
 	}
-	return configured.trim()
-}
 
-async function fetchLatestRelease(signal: AbortSignal): Promise<GithubRelease> {
-	const response = await fetch(RELEASES_API, {
-		headers: {
-			Accept: "application/vnd.github+json",
-			"User-Agent": `era-harness/${ExtensionRegistryInfo.version}`,
-		},
-		signal,
-	})
-
+	const response = await fetch(meta.apiUrl, { headers, signal })
 	if (!response.ok) {
-		throw new Error(`GitHub API ${response.status} ${response.statusText}`)
+		throw new Error(`${meta.label} API ${response.status} ${response.statusText}`)
 	}
 
-	return (await response.json()) as GithubRelease
+	if (source === "github") {
+		const release = (await response.json()) as GithubRelease
+		if (!release.tag_name || release.draft || release.prerelease) {
+			return undefined
+		}
+		return { tag: release.tag_name, assets: release.assets ?? [] }
+	}
+
+	const releases = (await response.json()) as GitlabRelease[]
+	const release = releases.find((item) => item.tag_name && !item.upcoming_release)
+	if (!release?.tag_name) {
+		return undefined
+	}
+
+	const links = release.assets?.links ?? []
+	return {
+		tag: release.tag_name,
+		assets: links
+			.filter((link): link is GitlabReleaseLink & { name: string } => Boolean(link.name))
+			.map((link) => ({
+				name: link.name,
+				browser_download_url: link.direct_asset_url ?? link.url ?? "",
+				size: 0,
+			})),
+	}
 }
 
-async function openReleasePage(): Promise<void> {
-	await vscode.env.openExternal(vscode.Uri.parse(RELEASES_PAGE))
+async function openReleasePage(source: ReleaseSource): Promise<void> {
+	await vscode.env.openExternal(vscode.Uri.parse(RELEASE_SOURCES[source].releasesPage))
 }
 
 /**
@@ -292,93 +335,119 @@ async function streamToPart(options: StreamOptions): Promise<{ bytes: number; sh
 interface DownloadResult {
 	vsixPath: string
 	bytes: number
-	via: DownloadVia
+	source: ReleaseSource
 }
 
-type DownloadVia = "direct" | "mirror"
+/** 取 `.sha256` 校验文件也要有超时，否则会卡在"正在取校验文件" */
+const CHECKSUM_TIMEOUT_MS = 15_000
+
+/**
+ * 校验依据按渠道各自取。
+ *
+ * - GitHub：接口里的 `assets[].digest`；
+ * - jihulab：同一 Release 里配套的 `<vsix>.sha256`（GitLab 不返回摘要，只能自己发一份）。
+ *
+ * 拿不到就抛错——**无法验证的包一律不装**，这是两条渠道共同的前提。
+ */
+async function resolveExpectedSha256(
+	asset: ReleaseAsset,
+	checksum: ReleaseAsset | undefined,
+	source: ReleaseSource,
+	reporter: Reporter,
+	token: vscode.CancellationToken,
+): Promise<string> {
+	if (source === "github") {
+		const digest = parseSha256Digest(asset.digest)
+		if (!digest) {
+			throw new UpdateError("integrity", "Release 没有提供 sha256 摘要，无法验证，已放弃下载")
+		}
+		return digest
+	}
+
+	if (!checksum) {
+		throw new UpdateError("integrity", `jihulab 的 Release 里没有 ${asset.name}.sha256，无法验证，已放弃下载`)
+	}
+	return readChecksumFile(checksum, reporter, token)
+}
+
+async function readChecksumFile(asset: ReleaseAsset, reporter: Reporter, token: vscode.CancellationToken): Promise<string> {
+	const controller = new AbortController()
+	const cancelSub = token.onCancellationRequested(() => controller.abort())
+	const timer = setTimeout(() => controller.abort(), CHECKSUM_TIMEOUT_MS)
+
+	try {
+		reporter.report(0, "正在取校验文件…")
+		const response = await fetch(asset.browser_download_url, {
+			headers: { "User-Agent": `era-harness/${ExtensionRegistryInfo.version}` },
+			signal: controller.signal,
+		})
+		if (!response.ok) {
+			throw new UpdateError("http", `校验文件下载失败（HTTP ${response.status}）`)
+		}
+
+		const text = (await response.text()).trim()
+		const digest = parseSha256Digest(text.split(/\s+/)[0] ?? "")
+		if (!digest) {
+			throw new UpdateError("integrity", "校验文件内容不是合法的 sha256")
+		}
+		return digest
+	} finally {
+		clearTimeout(timer)
+		cancelSub.dispose()
+	}
+}
 
 /**
  * 下载 → 校验 → 改名。
  *
- * 镜像只在用户点了「用镜像下载」时走；失败**不在镜像之间重试**，直接回到官方源
- * （回到官方源不算"惊喜"），并把文案写清楚。摘要不匹配属于安全事件，**不自动回退**。
+ * 渠道完全由用户点的按钮决定，**不在两条渠道之间自动切换**：那是替用户决定信任谁。
+ * 下载失败就把失败原因说清楚，让用户自己点另一个按钮。
  */
 async function downloadVsix(options: {
 	asset: ReleaseAsset
+	checksum?: ReleaseAsset
+	source: ReleaseSource
 	updatesDir: string
-	via: DownloadVia
 	reporter: Reporter
 	token: vscode.CancellationToken
 }): Promise<DownloadResult> {
-	const { asset, reporter, token } = options
-	const mirrorPrefix = readMirrorPrefix()
-
-	let via: DownloadVia = options.via
-	let url = pickDownloadUrl(asset, mirrorPrefix, via)
-	if (!url && via === "mirror") {
-		reporter.report(0, "没有可用的校验摘要，改走直连…")
-		via = "direct"
-		url = pickDownloadUrl(asset, mirrorPrefix, "direct")
-	}
+	const { asset, source, reporter, token } = options
+	const url = pickDownloadUrl(asset, source)
 	if (!url) {
-		throw new UpdateError("integrity", "Release 资产不在官方域名下，已放弃下载")
+		throw new UpdateError("integrity", `${RELEASE_SOURCES[source].label} 的资产地址不在受信范围内，已放弃下载`)
 	}
+
+	const expected = await resolveExpectedSha256(asset, options.checksum, source, reporter, token)
 
 	await fs.mkdir(options.updatesDir, { recursive: true })
 	await cleanupUpdatesDir(options.updatesDir)
 
 	const finalPath = path.join(options.updatesDir, path.basename(asset.name))
 	const partPath = `${finalPath}.part`
-	const expected = parseSha256Digest(asset.digest)
 
-	let spanFrom = 0
-	let spanTo = DOWNLOAD_END_PERCENT
+	try {
+		const { bytes, sha256 } = await streamToPart({
+			url,
+			partPath,
+			asset,
+			reporter,
+			spanFrom: 0,
+			spanTo: DOWNLOAD_END_PERCENT,
+			token,
+		})
 
-	for (let attempt = 1; ; attempt++) {
-		try {
-			const { bytes, sha256 } = await streamToPart({
-				url,
-				partPath,
-				asset,
-				reporter,
-				spanFrom,
-				spanTo,
-				token,
-			})
-
-			// 有摘要就必须对得上；镜像场景下摘要是"必须存在"的前置条件（见 pickDownloadUrl）
-			if (expected && !matchesSha256(expected, sha256)) {
-				throw new UpdateError("integrity", "下载内容的 sha256 与 Release 声明不一致，已丢弃")
-			}
-
-			reporter.report(DOWNLOAD_END_PERCENT, `下载完成 · ${formatBytes(bytes)}，正在校验…`)
-			await fs.rename(partPath, finalPath)
-			reporter.report(VERIFY_PERCENT, "校验通过")
-			Logger.log(`[update] 已下载 ${finalPath}（${bytes} bytes，via=${via}）`)
-			return { vsixPath: finalPath, bytes, via }
-		} catch (error) {
-			await fs.unlink(partPath).catch(() => {})
-			const failure = toUpdateError(error)
-
-			// 镜像的"网络层"失败可以退回官方源；摘要不匹配 / 用户取消都不退
-			const retryDirect =
-				via === "mirror" &&
-				attempt === 1 &&
-				(failure.kind === "network" || failure.kind === "http" || failure.kind === "timeout")
-			if (!retryDirect) {
-				throw failure
-			}
-
-			Logger.warn(`[update] 镜像下载失败（${failure.message}），改走直连`)
-			via = "direct"
-			url = pickDownloadUrl(asset, mirrorPrefix, "direct") ?? ""
-			if (!url) {
-				throw failure
-			}
-			spanFrom = Math.max(reporter.current(), Math.round(DOWNLOAD_END_PERCENT / 2))
-			spanTo = DOWNLOAD_END_PERCENT
-			reporter.report(spanFrom, "镜像不可用，改走直连…")
+		if (!matchesSha256(expected, sha256)) {
+			throw new UpdateError("integrity", "下载内容的 sha256 与 Release 声明不一致，已丢弃")
 		}
+
+		reporter.report(DOWNLOAD_END_PERCENT, `下载完成 · ${formatBytes(bytes)}，正在校验…`)
+		await fs.rename(partPath, finalPath)
+		reporter.report(VERIFY_PERCENT, "校验通过")
+		Logger.log(`[update] 已下载 ${finalPath}（${bytes} bytes，source=${source}）`)
+		return { vsixPath: finalPath, bytes, source }
+	} catch (error) {
+		await fs.unlink(partPath).catch(() => {})
+		throw toUpdateError(error)
 	}
 }
 
@@ -409,8 +478,8 @@ async function raceTimeout<T>(work: Promise<T>, ms: number): Promise<{ timedOut:
 }
 
 type UpdateOutcome =
-	| { kind: "installed"; bytes: number; via: DownloadVia }
-	| { kind: "unconfirmed"; bytes: number; via: DownloadVia }
+	| { kind: "installed"; bytes: number; source: ReleaseSource }
+	| { kind: "unconfirmed"; bytes: number; source: ReleaseSource }
 	| { kind: "failed"; error: UpdateError }
 
 const NEXT_STEP_HINT = "进度显示在右下角通知区，可随时点「取消」。"
@@ -424,8 +493,9 @@ const NEXT_STEP_HINT = "进度显示在右下角通知区，可随时点「取�
 async function runUserApprovedUpdate(
 	context: vscode.ExtensionContext,
 	asset: ReleaseAsset,
+	checksum: ReleaseAsset | undefined,
 	tag: string,
-	via: DownloadVia,
+	source: ReleaseSource,
 ): Promise<void> {
 	if (installInFlight) {
 		await HostProvider.window.showMessage({
@@ -444,8 +514,8 @@ async function runUserApprovedUpdate(
 				const reporter = createReporter(progress)
 				const updatesDir = path.join(context.globalStorageUri.fsPath, "updates")
 				try {
-					reporter.report(0, via === "mirror" ? "正在连接镜像…" : "正在连接 GitHub…")
-					const downloaded = await downloadVsix({ asset, updatesDir, via, reporter, token })
+					reporter.report(0, `正在连接 ${RELEASE_SOURCES[source].label}…`)
+					const downloaded = await downloadVsix({ asset, checksum, source, updatesDir, reporter, token })
 
 					// 先报"正在安装"再调：installExtension 一旦卡住，文案已经在那里了
 					reporter.report(INSTALL_PERCENT, "正在安装（VS Code 可能提示重载）…")
@@ -462,12 +532,12 @@ async function runUserApprovedUpdate(
 					if (raced.timedOut) {
 						// 不删 vsix：VS Code 可能还在读
 						Logger.warn(`[update] installExtension ${INSTALL_TIMEOUT_MS / 1000}s 未返回，交给 VS Code 继续`)
-						return { kind: "unconfirmed", bytes: downloaded.bytes, via: downloaded.via }
+						return { kind: "unconfirmed", bytes: downloaded.bytes, source: downloaded.source }
 					}
 
 					await fs.unlink(downloaded.vsixPath).catch(() => {})
 					reporter.report(100, "安装完成")
-					return { kind: "installed", bytes: downloaded.bytes, via: downloaded.via }
+					return { kind: "installed", bytes: downloaded.bytes, source: downloaded.source }
 				} catch (error) {
 					return { kind: "failed", error: toUpdateError(error) }
 				}
@@ -486,7 +556,7 @@ async function runUserApprovedUpdate(
 	}
 
 	if (outcome.kind === "failed") {
-		await reportUpdateFailure(context, asset, tag, via, outcome.error)
+		await reportUpdateFailure(context, asset, checksum, tag, source, outcome.error)
 		return
 	}
 
@@ -517,8 +587,9 @@ async function runUserApprovedUpdate(
 async function reportUpdateFailure(
 	context: vscode.ExtensionContext,
 	asset: ReleaseAsset,
+	checksum: ReleaseAsset | undefined,
 	tag: string,
-	via: DownloadVia,
+	source: ReleaseSource,
 	error: UpdateError,
 ): Promise<void> {
 	if (error.kind === "cancelled") {
@@ -533,7 +604,7 @@ async function reportUpdateFailure(
 	Logger.error("[update] 更新失败：", error)
 	recordAudit({ event: "update", action: "install", target: asset.name, outcome: "error", message: error.message })
 
-	const retry = via === "mirror" ? "用直连重试" : "重试"
+	const retry = "重试"
 	const answer = await HostProvider.window.showMessage({
 		type: ShowMessageType.ERROR,
 		message: `更新失败：${error.message}（当前版本未被改动）`,
@@ -541,17 +612,99 @@ async function reportUpdateFailure(
 	})
 
 	if (answer.selectedOption === retry) {
-		void runUserApprovedUpdate(context, asset, tag, "direct")
+		void runUserApprovedUpdate(context, asset, checksum, tag, source)
 		return
 	}
 	if (answer.selectedOption === OPEN_RELEASES) {
-		await openReleasePage()
+		await openReleasePage(source)
 	}
 }
 
 // ————————————————————————————————————————————————
 // 第一步：检查
 // ————————————————————————————————————————————————
+
+/** 一个渠道查到的可用候选 */
+interface UpdateCandidate {
+	source: ReleaseSource
+	tag: string
+	asset: ReleaseAsset
+	/** jihulab 侧配套的 `<vsix>.sha256`；GitHub 用资产自带的 digest，这里为空 */
+	checksum?: ReleaseAsset
+}
+
+interface SourceScan {
+	candidates: UpdateCandidate[]
+	failures: { source: ReleaseSource; message: string }[]
+	/** 至少有一条渠道明确返回了不高于当前版本 —— 用于区分"已是最新"和"全部失败" */
+	sawOlder: boolean
+}
+
+/**
+ * 两条渠道各查一遍。
+ *
+ * 一条挂了不影响另一条：GitHub 被墙/账号受限时，jihulab 照样能给出候选。
+ * 每个候选都要自带校验依据，拿不到就不进候选列表（= 那个按钮不出现）。
+ */
+async function scanSources(signal: AbortSignal): Promise<SourceScan> {
+	const candidates: UpdateCandidate[] = []
+	const failures: { source: ReleaseSource; message: string }[] = []
+	let sawOlder = false
+
+	for (const source of RELEASE_SOURCE_ORDER) {
+		// 每个渠道单独限时：GitHub 被墙时请求会一直挂着，不设上限就会把总预算吃光，
+		// jihulab 那一轮根本轮不到。
+		const controller = new AbortController()
+		const forwardAbort = () => controller.abort()
+		signal.addEventListener("abort", forwardAbort, { once: true })
+		const timer = setTimeout(() => controller.abort(), PER_SOURCE_TIMEOUT_MS)
+		try {
+			const release = await fetchRelease(source, controller.signal)
+			if (!release) {
+				failures.push({ source, message: "没有可用的正式版本" })
+				continue
+			}
+			if (!isNewerVersion(ExtensionRegistryInfo.version, release.tag)) {
+				sawOlder = true
+				continue
+			}
+
+			const asset = pickVsixAsset(release.assets, release.tag, source)
+			if (!asset) {
+				failures.push({ source, message: `${release.tag} 里没有可用的 vsix` })
+				continue
+			}
+
+			if (source === "github" && !parseSha256Digest(asset.digest)) {
+				failures.push({ source, message: `${asset.name} 没有 sha256 摘要` })
+				continue
+			}
+
+			const checksum = source === "jihulab" ? findChecksumAsset(release.assets, asset.name) : undefined
+			if (source === "jihulab" && !checksum) {
+				failures.push({ source, message: `${asset.name} 缺少配套的 .sha256` })
+				continue
+			}
+
+			candidates.push({ source, tag: release.tag, asset, checksum })
+		} catch (error) {
+			const timedOut = controller.signal.aborted && !signal.aborted
+			failures.push({
+				source,
+				message: timedOut
+					? `连接超时（${PER_SOURCE_TIMEOUT_MS / 1000} 秒）`
+					: error instanceof Error
+						? error.message
+						: String(error),
+			})
+		} finally {
+			clearTimeout(timer)
+			signal.removeEventListener("abort", forwardAbort)
+		}
+	}
+
+	return { candidates, failures, sawOlder }
+}
 
 /** 双击按钮 / 命令面板重复触发时只跑一次检查，避免弹两个对话框 */
 let checkInFlight = false
@@ -582,14 +735,14 @@ export async function checkForUpdates(context: vscode.ExtensionContext): Promise
 
 	checkInFlight = true
 	try {
-		// 进度条作用域 A：只罩"查 API"。必须在下一次弹窗之前退出，否则进度条会压住对话框
+		// 进度条作用域 A：只罩"查两个渠道"。必须在下一次弹窗之前退出，否则进度条会压住对话框
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS)
-		let release: GithubRelease
+		let scan: SourceScan
 		try {
-			release = await vscode.window.withProgress(
+			scan = await vscode.window.withProgress(
 				{ location: vscode.ProgressLocation.Notification, title: "era harness：正在检查更新…" },
-				() => fetchLatestRelease(controller.signal),
+				() => scanSources(controller.signal),
 			)
 		} catch (error) {
 			// 超时必须说人话，并把锁放掉；否则再点只会得到"正在检查更新"
@@ -601,64 +754,56 @@ export async function checkForUpdates(context: vscode.ExtensionContext): Promise
 			clearTimeout(timer)
 		}
 
-		if (!release.tag_name || release.draft || release.prerelease) {
-			await HostProvider.window.showMessage({
-				type: ShowMessageType.INFORMATION,
-				message: "当前没有可用的正式版本（草稿/预发布会被忽略）。",
-				options: { items: [OPEN_RELEASES] },
-			})
-			return
-		}
+		const { candidates, failures, sawOlder } = scan
 
-		const tag = release.tag_name
-		recordAudit({ event: "update", action: "check", target: tag, outcome: "info" })
-		if (!isNewerVersion(ExtensionRegistryInfo.version, tag)) {
-			await HostProvider.window.showMessage({
-				type: ShowMessageType.INFORMATION,
-				message: `当前已是最新版本 v${ExtensionRegistryInfo.version}`,
-			})
-			return
-		}
-
-		const displayTag = tag.replace(/^v/i, "")
-		const asset = pickVsixAsset(release.assets, tag)
-		if (!asset) {
+		if (!candidates.length) {
+			if (sawOlder) {
+				await HostProvider.window.showMessage({
+					type: ShowMessageType.INFORMATION,
+					message: `当前已是最新版本 v${ExtensionRegistryInfo.version}`,
+				})
+				return
+			}
+			const detail = failures.map((item) => `${RELEASE_SOURCES[item.source].label}：${item.message}`).join("；")
 			await HostProvider.window.showMessage({
 				type: ShowMessageType.WARNING,
-				message: `发现 ${tag}，但这个 Release 里没有可用的 vsix 资产，只能去页面手动下载。`,
+				message: `没能从任何渠道取到可用的更新（${detail}）。可以稍后重试，或直接打开 Release 页面手动下载。`,
 				options: { items: [OPEN_RELEASES] },
 			})
 			return
 		}
 
-		// 镜像按钮只在「配了前缀 + 资产带 sha256」时出现：无法验证就不引入第三方
-		const mirrorAvailable = pickDownloadUrl(asset, readMirrorPrefix(), "mirror") !== undefined
-		const items = mirrorAvailable ? [DOWNLOAD_DIRECT, DOWNLOAD_MIRROR, COPY_LINK] : [DOWNLOAD_DIRECT, COPY_LINK]
+		const first = candidates[0]
+		if (!first) {
+			return
+		}
+		const newestTag = candidates.reduce((best, item) => (compareVersions(item.tag, best) > 0 ? item.tag : best), first.tag)
+		const usable = candidates.filter((item) => compareVersions(item.tag, newestTag) === 0)
+		recordAudit({ event: "update", action: "check", target: newestTag, outcome: "info" })
+
+		const displayTag = newestTag.replace(/^v/i, "")
+		const preferred = usable[0] ?? first
+		const sizeHint = preferred.asset.size > 0 ? `，${formatBytes(preferred.asset.size)}` : ""
+		const channels = usable.map((item) => RELEASE_SOURCES[item.source].label).join(" / ")
 
 		const answer = await HostProvider.window.showMessage({
 			type: ShowMessageType.INFORMATION,
-			message: `发现新版本 era harness v${displayTag}（当前 v${ExtensionRegistryInfo.version}，${formatBytes(asset.size)}）。直接下载只走 GitHub 官方地址${mirrorAvailable ? "；直连慢可以改用镜像（内容仍需通过 sha256 校验）" : ""}。${NEXT_STEP_HINT}`,
-			options: { items },
+			message: `发现新版本 era harness v${displayTag}（当前 v${ExtensionRegistryInfo.version}${sizeHint}）。可用渠道：${channels}——两个按钮走的是两条互不相干的下载链路，挑一条能连通的即可。${NEXT_STEP_HINT}`,
+			options: { items: [...usable.map((item) => downloadLabel(item.source)), COPY_LINK] },
 		})
 
-		const via: DownloadVia | undefined =
-			answer.selectedOption === DOWNLOAD_MIRROR
-				? "mirror"
-				: answer.selectedOption === DOWNLOAD_DIRECT
-					? "direct"
-					: undefined
-
-		if (via) {
+		const chosen = usable.find((item) => downloadLabel(item.source) === answer.selectedOption)
+		if (chosen) {
 			// 关键：不 await。命令链（含 gRPC）立刻返回，锁也立刻释放
-			void runUserApprovedUpdate(context, asset, tag, via)
+			void runUserApprovedUpdate(context, chosen.asset, chosen.checksum, chosen.tag, chosen.source)
 			return
 		}
 
 		if (answer.selectedOption === COPY_LINK) {
-			await vscode.env.clipboard.writeText(asset.browser_download_url)
+			await vscode.env.clipboard.writeText(preferred.asset.browser_download_url)
 			await HostProvider.window.showMessage({
 				type: ShowMessageType.INFORMATION,
-				message: "下载链接已复制。用浏览器或下载器拉下来后，在扩展面板右上角「…」→「从 VSIX 安装」里选它即可。",
+				message: `已复制 ${RELEASE_SOURCES[preferred.source].label} 的下载链接。用浏览器或下载器拉下来后，在扩展面板右上角「…」→「从 VSIX 安装」里选它即可。`,
 			})
 		}
 	} catch (error) {
@@ -672,7 +817,7 @@ export async function checkForUpdates(context: vscode.ExtensionContext): Promise
 			options: { items: [OPEN_RELEASES] },
 		})
 		if (answer.selectedOption === OPEN_RELEASES) {
-			await openReleasePage()
+			await openReleasePage(RELEASE_SOURCE_ORDER[0] ?? "github")
 		}
 	} finally {
 		checkInFlight = false

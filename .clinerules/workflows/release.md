@@ -1,5 +1,7 @@
 # Release
 
+> ⛔ **本项目禁用**：本流程中 `git push`、`gh pr`、Release 发布等向远程写入的步骤一律作废，AI 只做到本地 commit，其余命令打印给用户手动执行（工作区根 `AGENTS.md` §3.8）。
+
 Prepare and publish a release directly from `main`.
 
 ## Overview

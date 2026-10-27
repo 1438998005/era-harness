@@ -42,7 +42,7 @@ function deps(opts: {
 
 test("Windows：用 explorer 打开目录，成功就不再走 openExternal", async () => {
 	const h = deps({ platform: "win32" })
-	const dir = "C:\\Users\\周远航\\AppData\\Roaming\\Code\\User\\globalStorage\\eraharness.era-harness\\diagnostics"
+	const dir = "C:\\Users\\用户名\\AppData\\Roaming\\Code\\User\\globalStorage\\eraharness.era-harness\\diagnostics"
 
 	assert.equal(await openFolderInOs(dir, h.deps), null, "成功要返回 null")
 	assert.deepEqual(h.spawned, [["explorer.exe", dir]], "要原样把目录交给 explorer，不能改写路径")

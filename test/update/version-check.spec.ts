@@ -7,8 +7,8 @@ import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
 import {
-	buildMirrorUrl,
 	compareVersions,
+	findChecksumAsset,
 	formatBytes,
 	formatSpeed,
 	isNewerVersion,
@@ -20,18 +20,30 @@ import {
 	parseVersion,
 	pickDownloadUrl,
 	pickVsixAsset,
+	RELEASE_SOURCES,
 	type ReleaseAsset,
-	TRUSTED_RELEASE_PREFIX,
 } from "../../src/shared/utils/version"
 
 const GOOD_DIGEST = "sha256:c33f205bb5e7fb2a94b74fbc155df790900e0f1c2deb9f2d741ef4b15b16000f"
 
+const GITHUB_PREFIX = RELEASE_SOURCES.github.assetPrefix
+const JIHULAB_PREFIX = RELEASE_SOURCES.jihulab.assetPrefix
+
 function asset(name: string, url?: string, size = 1024, digest?: string): ReleaseAsset {
 	return {
 		name,
-		browser_download_url: url ?? `https://github.com/1438998005/era-harness/releases/download/v3.90.0/${name}`,
+		browser_download_url: url ?? `${GITHUB_PREFIX}v3.90.0/${name}`,
 		size,
 		digest,
+	}
+}
+
+/** jihulab 的资产：GitLab 不返回体积，也没有 digest（校验靠配套的 .sha256） */
+function jihulabAsset(name: string, tag = "v3.90.0"): ReleaseAsset {
+	return {
+		name,
+		browser_download_url: `${JIHULAB_PREFIX}${tag}/downloads/${name}`,
+		size: 0,
 	}
 }
 
@@ -70,36 +82,36 @@ test("isNewerVersion：只有严格更新才算更新", () => {
 // ————————————————————————————————————————————————
 
 test("优先挑 era-harness-<tag>.vsix", () => {
-	const picked = pickVsixAsset([asset("other.vsix"), asset("era-harness-3.90.0.vsix")], "v3.90.0")
+	const picked = pickVsixAsset([asset("other.vsix"), asset("era-harness-3.90.0.vsix")], "v3.90.0", "github")
 	assert.equal(picked?.name, "era-harness-3.90.0.vsix")
 })
 
 test("没有约定名时取第一个受信任的 vsix", () => {
-	const picked = pickVsixAsset([asset("era-harness.vsix"), asset("second.vsix")], "v3.90.0")
+	const picked = pickVsixAsset([asset("era-harness.vsix"), asset("second.vsix")], "v3.90.0", "github")
 	assert.equal(picked?.name, "era-harness.vsix")
 })
 
 test("非官方域名一律拒绝", () => {
 	const evil = asset("era-harness-3.90.0.vsix", "https://evil.example.com/era-harness-3.90.0.vsix")
-	assert.equal(isTrustedReleaseAsset(evil), false)
-	assert.equal(pickVsixAsset([evil], "v3.90.0"), undefined)
+	assert.equal(isTrustedReleaseAsset(evil, "github"), false)
+	assert.equal(pickVsixAsset([evil], "v3.90.0", "github"), undefined)
 })
 
 test("超过体积上限的资产被拒绝", () => {
 	const huge = asset("era-harness-3.90.0.vsix", undefined, MAX_VSIX_BYTES + 1)
-	assert.equal(isTrustedReleaseAsset(huge), false)
-	assert.equal(pickVsixAsset([huge], "v3.90.0"), undefined)
+	assert.equal(isTrustedReleaseAsset(huge, "github"), false)
+	assert.equal(pickVsixAsset([huge], "v3.90.0", "github"), undefined)
 })
 
 test("非 vsix 资产被忽略", () => {
 	const zip = asset("source.zip")
-	assert.equal(isTrustedReleaseAsset(zip), false)
-	assert.equal(pickVsixAsset([zip], "v3.90.0"), undefined)
+	assert.equal(isTrustedReleaseAsset(zip, "github"), false)
+	assert.equal(pickVsixAsset([zip], "v3.90.0", "github"), undefined)
 })
 
 test("空资产列表返回 undefined（只给 Release 页面）", () => {
-	assert.equal(pickVsixAsset([], "v3.90.0"), undefined)
-	assert.equal(pickVsixAsset(undefined, "v3.90.0"), undefined)
+	assert.equal(pickVsixAsset([], "v3.90.0", "github"), undefined)
+	assert.equal(pickVsixAsset(undefined, "v3.90.0", "github"), undefined)
 })
 
 test("下载后体积校验：与元数据不一致、为空或超上限都拒绝", () => {
@@ -146,89 +158,55 @@ test("matchesSha256：两侧都非法时不匹配（空 vs 空不能算通过）
 })
 
 // ————————————————————————————————————————————————
-// 镜像（3.91.1）：纯拼接，绝不自动改道
+// 渠道（两条独立链路）：各自只认自己的前缀
 // ————————————————————————————————————————————————
 
-test("拼接镜像地址：前缀带不带尾斜杠都得到同一个 URL", () => {
-	const official = `${TRUSTED_RELEASE_PREFIX}v3.91.1/era-harness-3.91.1.vsix`
-	const expected = `https://gh-proxy.com/${official}`
+test("GitHub 与 jihulab 各自只认自己的前缀", () => {
+	const gh = asset("era-harness-3.91.1.vsix")
+	const jh = jihulabAsset("era-harness-3.91.1.vsix", "v3.91.1")
 
-	assert.equal(buildMirrorUrl("https://gh-proxy.com", official), expected)
-	assert.equal(buildMirrorUrl("https://gh-proxy.com/", official), expected)
-	assert.equal(buildMirrorUrl("https://gh-proxy.com///", official), expected)
-	assert.equal(buildMirrorUrl("  https://gh-proxy.com  ", official), expected)
+	assert.equal(isTrustedReleaseAsset(gh, "github"), true)
+	assert.equal(isTrustedReleaseAsset(gh, "jihulab"), false, "GitHub 地址不能冒充 jihulab")
+	assert.equal(isTrustedReleaseAsset(jh, "jihulab"), true)
+	assert.equal(isTrustedReleaseAsset(jh, "github"), false, "jihulab 地址不能冒充 GitHub")
 })
 
-test("拼接镜像地址：空前缀 / 非 http(s) / 非本仓地址一律 undefined", () => {
-	const official = `${TRUSTED_RELEASE_PREFIX}v3.91.1/era-harness-3.91.1.vsix`
-
-	assert.equal(buildMirrorUrl("", official), undefined)
-	assert.equal(buildMirrorUrl("   ", official), undefined)
-	assert.equal(buildMirrorUrl("ftp://mirror.example.com", official), undefined)
-	assert.equal(buildMirrorUrl("javascript:alert(1)", official), undefined)
-	assert.equal(buildMirrorUrl("https://evil.example.com", "https://evil.example.com/x.vsix"), undefined)
+test("jihulab 资产体积未知（0）也接受，超上限仍然拒绝", () => {
+	assert.equal(isTrustedReleaseAsset(jihulabAsset("era-harness-3.91.1.vsix"), "jihulab"), true)
+	const huge = { ...jihulabAsset("era-harness-3.91.1.vsix"), size: MAX_VSIX_BYTES + 1 }
+	assert.equal(isTrustedReleaseAsset(huge, "jihulab"), false)
 })
 
-test("拼接镜像地址不改动原 URL 的路径（含中文与查询串）", () => {
-	const official = `${TRUSTED_RELEASE_PREFIX}v3.91.1/era-harness-3.91.1.vsix`
-	const mirrored = buildMirrorUrl("https://gh-proxy.com", official)
-	assert.ok(mirrored)
-	assert.ok(mirrored.endsWith(official), "镜像地址必须以原地址结尾，路径不许被改写")
-	assert.equal(mirrored.indexOf(official), "https://gh-proxy.com/".length)
+test("pickDownloadUrl：只返回该渠道自己的地址", () => {
+	const gh = asset("era-harness-3.91.1.vsix")
+	const jh = jihulabAsset("era-harness-3.91.1.vsix")
+
+	assert.equal(pickDownloadUrl(gh, "github"), gh.browser_download_url)
+	assert.equal(pickDownloadUrl(gh, "jihulab"), undefined)
+	assert.equal(pickDownloadUrl(jh, "jihulab"), jh.browser_download_url)
+	assert.equal(pickDownloadUrl(jh, "github"), undefined)
 })
 
-test("pickDownloadUrl：direct 永远官方地址，永不改道", () => {
-	const withDigest = asset("era-harness-3.91.1.vsix", undefined, 1024, GOOD_DIGEST)
-	assert.equal(pickDownloadUrl(withDigest, "https://gh-proxy.com", "direct"), withDigest.browser_download_url)
-	assert.equal(
-		pickDownloadUrl(withDigest, "https://evil.example.com", "direct"),
-		withDigest.browser_download_url,
-		"镜像前缀再乱也不影响直连",
-	)
-
-	const noDigest = asset("era-harness-3.91.1.vsix")
-	assert.equal(pickDownloadUrl(noDigest, "", "direct"), noDigest.browser_download_url)
+test("pickDownloadUrl：第三方域名两条渠道都不认", () => {
+	const evil = asset("era-harness-3.90.0.vsix", "https://evil.example.com/era-harness-3.90.0.vsix")
+	assert.equal(pickDownloadUrl(evil, "github"), undefined)
+	assert.equal(pickDownloadUrl(evil, "jihulab"), undefined)
 })
 
-test("pickDownloadUrl：mirror 需要 非空前缀 + 可用 digest 两个条件", () => {
-	const official = `${TRUSTED_RELEASE_PREFIX}v3.90.0/era-harness-3.90.0.vsix`
-	const withDigest = asset("era-harness-3.90.0.vsix", official, 1024, GOOD_DIGEST)
-
-	assert.equal(pickDownloadUrl(withDigest, "", "mirror"), undefined, "前缀为空 → 连按钮都不该出现")
-	assert.equal(pickDownloadUrl(withDigest, "   ", "mirror"), undefined)
-	assert.equal(
-		pickDownloadUrl(asset("era-harness-3.90.0.vsix", official), "https://gh-proxy.com", "mirror"),
-		undefined,
-		"没有 digest 就无法验证第三方字节 → 禁止走镜像",
-	)
-	assert.equal(
-		pickDownloadUrl(
-			asset("era-harness-3.90.0.vsix", official, 1024, "sha512:" + "a".repeat(128)),
-			"https://gh-proxy.com",
-			"mirror",
-		),
-		undefined,
-		"非 sha256 摘要等于没有校验",
-	)
-	assert.equal(pickDownloadUrl(withDigest, "https://gh-proxy.com", "mirror"), `https://gh-proxy.com/${official}`)
+test("findChecksumAsset：只认同名的 <vsix>.sha256", () => {
+	const assets = [jihulabAsset("era-harness-3.91.1.vsix"), jihulabAsset("era-harness-3.91.1.vsix.sha256")]
+	assert.equal(findChecksumAsset(assets, "era-harness-3.91.1.vsix")?.name, "era-harness-3.91.1.vsix.sha256")
+	assert.equal(findChecksumAsset(assets, "era-harness-3.90.0.vsix"), undefined)
+	assert.equal(findChecksumAsset(undefined, "era-harness-3.91.1.vsix"), undefined)
 })
 
-test("pickDownloadUrl：不受信任的资产连直连地址都不给", () => {
-	const evil = asset("era-harness-3.90.0.vsix", "https://evil.example.com/era-harness-3.90.0.vsix", 1024, GOOD_DIGEST)
-	assert.equal(pickDownloadUrl(evil, "https://gh-proxy.com", "direct"), undefined)
-	assert.equal(pickDownloadUrl(evil, "https://gh-proxy.com", "mirror"), undefined)
-})
-
-test("镜像返回错误字节 → digest 不匹配 → 拒绝落盘", () => {
-	// 真实场景：镜像给了个 200 的 HTML 错误页（或另一个版本的包）。
+test("摘要不匹配 → 拒绝落盘（两条渠道同一套判据）", () => {
 	const realVsix = Buffer.from("PK\u0003\u0004real vsix bytes")
-	const mirrorBody = Buffer.from("<html>429 Too Many Requests</html>")
-
+	const badBody = Buffer.from("<html>429 Too Many Requests</html>")
 	const realDigest = `sha256:${sha256Of(realVsix)}`
-	const mirrorDigest = sha256Of(mirrorBody)
 
-	assert.equal(matchesSha256(parseSha256Digest(realDigest) ?? "", mirrorDigest), false, "镜像字节必须被拒")
-	assert.equal(matchesSha256(parseSha256Digest(realDigest) ?? "", sha256Of(realVsix)), true, "官方字节必须通过")
+	assert.equal(matchesSha256(parseSha256Digest(realDigest) ?? "", sha256Of(badBody)), false, "错误字节必须被拒")
+	assert.equal(matchesSha256(parseSha256Digest(realDigest) ?? "", sha256Of(realVsix)), true, "正确字节必须通过")
 })
 
 // ————————————————————————————————————————————————

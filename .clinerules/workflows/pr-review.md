@@ -1,3 +1,5 @@
+> ⛔ **本项目禁用**：本流程中 `gh pr review`、`gh pr merge` 等对外可见的写动作一律作废，只做只读查看（`gh pr view/diff/list`），合并由用户手动执行（工作区根 `AGENTS.md` §3.8）。
+
 You have access to the `gh` terminal command. I already authenticated it for you. Please review it to use the PR that I asked you to review. You're already in the `cline` repo.
 
 <detailed_sequence_of_steps>

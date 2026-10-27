@@ -3,6 +3,22 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.91.13 — 2026-10-27
+
+> 更新渠道改造：把「GitHub 直连 + 第三方镜像」换成「GitHub / jihulab」两条**互不相干**的发布渠道。
+
+### 变更
+
+- **移除镜像前缀机制**。原来的「用镜像下载」是把 GitHub 地址拼到 `eraHarness.update.mirrorPrefix`（默认 `gh-proxy.com`）后面，只解决"下载慢"；GitHub 整条链路不可达时，按钮再多也没用。
+- **新增 jihulab 渠道**（`https://jihulab.com/eraharness/era-harness`）。检查更新**分别**问两个渠道，任一条能连通就出候选；两个按钮各自从自己的源下载，**不自动换源**——悄悄换源等于替用户决定信任谁。
+- **校验按渠道各自来**：GitHub 用接口的 `assets[].digest`；GitLab 没有摘要字段，改用同一 Release 里配套的 `era-harness-<ver>.vsix.sha256`。拿不到校验依据的渠道**不出现按钮**，而不是降级成"不校验"。
+- **移除配置项 `eraHarness.update.mirrorPrefix`**，设置目录生成物同步重建。原来填过前缀的用户改用两个渠道按钮即可。
+- 文案：`直接下载`/`用镜像下载` → `从 GitHub 下载`/`从 jihulab 下载`；失败提示不再出现"改用镜像"。
+
+### 验证
+
+- `test:update` 421/421（渠道隔离、体积未知、checksum 资产匹配、第三方域名双渠道拒绝）；`npm run gate` 12/12；双侧 typecheck 绿
+
 ## 3.91.12 — 2026-10-25
 
 > 诊断/审计增强（Stage 2），对应 HANDOFF「诊断包不足清单」六项 + 新发现三项；与 3.91.11 的解析器修复配套，为下轮复测与第三方远程取证提供数据面。
@@ -158,7 +174,7 @@
   - `/v1/models` **只回 id、不返回任何类型字段**，所以只能用 id 里的 `asr` / `tts` **段**判断（前后必须是 `-` 或边界，不是子串匹配——否则将来叫 `xxx-ttsx` 的新模型会被误藏）。判据收成 `isChatCapableModelId()`。
   - 卡片文案改成「已从 MiMo 同步 3 个对话模型（另有 4 个语音模型不在此列）」。**不静默藏**：用户在控制台明明看到 7 个，下拉里只剩 3 个却没人解释，比列出来更让人困惑。
 - **点「打开诊断目录」弹出「打开外部程序时出错 / Failed to open: 系统找不到指定的文件。(0x2)」**。命令确实执行了（`[runCommand] era-harness.openDiagnosticsFolder` 在日志里），目录也确实建好了（`<globalStorage>/diagnostics` 里有 audit 文件），失败在最后一步 `vscode.env.openExternal(vscode.Uri.file(dir))`。
-  - **实测证据**：同一路径 `explorer.exe <dir>`、`cmd start "" <dir>` 都能正常打开；目录存在且有内容。所以不是路径问题，是 VS Code 打开**目录**时底层 ShellExecute 拿到了 0x2（该用户目录是 `C:\Users\周远航`，含中文，怀疑是原生层传路径丢了编码）。
+  - **实测证据**：同一路径 `explorer.exe <dir>`、`cmd start "" <dir>` 都能正常打开；目录存在且有内容。所以不是路径问题，是 VS Code 打开**目录**时底层 ShellExecute 拿到了 0x2（该用户目录是 `C:\Users\用户名`，含中文，怀疑是原生层传路径丢了编码）。
   - **真正让这个 bug 变难查的是我们自己**：`openExternal` 失败时**不抛错、只 `resolve(false)`**，老代码 `await` 完就当成功了，既没打开、也没有任何我们自己的提示，用户只看到 VS Code 弹的裸错误框。
   - **修法**：Windows 上直接起 `explorer.exe`（路径由 Node 以 UTF-16 传给 CreateProcess，不经过 VS Code 的 opener）；起不来才退回 `openExternal`，并**检查它的返回值**；两条都失败就把路径显示出来、给一个「复制路径」。判定收在 `open-in-os.ts` 的 `openFolderInOs()`，只写一份。
   - 只看 `spawn` 事件、**不看退出码**：explorer.exe 即使成功也常返回 1。

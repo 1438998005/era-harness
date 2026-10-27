@@ -61,7 +61,7 @@ Cline 的 MCP 配置（`cline_mcp_settings.json`，参考 `mcp-settings.example.
     "era-harness": {
       "command": "node",
       "args": ["--import", "tsx", "src/mcp/server.ts"],
-      "cwd": "<era harness 包绝对路径>"
+      "cwd": "D:/path/to/era-harness/packages/era-harness-core"
     }
   }
 }
@@ -82,7 +82,7 @@ Cline 的 MCP 配置（`cline_mcp_settings.json`，参考 `mcp-settings.example.
     "era-harness": {
       "command": "node",
       "args": ["--import", "tsx", "src/mcp/server.ts"],
-      "cwd": "<era harness 包绝对路径>",
+      "cwd": "D:/path/to/era-harness/packages/era-harness-core",
       "env": { "ERA_HARNESS_MCP_ROOTS": "D:/games;E:/backup" }
     }
   }
@@ -102,7 +102,7 @@ Cline 的 MCP 配置（`cline_mcp_settings.json`，参考 `mcp-settings.example.
     "era-harness": {
       "command": "node",
       "args": ["--import", "tsx", "src/mcp/server.ts"],
-      "cwd": "<era harness 包绝对路径>",
+      "cwd": "D:/path/to/era-harness/packages/era-harness-core",
       "env": {
         "ERA_HARNESS_REFERENCE_ONLINE": "off",
         "ERA_HARNESS_REFERENCE_BASE": "https://raw.githubusercontent.com/<owner>/<repo>/<branch>"

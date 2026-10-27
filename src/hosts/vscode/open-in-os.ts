@@ -7,7 +7,7 @@
  * 「打开外部程序时出错」对话框；而扩展侧**拿不到任何异常**——openExternal 失败时
  * 只是 resolve(false)，3.91.3 就是把这个 false 当成了成功，于是既没打开也没提示。
  *
- * 同一路径用 explorer.exe / cmd start 都能正常打开（该用户目录是 C:\Users\周远航，
+ * 同一路径用 explorer.exe / cmd start 都能正常打开（该用户目录是 C:\Users\用户名，
  * 含中文；怀疑是 VS Code 原生层传路径时丢了编码），所以 Windows 上自己起 explorer：
  * 路径由 Node 以 UTF-16 传给 CreateProcess，不经过 VS Code 的 opener。
  *

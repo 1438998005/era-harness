@@ -95,6 +95,7 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 - 两仓**分别提交**；commit 风格＝`type(scope): 中文一句话`＋要点式 body。
 - husky＋lint-staged 会跑 `biome check --write --staged`，**它会改写你的文件** ⇒ 提交后复跑一次 `npm run compile` 确认仍绿。
 - `git add` **用显式路径**，⛔ `git add -A`：shared-trae 里有别的窗口留下的脏文件。
+- ⛔ **不推远程**：`git push`、`gh pr create/merge`、PR 合并、Release 发布一律由用户手动执行，AI 只做到本地 commit 为止。项目级硬约束见工作区根 `AGENTS.md` §3.8（用户 GitHub 账号已因自动化推送被风控）；仓内 `.clinerules/workflows/{release,hotfix-release,pr-review}.md`、`.agents/skills/create-pull-request/` 的推送步骤据此作废，只保留本地部分。
 - ⛔ 经 `.trae/knowledge`、`.trae/documents`、`.trae/rules` 链接「顺手改」共享文档——改正本走 shared-trae 本仓（git）。`.trae/` 本身被 gitignore。
 - 落点三层分流：长期事实 → shared-trae `knowledge/<domain>/`；会过时的 → `workspaces/era-harness/documents/`；随 vsix 分发的产品内嵌 → 核心库 `src/knowledge/`。⛔ 在 era-harness 仓内另建知识库。
 - ⛔ 硬编码集群路径（本机绝对路径不写进任何仓内文件，一律用 `$EMUERA_WS/<相对路径>` 或仓内相对路径）。
