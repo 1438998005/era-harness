@@ -26,7 +26,7 @@ interface ModelQuickSwitchMenuProps {
 }
 
 interface QuickSwitchEntry {
-	provider: "free" | "deepseek" | "mimo" | "openai"
+	provider: "free" | "deepseek" | "mimo" | "bigmodel" | "openai"
 	label: string
 	icon: React.ReactNode
 	iconColor: string

@@ -12,7 +12,7 @@
 
 import type { Controller } from "@core/controller"
 import { rollbackFromBackup } from "@core/update/apply"
-import { describeFreeModelRisk, describeGroup, describePlan, describeResult } from "@core/update/describe"
+import { describeFreeModelRisk, describeGroup, describeGroupDetail, describePlan, describeResult } from "@core/update/describe"
 import {
 	defaultSelection,
 	describeCandidate,
@@ -29,6 +29,7 @@ import { Logger } from "@shared/services/Logger"
 import { ulid } from "ulid"
 import * as vscode from "vscode"
 import { canRunMergeConversation, isConversationBusy, runMergeConversation } from "./mergeTask"
+import { createUpdatePanel, panelEventPayload } from "./updatePanel"
 
 const PROGRESS_TITLE = "正在更新 eraTW"
 
@@ -237,9 +238,14 @@ function isFreeModelProvider(controller?: Controller): boolean {
 	return provider === "free"
 }
 
-/** 逐组问「你改过，社区也改了」 */
+/** 逐组问「你改过，社区也改了」；完整路径放 detail（弹窗正文只露短名，F4） */
 function askGroup(group: ConflictGroup): Thenable<string | undefined> {
-	return vscode.window.showWarningMessage(describeGroup(group), { modal: true }, "让 AI 帮我合并", "保留我的版本")
+	return vscode.window.showWarningMessage(
+		describeGroup(group),
+		{ modal: true, detail: describeGroupDetail(group) },
+		"让 AI 帮我合并",
+		"保留我的版本",
+	)
 }
 
 /** 冲突走哪条路 */
@@ -287,9 +293,9 @@ async function pickMergeMode(controller?: Controller): Promise<MergeMode> {
 	return "conversation"
 }
 
-/** 工作台时间戳：同一游戏下多次回合并各占一个目录，不会互相覆盖 */
+/** 工作台时间戳：同一游戏下多次回合并各占一个目录，不会互相覆盖；秒级避免同分钟互相覆盖（U5） */
 function workbenchStamp(): string {
-	return new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")
+	return new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "")
 }
 
 /**
@@ -387,24 +393,50 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 					})
 			: undefined
 
-	const result = await vscode.window.withProgress(
-		{ location: vscode.ProgressLocation.Notification, title: PROGRESS_TITLE, cancellable: false },
-		(progress) =>
-			runUpdate({
-				root,
-				source: planned.source,
-				confirm: (rebuilt) => confirmRebuiltPlan(rebuilt, planned.result.plan),
-				merge:
-					resolveConflicts || !ask
-						? undefined
-						: {
-								ask,
-								shouldMerge: async (group) => (await askGroup(group)) === "让 AI 帮我合并",
-							},
-				resolveConflicts,
-				onEvent: stageReporter(progress),
-			}),
-	)
+	// F5：「eraTW 更新中心」面板——更新全程的可视镜像（阶段/进度/当前文件/取消/结果）。
+	// 增量旁路设计：确认与执行仍走既有模态框（安全闸门不变），面板加载失败自动降级为纯通知。
+	const panel = await createUpdatePanel(root)
+	const UPDATE_CANCELLED = "UPDATE_CANCELLED"
+	let result: RunUpdateResult
+	try {
+		result = await vscode.window.withProgress(
+			{ location: vscode.ProgressLocation.Notification, title: PROGRESS_TITLE, cancellable: false },
+			(progress) =>
+				runUpdate({
+					root,
+					source: planned.source,
+					confirm: (rebuilt) => confirmRebuiltPlan(rebuilt, planned.result.plan),
+					merge:
+						resolveConflicts || !ask
+							? undefined
+							: {
+									ask,
+									shouldMerge: async (group) => (await askGroup(group)) === "让 AI 帮我合并",
+								},
+					resolveConflicts,
+					onEvent: (event) => {
+						stageReporter(progress)(event)
+						panel?.post(panelEventPayload(event))
+						if (panel?.cancelled) {
+							// 取消在下一个事件边界生效：写入阶段的取消会触发 apply.ts 的整体回滚
+							throw new Error(UPDATE_CANCELLED)
+						}
+					},
+				}),
+		)
+	} catch (error) {
+		if (error instanceof Error && error.message === UPDATE_CANCELLED) {
+			panel?.finish({
+				title: "已取消更新",
+				lines: [
+					"你在更新过程中点了取消，已安全停下。",
+					"如果取消发生在写入阶段，所有文件已自动回滚，游戏回到更新前的样子。",
+				],
+			})
+			return
+		}
+		throw error
+	}
 
 	const merged = result.resolve?.files.filter((file) => file.decision === "merged").length ?? 0
 	const keptLocal = result.resolve?.files.filter((file) => file.decision !== "merged").length ?? 0
@@ -418,6 +450,15 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		// 回滚没跑干净时明说；写后校验没过的文件点名（这两个字段只在对应状态有值）
 		rolledBack: result.report?.rolledBack,
 		verifyMismatches: result.verify?.mismatches.map((m) => m.path) ?? [],
+	})
+
+	// F5：结果同步进面板（标题/明细/备份位置/合并与保留计数），面板留给用户看完再关
+	panel?.finish({
+		title: narrative2.title,
+		lines: [...narrative2.lines, ...(keptLocal > 0 ? ["这些文件社区这次没能更新它们，下次更新会再问。"] : [])],
+		backupDir: result.report?.backupDir ?? null,
+		merged,
+		kept: keptLocal,
 	})
 
 	// 对话工作台的备注（有几个窗口没交、AI 有没有动工作台之外的文件）：

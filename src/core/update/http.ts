@@ -167,6 +167,12 @@ export async function httpDownload(
 		createWriteStream(part),
 	)
 
+	// U6：响应被截断（连接"干净"提前关闭）时绝不能把 .part rename 成正式文件——
+	// 截断的归档会被永久缓存毒化，之后每次解析都失败，且报错像"连不上服务器"。
+	if (total > 0 && received !== total) {
+		throw new HttpStatusError(`下载不完整：收到 ${received} / 应为 ${total} 字节`, res.status, "响应被截断，请重试")
+	}
+
 	const { rename } = await import("node:fs/promises")
 	await rename(part, destPath)
 	return received

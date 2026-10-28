@@ -67,6 +67,8 @@ export interface ApplyOptions {
 	onProgress?: (done: number, total: number, current: string, action: "write" | "delete") => void
 	/** 测试注入：执行到第 N 个动作后故意抛错，用于验证回滚 */
 	failAfter?: number
+	/** 上游新内容体积（磁盘预检用；upstream-add 的旧大小为 0，不算新内容会漏掉几百 MB 新增，U7） */
+	upstreamSizes?: Map<RelPath, { size: number }>
 }
 
 export interface ApplyReport {
@@ -99,9 +101,9 @@ function pad2(n: number): string {
 /** 备份目录名的固定前缀：`backupDirName()` 生成，`rollbackFromBackup()` 校验 */
 export const BACKUP_DIR_PREFIX = "update_backup_"
 
-/** `update_backup_20261018_develop20261017`（沿用用户既有备份命名习惯） */
+/** `update_backup_20261018_develop20261017`（沿用用户既有备份命名习惯）；秒级避免同分钟两次更新互相覆盖（U5） */
 export function backupDirName(label: string, date = new Date()): string {
-	const stamp = `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}_${pad2(date.getHours())}${pad2(date.getMinutes())}`
+	const stamp = `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}_${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`
 	return `${BACKUP_DIR_PREFIX}${stamp}_${label}`
 }
 
@@ -175,6 +177,11 @@ class Applier {
 		return this.written
 	}
 
+	/** U8：备份中途失败时清掉半成品目录（此时还没动过任何游戏文件） */
+	async discardPartialBackup(): Promise<void> {
+		await fs.rm(winLongPath(this.backupDir), { recursive: true, force: true }).catch(() => {})
+	}
+
 	/** 预检：路径合法性、磁盘空间。任何一条不过就直接抛错，一个字节都不写 */
 	async preflight(): Promise<void> {
 		for (const entry of this.actions) {
@@ -186,10 +193,13 @@ class Applier {
 			}
 		}
 
-		// 备份体积 ≈ 所有受影响文件的旧大小；写入时的临时文件与旧文件并存，再留 50% 余量
+		// 备份体积 ≈ 所有受影响文件的旧大小；写入时的临时文件与旧文件并存，再留 50% 余量。
+		// U7：写入项还要算上新内容本身——upstream-add 的旧大小为 0，漏算会漏掉几百 MB 的新增。
 		let need = 0
 		for (const entry of this.actions) {
-			need += (await this.localSize(entry.path)) ?? 0
+			const oldSize = (await this.localSize(entry.path)) ?? 0
+			const newSize = entry.action === "write" ? (this.opts.upstreamSizes?.get(entry.path)?.size ?? 0) : 0
+			need += oldSize + newSize
 		}
 		const free = await freeSpace(this.opts.root)
 		if (free !== null && need > 0 && free < need * 1.5) {
@@ -425,7 +435,14 @@ export async function applyPlan(
 			skipped: applier.skippedCount(),
 		}
 	}
-	await applier.backup()
+	try {
+		await applier.backup()
+	} catch (error) {
+		// U8：备份失败不算"更新到一半"——此时一个游戏文件都没动，但必须清掉可能残留的
+		// 半成品备份目录（没有 manifest 的目录之后没法撤销），并如实报告而不是炸穿命令链。
+		await applier.discardPartialBackup()
+		return applier.failedReport(error)
+	}
 
 	try {
 		for (const entry of actionableEntries(opts.plan)) {
@@ -472,7 +489,13 @@ export async function applyPlanFromTar(opts: ApplyOptions & { stream: AsyncItera
 			skipped: applier.skippedCount(),
 		}
 	}
-	await applier.backup()
+	try {
+		await applier.backup()
+	} catch (error) {
+		// U8：同上（流式路径），备份失败清半成品 + 如实报告
+		await applier.discardPartialBackup()
+		return applier.failedReport(error)
+	}
 
 	const allWrites = applier.writeSet()
 	// 有覆盖内容的路径直接从内存写，不再等归档里的那一条
@@ -578,7 +601,9 @@ export async function rollbackFromBackup(backupDir: string): Promise<RollbackRep
 		}
 	}
 
-	manifest.status = "rolled-back"
+	// U9：部分失败时保持可重试——status 写成 rolled-back 会让重试直接早退"已撤销"，
+	// 剩下的文件就永远恢复不回来。全部成功才标记 rolled-back。
+	manifest.status = errors.length === 0 ? "rolled-back" : "applying"
 	await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8")
 
 	// 状态也要跟着回去：更新成功时 `.era-harness/update-state.json` 已被写成新快照，

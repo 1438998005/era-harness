@@ -387,9 +387,10 @@ test("第一轮交坏、第二轮返工成功 → 最终合并成功并留下 FI
 	})
 })
 
-test("窗口数超过上限 → 全部保留本地并在 notes 说明", async () => {
+test("窗口数超过上限 → 自动分轮接力合并（不再静默全部保留，F3）", async () => {
 	await withTempRoot(async (root) => {
 		const fakes = [conflicting("ERB/A.ERB"), conflicting("ERB/B.ERB")]
+		const conversations: string[] = []
 		const result = await resolveConflictsViaWorkbench({
 			plan: makePlan(fakes),
 			...readers(fakes),
@@ -397,12 +398,47 @@ test("窗口数超过上限 → 全部保留本地并在 notes 说明", async ()
 			stamp: "s10",
 			shouldMerge: AGREE_ALL,
 			maxItems: 1,
-			runTask: async () => {
-				throw new Error("窗口超限时根本不该开对话")
+			runTask: async (prompt, layout) => {
+				conversations.push(prompt)
+				return answerAll()(prompt, layout)
 			},
 		})
-		assert.equal(result.overrides.size, 0)
-		assert.ok(result.notes?.some((n) => n.includes("一次对话处理不了")))
+
+		// 每个文件各占一轮（每轮上限 1 个窗口），两轮都跑完，两个文件都合并成功
+		assert.equal(conversations.length, 2)
+		assert.equal(result.overrides.size, 2)
+		assert.equal(result.files.filter((f) => f.decision === "merged").length, 2)
+		assert.ok(result.notes?.some((n) => n.includes("分 2 轮")))
+		assert.ok(
+			result.notes?.every((n) => !n.includes("全部保留你的版本")),
+			"不允许再出现静默全保留",
+		)
+	})
+})
+
+test("分轮中对话失败即停：本轮文件保留、后续轮不再开工，且逐个明确保留（F3）", async () => {
+	await withTempRoot(async (root) => {
+		const fakes = [conflicting("ERB/A.ERB"), conflicting("ERB/B.ERB")]
+		let conversations = 0
+		const result = await resolveConflictsViaWorkbench({
+			plan: makePlan(fakes),
+			...readers(fakes),
+			root,
+			stamp: "s10b",
+			shouldMerge: AGREE_ALL,
+			maxItems: 1,
+			runTask: async (prompt, layout) => {
+				conversations++
+				if (conversations === 1) {
+					return answerAll()(prompt, layout) // 第一轮成功
+				}
+				return { status: "failed", detail: "用户取消" } // 第二轮失败 → 即停
+			},
+		})
+		assert.equal(conversations, 2, "第二轮开了一次就停，第三轮不开")
+		assert.equal(result.files.filter((f) => f.decision === "merged").length, 1)
+		assert.equal(result.files.filter((f) => f.decision === "keep-local").length, 1)
+		assert.ok(result.notes?.some((n) => n.includes("已停止后续轮次")))
 	})
 })
 

@@ -441,132 +441,168 @@ export async function resolveConflictsViaWorkbench(options: WorkbenchMergeOption
 		result.groups.push(groupResult)
 	}
 
-	// ── 摊工作台 ──
-	const items: MergeWorkItem[] = []
-	const placements = new Map<string, { file: PendingFile; windowArrayIndex: number }>()
-	for (const file of pending) {
-		file.conflictIndices.forEach((windowArrayIndex, order) => {
-			const id = String(items.length + 1).padStart(4, "0")
-			const win = file.windows[windowArrayIndex]
-			const item: MergeWorkItem = {
-				id,
-				path: file.rel,
-				windowIndex: order + 1,
-				windowCount: file.conflictIndices.length,
-				base: win.base,
-				local: win.local,
-				theirs: win.theirs,
+	// ── 分轮摊工作台（F3，计划任务 D）：上限不再静默放弃——超限自动接力下一轮，
+	// 按文件分桶（同一文件的窗口永不拆到两轮），失败或用户取消即停，
+	// 被放弃的文件逐个明确 keepLocal 并进备注，绝不静默丢文件。──
+	const maxItems = options.maxItems ?? MAX_WORKBENCH_ITEMS
+	const rounds: PendingFile[][] = []
+	{
+		let currentRound: PendingFile[] = []
+		let currentWindows = 0
+		for (const file of pending) {
+			const windowCount = file.conflictIndices.length
+			if (windowCount > maxItems) {
+				// 单文件窗口数就超上限：分轮也装不下，明确保留并说明
+				keepLocal(file.rel, [
+					{
+						code: "window-too-large",
+						detail: `「${file.rel}」的冲突窗口数（${windowCount}）超过了单轮上限（${maxItems}），不适合自动合并`,
+					},
+				])
+				continue
 			}
-			items.push(item)
-			placements.set(id, { file, windowArrayIndex })
-		})
+			if (currentWindows + windowCount > maxItems && currentRound.length > 0) {
+				rounds.push(currentRound)
+				currentRound = []
+				currentWindows = 0
+			}
+			currentRound.push(file)
+			currentWindows += windowCount
+		}
+		if (currentRound.length > 0) {
+			rounds.push(currentRound)
+		}
 	}
 
-	const maxItems = options.maxItems ?? MAX_WORKBENCH_ITEMS
-	if (items.length === 0) {
+	if (rounds.length === 0) {
 		// 一个冲突窗口都没有：用户全拒绝、全部一侧改动、或全部一眼定论。
 		// **绝不能开工**——否则会给用户弹一个「本轮要处理 0 个冲突窗口」的空对话。
 		result.notes = notes.length > 0 ? notes : undefined
 		finalizeGroups(result, decided, plan)
 		return result
 	}
-	if (items.length > maxItems) {
-		notes.push(`这次有 ${items.length} 个冲突窗口，一次对话处理不了（上限 ${maxItems}），全部保留你的版本。`)
-		for (const file of pending) {
-			keepLocal(file.rel, [{ code: "model-failed", detail: "冲突窗口太多，这次没走 AI 合并" }])
-		}
-		result.notes = notes
-		finalizeGroups(result, decided, plan)
-		return result
+	if (rounds.length > 1) {
+		notes.push(`冲突窗口较多，会分 ${rounds.length} 轮自动处理（每轮最多 ${maxItems} 个窗口），全程无需你操作。`)
 	}
 
-	await materializeWorkbench(layout, items, options.root)
-	options.onProgress?.({ phase: "conversation", done: 0, total: items.length })
-
-	// ── 跑对话（可多轮返工） ──
-	const maxAttempts = Math.max(1, options.maxAttempts ?? 2)
-	let collected: CollectedItem[] = []
-	let lastOutcome: WorkbenchRunOutcome | null = null
-	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		const prompt =
-			attempt === 1
-				? buildWorkbenchPrompt(layout, items, options.root)
-				: buildWorkbenchFixPrompt(
-						layout,
-						collected.filter((c) => !c.ok),
-					)
-		const outcome = await options.runTask(prompt, layout)
-		lastOutcome = outcome
-		if (outcome.status !== "completed") {
-			notes.push(`对话没能跑完：${outcome.detail}`)
-			break
+	for (const [roundIndex, roundFiles] of rounds.entries()) {
+		const items: MergeWorkItem[] = []
+		const placements = new Map<string, { file: PendingFile; windowArrayIndex: number }>()
+		for (const file of roundFiles) {
+			file.conflictIndices.forEach((windowArrayIndex, order) => {
+				const id = String(items.length + 1).padStart(4, "0")
+				const win = file.windows[windowArrayIndex]
+				const item: MergeWorkItem = {
+					id,
+					path: file.rel,
+					windowIndex: order + 1,
+					windowCount: file.conflictIndices.length,
+					base: win.base,
+					local: win.local,
+					theirs: win.theirs,
+				}
+				items.push(item)
+				placements.set(id, { file, windowArrayIndex })
+			})
 		}
-		if (outcome.unexpected.length > 0) {
+		if (items.length === 0) {
+			continue
+		}
+
+		await materializeWorkbench(layout, items, options.root)
+		options.onProgress?.({ phase: "conversation", done: 0, total: items.length })
+
+		// ── 跑对话（每轮内可多轮返工；对话失败/取消 → 本轮文件全部保留，停止后续轮）──
+		const maxAttempts = Math.max(1, options.maxAttempts ?? 2)
+		let collected: CollectedItem[] = []
+		let aborted = false
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			const prompt =
+				attempt === 1
+					? buildWorkbenchPrompt(layout, items, options.root)
+					: buildWorkbenchFixPrompt(
+							layout,
+							collected.filter((c) => !c.ok),
+						)
+			const outcome = await options.runTask(prompt, layout)
+			if (outcome.status !== "completed") {
+				notes.push(`第 ${roundIndex + 1} 轮对话没能跑完：${outcome.detail}`)
+				aborted = true
+				break
+			}
+			if (outcome.unexpected.length > 0) {
+				notes.push(
+					`注意：第 ${roundIndex + 1} 轮对话动了 ${outcome.unexpected.length} 个工作台之外的文件（${outcome.unexpected
+						.slice(0, 3)
+						.map((c) => c.path)
+						.join("、")}${outcome.unexpected.length > 3 ? " 等" : ""}）。这些改动没有被采用。`,
+				)
+			}
+			options.onProgress?.({ phase: "collect" })
+			collected = await collectWorkbench(layout, items)
+			if (collected.every((c) => c.ok)) {
+				break
+			}
+			const failed = collected.filter((c) => !c.ok)
+			notes.push(`第 ${roundIndex + 1} 轮有 ${failed.length} 个冲突窗口没通过校验。`)
+			if (attempt < maxAttempts) {
+				// 把 feedback 挂到工单上并刷新 items/，下一轮 AI 重读时能看到上次错在哪
+				for (const c of failed) {
+					c.item.feedback = c.issues
+				}
+				await writeFixNote(layout, failed)
+				await writeItemFiles(layout, items, options.root)
+			}
+		}
+
+		const collectedById = new Map(collected.map((c) => [c.item.id, c]))
+		if (collected.length > 0) {
+			const tally = summarizeCollected(collected)
 			notes.push(
-				`注意：这次对话动了 ${outcome.unexpected.length} 个工作台之外的文件（${outcome.unexpected
-					.slice(0, 3)
-					.map((c) => c.path)
-					.join("、")}${outcome.unexpected.length > 3 ? " 等" : ""}）。这些改动没有被采用。`,
+				`第 ${roundIndex + 1}/${rounds.length} 轮共 ${collected.length} 个冲突窗口：${tally.ok} 个通过校验、${tally.failed} 个没通过。`,
 			)
 		}
-		options.onProgress?.({ phase: "collect" })
-		collected = await collectWorkbench(layout, items)
-		if (collected.every((c) => c.ok)) {
-			break
-		}
-		const failed = collected.filter((c) => !c.ok)
-		notes.push(`第 ${attempt} 轮有 ${failed.length} 个冲突窗口没通过校验。`)
-		if (attempt < maxAttempts) {
-			// 把 feedback 挂到工单上并刷新 items/，下一轮 AI 重读时能看到上次错在哪
-			for (const c of failed) {
-				c.item.feedback = c.issues
+
+		// ── 组装 + 整份校验（Z4：一个窗口没成，整份文件保留本地，绝不写半成品）──
+		for (const file of roundFiles) {
+			const resolved = new Map<number, string[]>()
+			for (const [id, placement] of placements) {
+				if (placement.file !== file) {
+					continue
+				}
+				const c = collectedById.get(id)
+				if (c?.ok && c.text !== null) {
+					resolved.set(placement.windowArrayIndex, c.text.split("\n"))
+				}
 			}
-			await writeFixNote(layout, failed)
-			await writeItemFiles(layout, items, options.root)
-		}
-	}
-	void lastOutcome
-
-	const collectedById = new Map(collected.map((c) => [c.item.id, c]))
-	if (collected.length > 0) {
-		const tally = summarizeCollected(collected)
-		notes.push(`工作台共 ${collected.length} 个冲突窗口：${tally.ok} 个通过校验、${tally.failed} 个没通过。`)
-	}
-
-	// ── 组装 + 整份校验 ──
-	for (const file of pending) {
-		const resolved = new Map<number, string[]>()
-		for (const [id, placement] of placements) {
-			if (placement.file !== file) {
+			const missing = file.conflictIndices.filter((i) => !resolved.has(i)).length
+			if (missing > 0) {
+				keepLocal(file.rel, [
+					{ code: "model-failed", detail: `这个文件有 ${missing} 个冲突窗口没能自动合并，已保留你的版本` },
+				])
 				continue
 			}
-			const c = collectedById.get(id)
-			if (c?.ok && c.text !== null) {
-				resolved.set(placement.windowArrayIndex, c.text.split("\n"))
+			const text = assemble(file.baseLines, file.windows, resolved)
+			const v = validateMerge({
+				path: file.rel,
+				base: file.base,
+				local: file.local,
+				theirs: file.theirs,
+				merged: text,
+				scope: "file",
+			})
+			if (!v.ok) {
+				keepLocal(file.rel, v.issues)
+				continue
 			}
+			accept(file.rel, encodeText(text, file.encoding))
 		}
-		const missing = file.conflictIndices.filter((i) => !resolved.has(i)).length
-		if (missing > 0) {
-			// Z4 零悬空：有一个窗口没成，整份文件就保留本地，绝不写半成品
-			keepLocal(file.rel, [
-				{ code: "model-failed", detail: `这个文件有 ${missing} 个冲突窗口没能自动合并，已保留你的版本` },
-			])
-			continue
+
+		if (aborted) {
+			// 用户决策「失败/取消即停」：剩余轮的文件已经在各自的组装循环里逐个明确保留
+			notes.push("已停止后续轮次，剩余冲突文件全部保留你的版本。")
+			break
 		}
-		const text = assemble(file.baseLines, file.windows, resolved)
-		const v = validateMerge({
-			path: file.rel,
-			base: file.base,
-			local: file.local,
-			theirs: file.theirs,
-			merged: text,
-			scope: "file",
-		})
-		if (!v.ok) {
-			keepLocal(file.rel, v.issues)
-			continue
-		}
-		accept(file.rel, encodeText(text, file.encoding))
 	}
 
 	result.notes = notes.length > 0 ? notes : undefined

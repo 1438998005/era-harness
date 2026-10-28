@@ -15,6 +15,7 @@ import { createGunzip } from "node:zlib"
 import { type ApplyReport, applyPlan, applyPlanFromTar } from "./apply"
 import { decodeLikeEngine } from "./decode"
 import { readNowVersion } from "./discover"
+import { findBaseCommit } from "./historyBase"
 import type { LabelIndex } from "./labels"
 import {
 	cachePath,
@@ -342,16 +343,48 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 	})
 
 	const state = await readState(opts.root)
+	const localNowVersion = await readNowVersion(opts.root)
+	// 首次同步（无基线）合成历史基线（F1，计划任务 D）：NOW_VERSION 随发版单调递增、
+	// DIM.ERH 只在发版时被改，所以在上游「动过 DIM.ERH 的提交」里定位本地版本对应的
+	// 发版点，下载该点归档建 base —— 整合包场景从「mtime 批次猜测」升级为标准三方
+	// （知识库 13 §13.3.3 修订；2026-10-28 事故：590 个误报冲突的根因）。
+	// 定位不到（魔改版改过版本号 / 本地比上游新 / 网络失败）时保持 null，走既有 mtime 路径。
+	let base = stateToBase(state)
+	let historyBaseCommit: string | undefined
+	if (!base && localNowVersion && prepared.client) {
+		emit(opts, { stage: "plan", message: "首次同步：按本地版本号定位上游历史基线" })
+		const commit = await findBaseCommit(prepared.client, localNowVersion).catch(() => null)
+		if (commit) {
+			const cache = cachePath(opts.root, `${commit}.tar.gz`)
+			const exists = await fs
+				.stat(winLongPath(cache))
+				.then(() => true)
+				.catch(() => false)
+			if (!exists) {
+				emit(opts, { stage: "download", message: "下载历史版本（做比对基线）" })
+				await prepared.client.downloadArchive(cache, commit).catch(() => null)
+			}
+			const snapshot = await snapshotFromArchiveFile(cache, `base@${commit.slice(0, 8)}`).catch(() => null)
+			if (snapshot) {
+				base = new Map([...snapshot.files].map(([rel, file]) => [rel, { sha1: file.sha1 }]))
+				historyBaseCommit = commit
+				emit(opts, {
+					stage: "plan",
+					message: `已定位历史基线 ${commit.slice(0, 8)}（NOW_VERSION=${localNowVersion}），冲突判定走标准三方`,
+				})
+			}
+		}
+	}
 	// 先出草案计划拿改动集（纯 sha1 层，便宜）；再按改动脚本喂内容闸门重建
 	const draft = buildPlan({
-		base: stateToBase(state),
+		base,
 		local: scan,
 		theirs: prepared.snapshot,
 	})
 	const gateInput = await collectGateContents(opts, prepared, draft)
 	// 存档迁移时机判据的输入：两边 NOW_VERSION（各读一个 DIM.ERH，便宜）
 	const versions: NowVersions = {
-		local: await readNowVersion(opts.root),
+		local: localNowVersion,
 		upstream: await readUpstreamNowVersion(prepared),
 	}
 	// G4 全树标签索引：有改动脚本才需要（没有就没法删函数）；labelScan: false 可关
@@ -363,7 +396,7 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		})
 	}
 	let plan = buildPlan({
-		base: stateToBase(state),
+		base,
 		local: scan,
 		theirs: prepared.snapshot,
 		gateContents: gateInput.contents,
@@ -407,7 +440,8 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		const theirsContent = prepared.archivePath
 			? await readArchiveEntries(prepared.archivePath, conflictPaths)
 			: new Map<RelPath, Buffer>()
-		const baseCommit = state?.applied.commit ?? ""
+		// 合成历史基线命中时，首次同步也能做真三方 AI 合并（readBase 取基线 commit 的内容）
+		const baseCommit = historyBaseCommit ?? state?.applied.commit ?? ""
 		const client = prepared.client
 		// 两条路径共用同一套读取器：静默合并与对话工作台必须读到**完全相同**的内容来源
 		const readers = {
@@ -464,6 +498,7 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		stateBefore: state,
 		source: { commit: prepared.head?.commit, nowVersion: prepared.head?.nowVersion ?? undefined },
 		overrides,
+		upstreamSizes: prepared.snapshot.files,
 		onProgress: (done: number, total: number, current: string, action: "write" | "delete") =>
 			emit(opts, { stage: "apply", progress: { done, total }, message: current, action }),
 	}

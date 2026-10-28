@@ -296,9 +296,9 @@ test("流式归档缺少应写文件时回滚（不留下半个更新）", async
 	})
 })
 
-test("备份目录命名沿用用户既有习惯", () => {
-	const name = backupDirName("develop20261017", new Date(2026, 9, 18, 20, 30))
-	assert.equal(name, "update_backup_20261018_2030_develop20261017")
+test("备份目录命名沿用用户既有习惯（秒级，避免同分钟两次更新互相覆盖 U5）", () => {
+	const name = backupDirName("develop20261017", new Date(2026, 9, 18, 20, 30, 45))
+	assert.equal(name, "update_backup_20261018_203045_develop20261017")
 })
 
 // ── U1：撤销必须连状态一起回滚 ──────────────────────────────────────────

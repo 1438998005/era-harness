@@ -23,6 +23,7 @@ const outDir = path.join(__dirname, "out")
 /** 默认模式下要跑的全部测试文件 */
 const SPECS = [
 	"update.spec.ts",
+	"history-base.spec.ts",
 	"tarball.spec.ts",
 	"emptyfile.spec.ts",
 	"discover.spec.ts",

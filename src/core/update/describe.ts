@@ -166,13 +166,30 @@ function describeGateNotes(plan: UpdatePlan): string[] {
 	return notes
 }
 
+/** 本体侧文件组的展示名：路径太长时只露最后两级（完整路径走 describeGroupDetail 的 detail） */
+function shortFileLabel(rel: string): string {
+	const segments = rel.split("/")
+	if (segments.length <= 2) {
+		return rel
+	}
+	return `…/${segments.slice(-2).join("/")}`
+}
+
 /** 一个冲突组 → 一句问话 */
 export function describeGroup(group: ConflictGroup): string {
 	if (group.kind === "persona") {
 		const count = group.paths.length === 1 ? "" : `（${group.paths.length} 个文件）`
 		return `${group.label} 的口上你改过，社区也改了${count}。要怎么处理？`
 	}
-	return `${group.label} 这个文件你改过，社区也改了。要怎么处理？`
+	return `${shortFileLabel(group.label)} 这个文件你改过，社区也改了。要怎么处理？`
+}
+
+/** 冲突组的完整路径（弹窗 detail 用）；口上组本身就是短名，返回 undefined */
+export function describeGroupDetail(group: ConflictGroup): string | undefined {
+	if (group.kind !== "file") {
+		return undefined
+	}
+	return shortFileLabel(group.label) === group.label ? undefined : group.label
 }
 
 export interface ResultNarrative {

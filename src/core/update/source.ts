@@ -84,6 +84,11 @@ export interface GitLabSource {
 	rawFile(filePath: RelPath, ref: string): Promise<Buffer>
 	/** 下载归档到本地文件（先写 .part，成功后 rename） */
 	downloadArchive(destPath: string, ref: string, onProgress?: (received: number, total: number) => void): Promise<number>
+	/**
+	 * 只取「动过 ERB/DIM.ERH」的提交（= 历次发版点），新→旧。
+	 * 首次同步定位历史基线用：NOW_VERSION 随发版单调递增，DIM.ERH 只在发版时被改。
+	 */
+	listVersionCommits(maxPages?: number): Promise<Array<{ id: string }>>
 }
 
 export function createGitLabSource(project: GitLabProject): GitLabSource {
@@ -134,6 +139,29 @@ export function createGitLabSource(project: GitLabProject): GitLabSource {
 		async downloadArchive(destPath, ref, onProgress): Promise<number> {
 			await fs.mkdir(path.dirname(destPath), { recursive: true })
 			return httpDownload(source.archiveUrl(ref), destPath, { headers: headers(project), onProgress })
+		},
+
+		async listVersionCommits(maxPages = 3): Promise<Array<{ id: string }>> {
+			const out: Array<{ id: string }> = []
+			for (let page = 1; page <= maxPages; page++) {
+				const url = `${apiBase(project)}/repository/commits?ref_name=${encodeURIComponent(
+					project.branch,
+				)}&path=${encodeURIComponent("ERB/DIM.ERH")}&per_page=100&page=${page}`
+				const res = await httpGetBuffer(url, { headers: headers(project) })
+				if (res.status < 200 || res.status >= 300) {
+					break
+				}
+				const data = JSON.parse(res.body.toString("utf8")) as Array<{ id?: string }>
+				for (const item of data) {
+					if (item.id) {
+						out.push({ id: item.id })
+					}
+				}
+				if (data.length < 100) {
+					break
+				}
+			}
+			return out
 		},
 	}
 
