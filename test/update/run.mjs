@@ -49,6 +49,7 @@ const SPECS = [
 	"loop-detection.spec.ts",
 	"audit-redaction.spec.ts",
 	"mimo-model.spec.ts",
+	"bigmodel-model.spec.ts",
 	"model-id.spec.ts",
 	"error-text.spec.ts",
 	"open-folder.spec.ts",

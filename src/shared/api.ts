@@ -18,6 +18,7 @@ export type ApiProvider =
 	| "together"
 	| "deepseek"
 	| "mimo"
+	| "bigmodel"
 	| "qwen"
 	| "qwen-code"
 	| "doubao"
@@ -727,6 +728,180 @@ export function getMimoModelInfo(modelId: string, modelInfo?: ModelInfo): ModelI
 	return { ...mimoModels[mimoDefaultModelId], ...modelInfo }
 }
 
+// 智谱 BigModel（GLM 系列）
+// 官方文档（2026-10-28 逐页核对，不引用第三方报道）：
+// - 模型概览 https://docs.bigmodel.cn/cn/guide/start/model-overview
+// - 定价 https://docs.bigmodel.cn/cn/guide/start/pricing
+// - OpenAI 兼容接入 https://docs.bigmodel.cn/cn/guide/develop/openai/introduction（基址 /api/paas/v4，标准 Bearer）
+//
+// 计费（元/百万 tokens）：输入分「缓存命中 / 未命中」两档 + 输出单列；缓存写入限时免费，
+// usage 不单列写入 token → 字段语义沿用 DeepSeek/MiMo 口径（cacheWritesPrice = 未命中输入价）。
+// GLM-5.1 / GLM-5 / GLM-5-Turbo 按「输入 ≥32K」分两档：ModelInfo 只存 ≥32K 高档（保守显示不低估），
+// 精算在 bigmodelPricing.ts 按实际 promptTokens 选档（显示层用区间，DeepSeek 峰谷同款）。
+// 免费款六款为旧一代（价格全 0，name 带「· 免费」后缀）；GLM Coding Plan 订阅与按量额度不互通，
+// 插件当前只走按量入口。GLM-4.7 / GLM-4.5-Air（输入×输出双维分段）与 Z1 系列淘汰款不收录。
+export type BigmodelModelId = keyof typeof bigmodelModels
+export const bigmodelDefaultModelId: BigmodelModelId = "glm-5.3-flash"
+
+const glm53BaseInfo: ModelInfo = {
+	// 官方：5.x 系最大输出 128K（思考 + 回答共用这个额度）
+	maxTokens: 128_000,
+	// 官方：上下文窗口 1M
+	contextWindow: 1_000_000,
+	supportsImages: false,
+	// 官方列了缓存命中单价，响应带 cached_tokens
+	supportsPromptCache: true,
+	// 输入全部按「缓存命中 / 未命中」两档计价，inputPrice 恒为 0（与 DeepSeek/MiMo 同口径）
+	inputPrice: 0,
+}
+
+export const bigmodelModels = {
+	"glm-5.3-flash": {
+		...glm53BaseInfo,
+		name: "GLM-5.3-Flash",
+		supportsImages: true, // 官方：输入模态含图片/视频/文件
+		cacheReadsPrice: 0.23,
+		cacheWritesPrice: 0.8,
+		outputPrice: 2.8,
+	},
+	"glm-5.3": {
+		...glm53BaseInfo,
+		name: "GLM-5.3",
+		cacheReadsPrice: 2,
+		cacheWritesPrice: 8,
+		outputPrice: 28,
+	},
+	"glm-5.3-flashx": {
+		...glm53BaseInfo,
+		name: "GLM-5.3-FlashX",
+		supportsImages: true,
+		cacheReadsPrice: 0.57,
+		cacheWritesPrice: 2,
+		outputPrice: 7,
+	},
+	"glm-5.2": {
+		...glm53BaseInfo,
+		name: "GLM-5.2",
+		supportsReasoning: true, // 官方 thinking 页实测示例（thinking.type + reasoning_content）
+		cacheReadsPrice: 2,
+		cacheWritesPrice: 8,
+		outputPrice: 28,
+	},
+	// 一维阶梯款：ModelInfo 为 ≥32K 高档；<32K 低档在 bigmodelPricing.ts 精算
+	"glm-5.1": {
+		...glm53BaseInfo,
+		name: "GLM-5.1",
+		contextWindow: 200_000,
+		cacheReadsPrice: 2,
+		cacheWritesPrice: 8,
+		outputPrice: 28,
+	},
+	"glm-5": {
+		...glm53BaseInfo,
+		name: "GLM-5",
+		contextWindow: 200_000,
+		cacheReadsPrice: 1.5,
+		cacheWritesPrice: 6,
+		outputPrice: 22,
+	},
+	"glm-5-turbo": {
+		...glm53BaseInfo,
+		name: "GLM-5-Turbo",
+		contextWindow: 200_000,
+		cacheReadsPrice: 1.8,
+		cacheWritesPrice: 7,
+		outputPrice: 26,
+	},
+	"glm-4-long": {
+		...glm53BaseInfo,
+		name: "GLM-4-Long",
+		maxTokens: 4_000, // 官方：最大输出 4K（长文阅读特化）
+		cacheReadsPrice: 0.5,
+		cacheWritesPrice: 1,
+		outputPrice: 1,
+	},
+	// 免费款（旧一代，价格全 0）
+	"glm-4.7-flash": {
+		...glm53BaseInfo,
+		name: "GLM-4.7-Flash · 免费",
+		contextWindow: 200_000,
+		inputPrice: 0,
+		cacheReadsPrice: 0,
+		cacheWritesPrice: 0,
+		outputPrice: 0,
+	},
+	"glm-4.5-flash": {
+		...glm53BaseInfo,
+		name: "GLM-4.5-Flash · 免费",
+		contextWindow: 128_000,
+		maxTokens: 96_000,
+		inputPrice: 0,
+		cacheReadsPrice: 0,
+		cacheWritesPrice: 0,
+		outputPrice: 0,
+	},
+	"glm-4-flash-250414": {
+		...glm53BaseInfo,
+		name: "GLM-4-Flash-250414 · 免费",
+		contextWindow: 128_000,
+		maxTokens: 16_000,
+		inputPrice: 0,
+		cacheReadsPrice: 0,
+		cacheWritesPrice: 0,
+		outputPrice: 0,
+	},
+	"glm-4.6v-flash": {
+		...glm53BaseInfo,
+		name: "GLM-4.6V-Flash · 免费",
+		contextWindow: 128_000,
+		maxTokens: 32_000,
+		supportsImages: true,
+		inputPrice: 0,
+		cacheReadsPrice: 0,
+		cacheWritesPrice: 0,
+		outputPrice: 0,
+	},
+	"glm-4.1v-thinking-flash": {
+		...glm53BaseInfo,
+		name: "GLM-4.1V-Thinking-Flash · 免费",
+		contextWindow: 64_000,
+		maxTokens: 16_000,
+		supportsImages: true,
+		inputPrice: 0,
+		cacheReadsPrice: 0,
+		cacheWritesPrice: 0,
+		outputPrice: 0,
+	},
+	"glm-4v-flash": {
+		...glm53BaseInfo,
+		name: "GLM-4V-Flash · 免费",
+		contextWindow: 16_000,
+		maxTokens: 1_000,
+		supportsImages: true,
+		inputPrice: 0,
+		cacheReadsPrice: 0,
+		cacheWritesPrice: 0,
+		outputPrice: 0,
+	},
+} as const satisfies Record<string, ModelInfo>
+
+const bigmodelModelIdsByLowerCase = new Map<string, BigmodelModelId>(
+	Object.keys(bigmodelModels).map((id) => [id.toLowerCase(), id as BigmodelModelId]),
+)
+
+export function resolveBigmodelModelId(modelId: string): BigmodelModelId | undefined {
+	return bigmodelModelIdsByLowerCase.get(modelId.trim().toLowerCase())
+}
+
+export function getBigmodelModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
+	const known = resolveBigmodelModelId(modelId)
+	if (known) {
+		return { ...bigmodelModels[known] }
+	}
+	// 未知但非空的 id：保留用户填写的元数据，缺失时用默认模型的保守值
+	return { ...bigmodelModels[bigmodelDefaultModelId], ...modelInfo }
+}
+
 /**
  * 该 id 是否明显属于某家**有内置清单**的 provider。
  * 用来处理「切到无清单的 OpenAI 兼容端点时，别家的模型 id 会被原样发出去」。
@@ -736,7 +911,11 @@ export function modelIdBelongsToKnownCatalog(modelId: string | undefined): boole
 		return false
 	}
 	// 两家都用同一个归一函数，别再各自手写 toLowerCase 循环（写两遍就会有一遍忘记 trim）
-	return resolveMimoModelId(modelId) !== undefined || resolveDeepSeekModelId(modelId) !== undefined
+	return (
+		resolveMimoModelId(modelId) !== undefined ||
+		resolveDeepSeekModelId(modelId) !== undefined ||
+		resolveBigmodelModelId(modelId) !== undefined
+	)
 }
 
 /**
@@ -749,6 +928,8 @@ export function apiProviderDefaultModelId(provider: string | undefined): string 
 			return deepSeekDefaultModelId
 		case "mimo":
 			return mimoDefaultModelId
+		case "bigmodel":
+			return bigmodelDefaultModelId
 		default:
 			return undefined
 	}
@@ -764,6 +945,8 @@ export function isBuiltinModelId(provider: string | undefined, modelId: string |
 			return resolveDeepSeekModelId(modelId) !== undefined
 		case "mimo":
 			return resolveMimoModelId(modelId) !== undefined
+		case "bigmodel":
+			return resolveBigmodelModelId(modelId) !== undefined
 		default:
 			return true
 	}

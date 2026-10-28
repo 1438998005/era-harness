@@ -144,6 +144,8 @@ function convertApiProviderToProto(provider: string | undefined): ProtoApiProvid
 			return ProtoApiProvider.DEEPSEEK
 		case "mimo":
 			return ProtoApiProvider.MIMO
+		case "bigmodel":
+			return ProtoApiProvider.BIGMODEL
 		default:
 			return ProtoApiProvider.DEEPSEEK
 	}
@@ -160,6 +162,8 @@ export function convertProtoToApiProvider(provider: ProtoApiProvider): ApiProvid
 			return "deepseek"
 		case ProtoApiProvider.MIMO:
 			return "mimo"
+		case ProtoApiProvider.BIGMODEL:
+			return "bigmodel"
 		default:
 			return "deepseek"
 	}
@@ -177,6 +181,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		openAiApiKey: config.openAiApiKey,
 		deepSeekApiKey: config.deepSeekApiKey,
 		mimoApiKey: config.mimoApiKey,
+		bigmodelApiKey: config.bigmodelApiKey,
 		ovhAiEndpointsApiKey: config.ovhAiEndpointsApiKey,
 		freeExcludeCollecting: config.freeExcludeCollecting,
 		requestTimeoutMs: config.requestTimeoutMs,
@@ -189,6 +194,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		planModeOpenAiModelInfo: convertOpenAiCompatibleModelInfoToProto(config.planModeOpenAiModelInfo),
 		planModeDeepSeekModelInfo: convertModelInfoToProtoOpenRouter(config.planModeDeepSeekModelInfo),
 		planModeMimoModelInfo: convertModelInfoToProtoOpenRouter(config.planModeMimoModelInfo),
+		planModeBigmodelModelInfo: convertModelInfoToProtoOpenRouter(config.planModeBigmodelModelInfo),
 
 		// Act mode configurations
 		actModeApiProvider: config.actModeApiProvider ? convertApiProviderToProto(config.actModeApiProvider) : undefined,
@@ -198,6 +204,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		actModeOpenAiModelInfo: convertOpenAiCompatibleModelInfoToProto(config.actModeOpenAiModelInfo),
 		actModeDeepSeekModelInfo: convertModelInfoToProtoOpenRouter(config.actModeDeepSeekModelInfo),
 		actModeMimoModelInfo: convertModelInfoToProtoOpenRouter(config.actModeMimoModelInfo),
+		actModeBigmodelModelInfo: convertModelInfoToProtoOpenRouter(config.actModeBigmodelModelInfo),
 	}
 }
 
@@ -211,6 +218,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		openAiApiKey: protoConfig.openAiApiKey,
 		deepSeekApiKey: protoConfig.deepSeekApiKey,
 		mimoApiKey: protoConfig.mimoApiKey,
+		bigmodelApiKey: protoConfig.bigmodelApiKey,
 		ovhAiEndpointsApiKey: protoConfig.ovhAiEndpointsApiKey,
 		freeExcludeCollecting: protoConfig.freeExcludeCollecting,
 		requestTimeoutMs: protoConfig.requestTimeoutMs,
@@ -226,6 +234,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		planModeOpenAiModelInfo: convertProtoToOpenAiCompatibleModelInfo(protoConfig.planModeOpenAiModelInfo),
 		planModeDeepSeekModelInfo: convertProtoToModelInfo(protoConfig.planModeDeepSeekModelInfo),
 		planModeMimoModelInfo: convertProtoToModelInfo(protoConfig.planModeMimoModelInfo),
+		planModeBigmodelModelInfo: convertProtoToModelInfo(protoConfig.planModeBigmodelModelInfo),
 
 		// Act mode configurations
 		actModeApiProvider:
@@ -236,5 +245,6 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		actModeOpenAiModelInfo: convertProtoToOpenAiCompatibleModelInfo(protoConfig.actModeOpenAiModelInfo),
 		actModeDeepSeekModelInfo: convertProtoToModelInfo(protoConfig.actModeDeepSeekModelInfo),
 		actModeMimoModelInfo: convertProtoToModelInfo(protoConfig.actModeMimoModelInfo),
+		actModeBigmodelModelInfo: convertProtoToModelInfo(protoConfig.actModeBigmodelModelInfo),
 	}
 }

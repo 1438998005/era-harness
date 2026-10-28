@@ -1,4 +1,6 @@
 import {
+	bigmodelDefaultModelId,
+	bigmodelModels,
 	deepSeekDefaultModelId,
 	deepSeekModels,
 	mimoDefaultModelId,
@@ -7,7 +9,7 @@ import {
 } from "@shared/api"
 import { DEEPSEEK_PEAK_MULTIPLIER, isDeepSeekPeakHour } from "@shared/deepseekPricing"
 import type { Mode } from "@shared/storage/types"
-import { Brain, Check, Settings2, Smartphone, Zap } from "lucide-react"
+import { Brain, Check, Settings2, Smartphone, Sparkles, Zap } from "lucide-react"
 import type React from "react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -66,6 +68,10 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 	const mimoInfo = mimoModels[mimoDefaultModelId]
 	const mimoPrice = `输入 ¥${mimoInfo.cacheReadsPrice}–${mimoInfo.cacheWritesPrice} / 输出 ¥${mimoInfo.outputPrice}`
 
+	// BigModel 无峰谷倍率，价格取默认档（glm-5.3-flash，平价无阶梯）。字段口径与 DeepSeek/MiMo 相同。
+	const bigmodelInfo = bigmodelModels[bigmodelDefaultModelId]
+	const bigmodelPrice = `输入 ¥${bigmodelInfo.cacheReadsPrice}–${bigmodelInfo.cacheWritesPrice} / 输出 ¥${bigmodelInfo.outputPrice}`
+
 	const entries: QuickSwitchEntry[] = [
 		{
 			provider: "free",
@@ -99,6 +105,16 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			badgeBg: "transparent",
 			badgeFg: "inherit",
 			priceText: mimoPrice,
+			priceColor: "var(--vscode-foreground, #E7E7E7)",
+		},
+		{
+			provider: "bigmodel",
+			label: "智谱 BigModel",
+			icon: <Sparkles size={13} />,
+			iconColor: "var(--vscode-foreground, #E7E7E7)",
+			badgeBg: "transparent",
+			badgeFg: "inherit",
+			priceText: bigmodelPrice,
 			priceColor: "var(--vscode-foreground, #E7E7E7)",
 		},
 		{

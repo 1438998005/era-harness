@@ -106,6 +106,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	planModeOpenAiModelInfo: { default: undefined as OpenAiCompatibleModelInfo | undefined },
 	planModeDeepSeekModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
+	planModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
 
 	// Act mode configurations
 	actModeApiModelId: { default: undefined as string | undefined },
@@ -114,6 +115,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	actModeOpenAiModelInfo: { default: undefined as OpenAiCompatibleModelInfo | undefined },
 	actModeDeepSeekModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
+	actModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
 
 	// Model-specific settings
 	planModeApiProvider: { default: DEFAULT_API_PROVIDER as ApiProvider },
@@ -186,6 +188,7 @@ const SECRETS_KEYS = [
 	"openAiApiKey",
 	"deepSeekApiKey",
 	"mimoApiKey",
+	"bigmodelApiKey",
 	"ovhAiEndpointsApiKey", // OVHcloud AI Endpoints 可选 Key（免费模型第三渠道；留空走匿名 2rpm）
 	"openai-codex-oauth-credentials", // integrations/openai-codex 仍在（批次 3 才删），需其 OAuth 密钥位
 	"mcpOAuthSecrets",

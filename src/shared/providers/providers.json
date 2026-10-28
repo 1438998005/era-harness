@@ -13,6 +13,10 @@
 			"label": "Xiaomi MiMo"
 		},
 		{
+			"value": "bigmodel",
+			"label": "智谱 BigModel"
+		},
+		{
 			"value": "openai",
 			"label": "OpenAI Compatible"
 		}

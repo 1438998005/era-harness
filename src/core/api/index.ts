@@ -3,6 +3,7 @@ import { Mode } from "@shared/storage/types"
 import { ClineStorageMessage } from "@/shared/messages/content"
 import { Logger } from "@/shared/services/Logger"
 import { ClineTool } from "@/shared/tools"
+import { BigmodelHandler } from "./providers/bigmodel"
 import { DeepSeekHandler } from "./providers/deepseek"
 import { FreeModelHandler } from "./providers/free"
 import { MimoHandler } from "./providers/mimo"
@@ -93,6 +94,14 @@ function createHandlerForProvider(
 				mimoApiKey: options.mimoApiKey?.trim(),
 				apiModelId,
 				mimoModelInfo: mode === "plan" ? options.planModeMimoModelInfo : options.actModeMimoModelInfo,
+				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+			})
+		case "bigmodel":
+			return new BigmodelHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				bigmodelApiKey: options.bigmodelApiKey?.trim(),
+				apiModelId,
+				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelModelInfo : options.actModeBigmodelModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
 			})
 		default:

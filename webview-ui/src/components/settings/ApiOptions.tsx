@@ -10,6 +10,7 @@ import { normalizeApiConfiguration } from "@/components/settings/utils/providerU
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PLATFORM_CONFIG, PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { BigmodelProvider } from "./providers/BigmodelProvider"
 import { DeepSeekProvider } from "./providers/DeepSeekProvider"
 import { FreeModelProvider } from "./providers/FreeModelProvider"
 import { MimoProvider } from "./providers/MimoProvider"
@@ -325,6 +326,10 @@ const ApiOptions = ({
 
 			{apiConfiguration && selectedProvider === "mimo" && (
 				<MimoProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
+
+			{apiConfiguration && selectedProvider === "bigmodel" && (
+				<BigmodelProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
 			)}
 
 			{apiConfiguration && selectedProvider === "openai" && (
