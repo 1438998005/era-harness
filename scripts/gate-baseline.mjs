@@ -252,6 +252,19 @@ function push(name, detail, status, problems) {
 		problems.push("src/hosts/vscode/erabasic/index.ts 缺少 healLegacyAssociations（旧脏值无法自愈）")
 	}
 
+	// 语法高亮开关（off 态）：枚举要有 off、宿主要认 plaintext、读态接口要透传
+	const ownerCfg = pkg.contributes?.configuration?.properties?.["eraHarness.erabasic.languageOwner"]
+	if (!ownerCfg?.enum?.includes("off")) {
+		problems.push("languageOwner 枚举缺少 off（语法高亮开关回归丢失）")
+	}
+	if (!hostSrc.includes("PLAINTEXT_LANGUAGE_ID")) {
+		problems.push("src/hosts/vscode/erabasic/index.ts 缺少 PLAINTEXT_LANGUAGE_ID（off 态无法绑定纯文本）")
+	}
+	const ownerUiSrc = fs.readFileSync(path.join(ROOT, "src/core/controller/ui/getEraBasicLanguageOwner.ts"), "utf8")
+	if (!ownerUiSrc.includes('"off"')) {
+		problems.push("getEraBasicLanguageOwner.ts 未透传 off（设置页画不出第三态）")
+	}
+
 	push(
 		"语言归属声明",
 		problems.length === 0 ? ".erb/.erh 由 languages.extensions 声明，零自动写入" : `${problems.length} 处回归`,

@@ -214,6 +214,12 @@
 				"category": "era harness"
 			},
 			{
+				"command": "eraHarness.erabasic.disableHighlighting",
+				"title": "关闭 .erb/.erh 语法高亮（纯文本，可随时切回）",
+				"category": "era harness",
+				"icon": "$(eye-closed)"
+			},
+			{
 				"command": "eraHarness.erabasic.revealSymbols",
 				"title": "搜索工作区 ERB 符号",
 				"category": "era harness"
@@ -366,15 +372,17 @@
 					"type": "string",
 					"enum": [
 						"era",
-						"sasami"
+						"sasami",
+						"off"
 					],
 					"enumDescriptions": [
 						"era harness 提供 .erb/.erh 的语法高亮（默认；禁用或卸载即自动归还 Ruby）",
-						"把 .erb/.erh 交给 sasami.erabasic（会写入用户级 files.associations；它被卸载前请切回）"
+						"把 .erb/.erh 交给 sasami.erabasic（会写入用户级 files.associations；它被卸载前请切回）",
+						"关闭 .erb/.erh 的语法着色（绑到纯文本；补全/跳转/符号对这些文件同时失效，随时可切回）"
 					],
 					"default": "era",
-					"description": "`.erb/.erh` 的语法归属。era：由 era harness 的语言声明提供，禁用/卸载即归还 Ruby；sasami：交给 sasami.erabasic（会写入用户级 files.associations）。如果同时装了 sasami.erabasic、想让它的高亮生效，就选 sasami；不确定时保持 era。",
-					"markdownDescription": "`.erb/.erh` 的语法归属。**era**：由 era harness 的语言声明提供，禁用/卸载即自动归还 Ruby；**sasami**：交给 sasami.erabasic（会写入用户级 `files.associations`）。如果同时装了 sasami.erabasic、想让它的高亮生效，就选 sasami；不确定时保持 era。"
+					"description": "`.erb/.erh` 的语法归属，三选一。era：由 era harness 的语言声明提供，禁用/卸载即归还 Ruby；sasami：交给 sasami.erabasic（会写入用户级 files.associations）；off：关闭语法着色（写入纯文本绑定，补全/跳转/符号同时失效）。不确定时保持 era。",
+					"markdownDescription": "`.erb/.erh` 的语法归属，三选一。**era**：由 era harness 的语言声明提供，禁用/卸载即自动归还 Ruby；**sasami**：交给 sasami.erabasic（会写入用户级 `files.associations`）；**off**：关闭语法着色（写入纯文本绑定，补全/跳转/符号同时失效，随时可切回）。不确定时保持 era。"
 				},
 				"eraHarness.erabasic.autoTakeover": {
 					"type": "boolean",

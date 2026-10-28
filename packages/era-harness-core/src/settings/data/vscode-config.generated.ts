@@ -7,8 +7,8 @@ export const VSCODE_CONFIG_SETTINGS: SettingRecord[] = [
   {
     key: 'eraHarness.erabasic.languageOwner',
     title: 'languageOwner',
-    summary: '`.erb/.erh` 的语法归属。era：由 era harness 的语言声明提供，禁用/卸载即归还 Ruby；sasami：交给 sasami.erabasic（会写入用户级 files.associations）。如果同时装了 sasami.erabasic、想让它的高亮生效，就选 sasami；不确定时保持 era。',
-    valueType: '"era" | "sasami"',
+    summary: '`.erb/.erh` 的语法归属，三选一。era：由 era harness 的语言声明提供，禁用/卸载即归还 Ruby；sasami：交给 sasami.erabasic（会写入用户级 files.associations）；off：关闭语法着色（写入纯文本绑定，补全/跳转/符号同时失效）。不确定时保持 era。',
+    valueType: '"era" | "sasami" | "off"',
     category: 'erabasic',
     storage: 'vscode-config:eraHarness.erabasic.languageOwner',
     source: 'vscode-config',

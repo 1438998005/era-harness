@@ -5,9 +5,10 @@
 //     这是 VS Code 的标准做法：语言随扩展注册，**禁用/卸载即自动注销**，`.erb` 会回到内置 Ruby，
 //     不会在 settings.json 里留下指向不存在语言 id 的脏 `files.associations`
 //     （早期版本正是那么做的，导致禁用本扩展后 .erb 变纯文本，比不装还糟）。
-//   - 本文件**不再自动写任何用户设置**。唯一会写 `files.associations` 的是两条显式命令：
+//   - 本文件**不再自动写任何用户设置**。唯一会写 `files.associations` 的是三条显式命令：
 //       · `eraHarness.erabasic.yieldToSasami` —— 用户主动把 .erb/.erh 让给 sasami.erabasic；
-//       · `eraHarness.erabasic.reclaimFiles`   —— 撤销上述让位（以及清理历史脏值）。
+//       · `eraHarness.erabasic.reclaimFiles`   —— 撤销上述让位（以及清理历史脏值）；
+//       · `eraHarness.erabasic.disableHighlighting` —— 关闭语法着色（off 态，绑到纯文本）。
 //   - 启动时会**自愈**：把旧版本写进去的 `"*.erb": "era-erb"` 静默删掉（现在不需要它了）。
 
 import type { ExtensionContext } from "vscode"
@@ -25,11 +26,13 @@ const ERABASIC_EXTENSION_ID = "sasami.erabasic"
  */
 const SASAMI_LANGUAGE_ID = "erabasic"
 const LANGUAGE_ID = "era-erb"
+/** 内置恒存在的语言 id：off 态把 .erb/.erh 绑到它 = 无语法着色（原版颜色）。 */
+const PLAINTEXT_LANGUAGE_ID = "plaintext"
 const MANAGED_ASSOCIATIONS = ["*.erb", "*.erh"]
 const OWNER_SECTION = "eraHarness.erabasic"
 const OWNER_KEY = "languageOwner"
 
-type LanguageOwner = "era" | "sasami"
+type LanguageOwner = "era" | "sasami" | "off"
 
 export function registerEraBasicLanguageSupport(context: ExtensionContext): void {
 	let declarationProvider: DeclarationProvider | undefined
@@ -107,6 +110,7 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 	 * 自愈：删掉旧版本（≤3.88.0）在激活时写进用户设置里的 "*.erb": "era-erb"。
 	 * 那时不声明 extensions 只能靠关联抢文件；现在语言声明替了它，这两条值既多余、
 	 * 又正是「禁用扩展后 .erb 变纯文本」的根因。只在真的存在脏值时才写一次。
+	 * ⚠️ 只删 `era-erb`：off 态写入的 `plaintext` 是本功能的合法状态，绝不能在这里被清掉。
 	 */
 	async function healLegacyAssociations(): Promise<void> {
 		const assoc = await readAssociations()
@@ -122,10 +126,10 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		}
 	}
 
-	/** 设置里的「EraBasic 语言归属」 */
+	/** 设置里的「EraBasic 语言归属」（era / sasami / off 三选一，未知值回落 era） */
 	function readOwner(): LanguageOwner {
 		const value = vscode.workspace.getConfiguration(OWNER_SECTION).get<string>(OWNER_KEY, "era")
-		return value === "sasami" ? "sasami" : "era"
+		return value === "sasami" ? "sasami" : value === "off" ? "off" : "era"
 	}
 
 	async function setOwner(owner: LanguageOwner): Promise<void> {
@@ -149,7 +153,13 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		const changed: string[] = []
 		for (const key of MANAGED_ASSOCIATIONS) {
 			const value = assoc[key]
-			if (owner === "sasami" && target) {
+			if (owner === "off") {
+				// 关闭语法着色：绑到内置 plaintext（恒存在，卸载残留也无坏状态）。与 sasami 分支同构，无条件落值。
+				if (value !== PLAINTEXT_LANGUAGE_ID) {
+					assoc[key] = PLAINTEXT_LANGUAGE_ID
+					changed.push(key)
+				}
+			} else if (owner === "sasami" && target) {
 				if (value !== target) {
 					assoc[key] = target
 					changed.push(key)
@@ -157,8 +167,10 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 			} else if (
 				value === LANGUAGE_ID ||
 				(target !== undefined && value === target) ||
-				// sasami 已被卸载时 target 读不到，用稳定语言 id 兜底（让位过的用户点「收回」能清干净）
-				value === SASAMI_LANGUAGE_ID
+				// sasami 已被卸载时 target 读不到，用稳定语言 id 兕底（让位过的用户点「收回」能清干净）
+				value === SASAMI_LANGUAGE_ID ||
+				// off 态写入的纯文本绑定同样是本扩展写的，切回 era 时一并清掉
+				value === PLAINTEXT_LANGUAGE_ID
 			) {
 				delete assoc[key]
 				changed.push(key)
@@ -188,7 +200,7 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		)
 	}
 
-	/** 收回：只删本扩展写过的值（era-erb 或 erabasic 的语言 id），不碰用户自己的映射；设置切回 era */
+	/** 收回：只删本扩展写过的值（era-erb / erabasic 的语言 id / off 写入的 plaintext），不碰用户自己的映射；设置切回 era */
 	async function reclaimFiles(): Promise<void> {
 		const { changed } = await applyOwner("era")
 		await setOwner("era")
@@ -199,6 +211,17 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		} else {
 			void vscode.window.showInformationMessage("files.associations 里没有 era harness 写入的条目，无需清理。")
 		}
+	}
+
+	/** 关闭语法着色：.erb/.erh 绑到纯文本（用户主动点的命令）。补全/跳转/符号对这些文件同时失效——平台没有「只关颜色保住语言」的 API。 */
+	async function disableHighlighting(): Promise<void> {
+		const { changed } = await applyOwner("off")
+		await setOwner("off")
+		void vscode.window.showInformationMessage(
+			changed.length > 0
+				? "已关闭 .erb/.erh 的语法高亮（纯文本）。补全/跳转/符号对这些文件同时失效；恢复：设置「EraBasic 语法归属」切回 era，或点状态栏。"
+				: "语法高亮已是关闭状态。",
+		)
 	}
 
 	function evaluate(): void {
@@ -216,7 +239,7 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		}
 
 		statusBarItem.backgroundColor = undefined
-		if (present && owner !== "sasami") {
+		if (present && owner === "era") {
 			// 语法归属仍是 era-erb（静态声明无法运行时让），所以把让位入口摆在状态栏：
 			// 点一下才写 files.associations，不自动代用户决策。
 			statusBarItem.command = "eraHarness.erabasic.yieldToSasami"
@@ -224,6 +247,11 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 			statusBarItem.tooltip =
 				"检测到 sasami.erabasic。点这里把 .erb/.erh 的语法与高亮交给它（会写入你的 files.associations；随时可收回）"
 			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
+		} else if (owner === "off") {
+			statusBarItem.command = "eraHarness.erabasic.reclaimFiles"
+			statusBarItem.text = "$(eye-closed) EraBasic: 高亮已关"
+			statusBarItem.tooltip =
+				".erb/.erh 当前为纯文本（无语法着色，补全/跳转/符号亦不生效）。点此恢复 era harness 语法高亮。"
 		} else if (yielded) {
 			statusBarItem.command = "eraHarness.erabasic.reclaimFiles"
 			statusBarItem.text = "$(check) EraBasic：高亮归 sasami"
@@ -251,6 +279,7 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 	context.subscriptions.push(
 		vscode.commands.registerCommand("eraHarness.erabasic.yieldToSasami", () => yieldToSasami()),
 		vscode.commands.registerCommand("eraHarness.erabasic.reclaimFiles", () => reclaimFiles()),
+		vscode.commands.registerCommand("eraHarness.erabasic.disableHighlighting", () => disableHighlighting()),
 		vscode.commands.registerCommand("eraHarness.erabasic.revealSymbols", async () => {
 			const query = await vscode.window.showInputBox({
 				prompt: "搜索工作区 ERB 符号（@函数 / #DIM 变量），支持驼峰缩写模糊匹配",
