@@ -31,6 +31,7 @@ import {
 	MIMO_BASE_URL,
 	MIMO_TOKEN_PLAN_BASE_URL,
 	mimoBaseUrlForKey,
+	mimoRouteForKey,
 	mimoThinkingParam,
 	shouldAttachMimoReasoning,
 } from "../../src/shared/mimo-request"
@@ -362,4 +363,19 @@ test("请求体：未开启思考 / 未配置输出上限时不出现对应键",
 	assert.equal("thinking" in params, false, "默认开启时不发 thinking，交给官方")
 	assert.equal("max_completion_tokens" in params, false, "未配置 maxTokens 时不发空值")
 	assert.equal("tools" in params, false)
+})
+
+test("入口路由：mimoRouteForKey 三态与现网兑底一致（UI 显示与请求共用判据）", () => {
+	assert.deepEqual(mimoRouteForKey("sk-abcdef"), { kind: "pay-as-you-go", baseUrl: MIMO_BASE_URL })
+	assert.equal(mimoRouteForKey("tp-abcdef").kind, "token-plan")
+	assert.equal(mimoRouteForKey("tp-abcdef").baseUrl, MIMO_TOKEN_PLAN_BASE_URL)
+	assert.equal(mimoRouteForKey("ttp-team").baseUrl, MIMO_TOKEN_PLAN_BASE_URL)
+	// 未知前缀：kind=unknown，但 baseUrl 兑底仍是按量付费（与 mimoBaseUrlForKey 现行为一致）
+	assert.deepEqual(mimoRouteForKey("oops"), { kind: "unknown", baseUrl: MIMO_BASE_URL })
+	assert.equal(mimoRouteForKey(undefined).baseUrl, MIMO_BASE_URL)
+	// 大小写敏感锁定：TP- 不是 Token Plan（与现网正则一致）
+	assert.equal(mimoRouteForKey("TP-abcdef").kind, "unknown")
+	// mimoBaseUrlForKey 委托后行为不变
+	assert.equal(mimoBaseUrlForKey("tp-x"), MIMO_TOKEN_PLAN_BASE_URL)
+	assert.equal(mimoBaseUrlForKey("sk-x"), MIMO_BASE_URL)
 })

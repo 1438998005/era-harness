@@ -273,6 +273,27 @@ function push(name, detail, status, problems) {
 	)
 }
 
+// 1e+) MiMo 入口路由显示：UI 必须走 mimoRouteForKey（与请求同一判据），API 基址字面量不得进 UI
+{
+	const problems = []
+	const providerUiSrc = fs.readFileSync(
+		path.join(ROOT, "webview-ui/src/components/settings/providers/MimoProvider.tsx"),
+		"utf8",
+	)
+	if (!providerUiSrc.includes("mimoRouteForKey")) {
+		problems.push("MimoProvider.tsx 未走 mimoRouteForKey（入口显示必须与请求路由同一判据）")
+	}
+	if (/xiaomimimo\.com\/v1|token-plan-cn/.test(providerUiSrc)) {
+		problems.push("MimoProvider.tsx 出现 API 基址字面量（基址只能来自 @shared/mimo-request，防两处漂移）")
+	}
+	push(
+		"MiMo 入口路由显示",
+		problems.length === 0 ? "UI 与请求共用一份路由判据" : `${problems.length} 处回归`,
+		problems.length === 0 ? "green" : "red",
+		problems,
+	)
+}
+
 // 1f) 自动批准映射：调了 shouldAutoApproveToolWithPath 的原生工具，必须在 autoApprove.ts 里映射。
 //     不映射 → switch 落到 return false → 用户把「自动批准」的选项勾满也仍然每次弹人工确认。
 //     （2026-10-21 实测：era_knowledge 就是这个问题，用户以为权限全开就什么都不用点。）

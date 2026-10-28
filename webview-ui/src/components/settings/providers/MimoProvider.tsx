@@ -1,5 +1,5 @@
 import { isChatCapableModelId, ModelInfo, mimoModels, resolveMimoModelId } from "@shared/api"
-import { MIMO_CONSOLE_URL, MIMO_DOCS_URL, mimoBaseUrlForKey } from "@shared/mimo-request"
+import { MIMO_CONSOLE_URL, MIMO_DOCS_URL, mimoBaseUrlForKey, mimoRouteForKey } from "@shared/mimo-request"
 import { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -57,6 +57,8 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
 
 	const apiKey = apiConfiguration?.mimoApiKey || ""
+	// 入口路由与请求侧共用同一判据（@shared/mimo-request），随密钥输入即时变化（ApiKeyField 100ms 防抖 + 本地 IPC）。
+	const route = useMemo(() => mimoRouteForKey(apiKey), [apiKey])
 	const [liveModelIds, setLiveModelIds] = useState<string[] | null>(null)
 	const [isRefreshing, setIsRefreshing] = useState(false)
 	// 同步失败的原因必须留痕：以前这里 catch 后什么都不说，用户看到"暂用内置清单"
@@ -126,6 +128,27 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 				providerName="Xiaomi MiMo"
 				signupUrl={MIMO_SIGNUP_URL}
 			/>
+
+			{/* 入口自动路由：显示与请求共用 mimoRouteForKey 一份判据（知识库 18 §18.11 防漂移） */}
+			<p className="text-xs m-0 mt-1" style={{ color: "var(--vscode-descriptionForeground)" }}>
+				无需手动选择入口：插件按密钥前缀自动路由——sk-（按量付费）走实时 API，tp- / ttp-（Token Plan 订阅）走订阅专属入口。
+			</p>
+			<p
+				className="text-xs m-0 mt-1"
+				style={{
+					color:
+						route.kind === "unknown" && apiKey
+							? "var(--vscode-editorWarning-foreground)"
+							: "var(--vscode-descriptionForeground)",
+				}}>
+				{apiKey
+					? route.kind === "token-plan"
+						? `当前调用入口：Token Plan 订阅 · ${route.baseUrl} · 按套餐扣费`
+						: route.kind === "pay-as-you-go"
+							? `当前调用入口：按量付费实时 API · ${route.baseUrl} · 按 token 计费`
+							: `当前调用入口：按量付费实时 API · ${route.baseUrl}（未识别的密钥格式：应以 sk- / tp- / ttp- 开头，请确认复制完整）`
+					: "当前调用入口：—（填入密钥后自动识别）"}
+			</p>
 
 			{/* 入口按钮：余额 / 注册登录 / 文档 */}
 			<div className="flex flex-wrap items-center gap-2 mt-2">

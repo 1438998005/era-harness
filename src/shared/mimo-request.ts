@@ -24,13 +24,40 @@ export const MIMO_CONSOLE_URL = "https://platform.xiaomimimo.com/console/balance
 export const MIMO_DOCS_URL = "https://mimo.mi.com/docs/zh-CN/quick-start/summary/welcome"
 
 const TOKEN_PLAN_KEY = /^(tp|ttp)-/
+const PAYG_KEY = /^sk-/
+
+export type MimoRouteKind = "token-plan" | "pay-as-you-go" | "unknown"
+
+export interface MimoRoute {
+	/** token-plan = 订阅专属入口；pay-as-you-go = 按量付费实时 API；unknown = 未识别前缀（仍按按量付费地址兑底） */
+	kind: MimoRouteKind
+	baseUrl: string
+}
+
+/**
+ * UI 显示与请求路由**共用**的入口判据（知识库 18 §18.11：同一判据写两份必然漂移）。
+ * - `tp-` / `ttp-` → Token Plan 订阅专属入口（token-plan-cn）
+ * - `sk-` → 按量付费实时 API（api.xiaomimimo.com）
+ * - 其余（含空串 / undefined）→ kind=unknown，baseUrl 仍兑底到按量付费入口（与 mimoBaseUrlForKey 历史行为一致）
+ * 前缀匹配保持大小写敏感（`TP-` 不是 Token Plan），与官方密钥格式一致。
+ */
+export function mimoRouteForKey(key: string | undefined): MimoRoute {
+	const trimmed = (key ?? "").trim()
+	if (TOKEN_PLAN_KEY.test(trimmed)) {
+		return { kind: "token-plan", baseUrl: MIMO_TOKEN_PLAN_BASE_URL }
+	}
+	if (PAYG_KEY.test(trimmed)) {
+		return { kind: "pay-as-you-go", baseUrl: MIMO_BASE_URL }
+	}
+	return { kind: "unknown", baseUrl: MIMO_BASE_URL }
+}
 
 /**
  * 官方把入口分成实时 API / Token Plan / 批量推理三种，**密钥前缀决定能用哪个**：
  * 拿 `tp-` 的密钥去调 `api.xiaomimimo.com` 会被直接拒。这里按前缀选，省得用户手改基址。
  */
 export function mimoBaseUrlForKey(key: string | undefined): string {
-	return TOKEN_PLAN_KEY.test((key ?? "").trim()) ? MIMO_TOKEN_PLAN_BASE_URL : MIMO_BASE_URL
+	return mimoRouteForKey(key).baseUrl
 }
 
 /**
