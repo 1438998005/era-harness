@@ -115,15 +115,18 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	const { selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, mode)
 	const modeFields = getModeSpecificFields(apiConfiguration, mode)
 
-	const isCostAvailable =
+	// ⚠️ 与 ModelInfoView.hasCachePricing 同构的 && 陷阱：链尾求值可能是裸数字，
+	// 统一 Boolean() 收口（#54 附注，2026-10-28）
+	const isCostAvailable = Boolean(
 		(totalCost &&
 			modeFields.apiProvider === "openai" &&
 			modeFields.openAiModelInfo?.inputPrice &&
 			modeFields.openAiModelInfo?.outputPrice) ||
-		(modeFields.apiProvider !== "vscode-lm" &&
-			modeFields.apiProvider !== "ollama" &&
-			modeFields.apiProvider !== "lmstudio" &&
-			modeFields.apiProvider !== "openai-codex") // Subscription-based, no per-token costs
+			(modeFields.apiProvider !== "vscode-lm" &&
+				modeFields.apiProvider !== "ollama" &&
+				modeFields.apiProvider !== "lmstudio" &&
+				modeFields.apiProvider !== "openai-codex"), // Subscription-based, no per-token costs
+	)
 
 	// Event handlers
 	const toggleTaskExpanded = useCallback(() => setIsTaskExpanded(!isTaskExpanded), [setIsTaskExpanded, isTaskExpanded])
@@ -252,6 +255,7 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 							contextWindow={selectedModelInfo?.contextWindow}
 							lastApiReqTotalTokens={lastApiReqTotalTokens}
 							lastApiReqUsage={lastApiReqUsage}
+							maxOutputTokens={selectedModelInfo?.maxTokens}
 							onSendMessage={onSendMessage}
 							tokensIn={tokensIn}
 							tokensOut={tokensOut}

@@ -1,11 +1,13 @@
 import {
+	apiProviderDefaultModelId,
 	bigmodelDefaultModelId,
 	bigmodelModels,
 	deepSeekDefaultModelId,
 	deepSeekModels,
+	type ModelInfo,
 	mimoDefaultModelId,
 	mimoModels,
-	modelIdToWriteOnProviderSwitch,
+	shouldResetModelForProvider,
 } from "@shared/api"
 import { DEEPSEEK_PEAK_MULTIPLIER, isDeepSeekPeakHour } from "@shared/deepseekPricing"
 import type { Mode } from "@shared/storage/types"
@@ -55,21 +57,28 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 
 	const { selectedProvider } = normalizeApiConfiguration(apiConfiguration, mode)
 
+	// #52：价格行跟随「该家当前记忆的模型」（没有记忆用默认档），不再永远显示默认档——
+	// 用户在设置里为某家选了非默认档时，菜单价格应与切换后实际生效的模型一致。
+	const rememberedIds = mode === "plan" ? apiConfiguration?.planModeProviderModelIds : apiConfiguration?.actModeProviderModelIds
+
 	// DeepSeek 价格：输入 = 缓存命中–未命中两档，输出单列（元/百万 tokens）。
 	// 实时按当前北京时间判定峰/谷：高峰时段（工作日 09:00–12:00、14:00–18:00）整体 ×2。
-	const deepSeekInfo = deepSeekModels[deepSeekDefaultModelId]
+	// 目录是字面量键类型，记忆 id 是运行时字符串：走 Record 视图 + 默认档兑底。
+	const deepSeekInfo =
+		(deepSeekModels as Record<string, ModelInfo>)[rememberedIds?.deepseek ?? ""] ?? deepSeekModels[deepSeekDefaultModelId]
 	const deepSeekPeak = isDeepSeekPeakHour()
 	const deepSeekMultiplier = deepSeekPeak ? DEEPSEEK_PEAK_MULTIPLIER : 1
 	const fmtDeepSeekPrice = (n?: number) => Number(((n ?? 0) * deepSeekMultiplier).toFixed(4)).toString()
 	const deepSeekPrice = `输入 ¥${fmtDeepSeekPrice(deepSeekInfo.cacheReadsPrice)}–${fmtDeepSeekPrice(deepSeekInfo.cacheWritesPrice)} / 输出 ¥${fmtDeepSeekPrice(deepSeekInfo.outputPrice)}`
 
-	// MiMo 无峰谷倍率，价格取默认档（flash）。字段口径与 DeepSeek 相同：
+	// MiMo 无峰谷倍率。字段口径与 DeepSeek 相同：
 	// cacheReadsPrice = 输入命中、cacheWritesPrice = 输入未命中（不是缓存写入费）。
-	const mimoInfo = mimoModels[mimoDefaultModelId]
+	const mimoInfo = (mimoModels as Record<string, ModelInfo>)[rememberedIds?.mimo ?? ""] ?? mimoModels[mimoDefaultModelId]
 	const mimoPrice = `输入 ¥${mimoInfo.cacheReadsPrice}–${mimoInfo.cacheWritesPrice} / 输出 ¥${mimoInfo.outputPrice}`
 
-	// BigModel 无峰谷倍率，价格取默认档（glm-5.3-flash，平价无阶梯）。字段口径与 DeepSeek/MiMo 相同。
-	const bigmodelInfo = bigmodelModels[bigmodelDefaultModelId]
+	// BigModel 无峰谷倍率。字段口径与 DeepSeek/MiMo 相同。
+	const bigmodelInfo =
+		(bigmodelModels as Record<string, ModelInfo>)[rememberedIds?.bigmodel ?? ""] ?? bigmodelModels[bigmodelDefaultModelId]
 	const bigmodelPrice = `输入 ¥${bigmodelInfo.cacheReadsPrice}–${bigmodelInfo.cacheWritesPrice} / 输出 ¥${bigmodelInfo.outputPrice}`
 
 	const entries: QuickSwitchEntry[] = [
@@ -135,27 +144,55 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			return
 		}
 
-		// provider 与 modelId 必须同批原子写入，且必须调设置页那份判据（@shared/api）。
-		// 只改 provider 会把上一家的模型 id 留在原地：从 MiMo 切到 DeepSeek 后，
-		// 界面显示小米模型、请求却打到 DeepSeek 官方（实测 402），是真实踩过的坑。
-		const targetModelId =
-			provider === "openai"
-				? mode === "plan"
-					? apiConfiguration?.planModeOpenAiModelId
-					: apiConfiguration?.actModeOpenAiModelId
-				: mode === "plan"
-					? apiConfiguration?.planModeApiModelId
-					: apiConfiguration?.actModeApiModelId
-		const modelIdToWrite = modelIdToWriteOnProviderSwitch(provider, targetModelId)
+		// #52：切走前先把「当前 provider + 当前模型」存进 per-provider 记忆——
+		// 这是「切走再切回能恢复上次的模型」的保存侧（free 不吃 modelId、openai 有独立字段，都不存）。
+		const providerModelIdsField = mode === "plan" ? "planModeProviderModelIds" : "actModeProviderModelIds"
+		const currentMap = apiConfiguration?.[providerModelIdsField] ?? {}
+		const currentModelId = mode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
+		const savedMap =
+			selectedProvider !== "free" && selectedProvider !== "openai" && currentModelId
+				? { ...currentMap, [selectedProvider]: currentModelId }
+				: currentMap
+
+		// 切到目标家：优先恢复记忆的模型（#52）。记忆 id 若已从本家清单消失且明显属于别家，
+		// 仍兑底默认档——归属校验不得绕过（KB18 §18.11 教训）；未知 id（官方新增/同步来的）保留。
+		// provider 与 modelId 必须同批原子写入，且必须调设置页那份判据（@shared/api）：
+		// 只改 provider 会把上一家的模型 id 留在原地（实测 402 串家坑）。
+		const slotId = mode === "plan" ? apiConfiguration?.planModeApiModelId : apiConfiguration?.actModeApiModelId
+		const rememberedId = savedMap[provider]
+		let modelIdToWrite: string | undefined
+		if (provider === "openai") {
+			// openai 用自己的 planMode/actModeOpenAiModelId 字段，不经槽位
+			modelIdToWrite = undefined
+		} else if (provider === "free") {
+			modelIdToWrite = undefined
+		} else {
+			const candidate = rememberedId ?? slotId
+			modelIdToWrite = candidate
+				? shouldResetModelForProvider(provider, candidate)
+					? apiProviderDefaultModelId(provider)
+					: candidate
+				: apiProviderDefaultModelId(provider)
+		}
+
+		// 记忆同步为校验后的值：默认档兑底也落进记忆，下次直接命中
+		const updatedMap =
+			provider !== "free" && provider !== "openai" && modelIdToWrite
+				? { ...savedMap, [provider]: modelIdToWrite }
+				: savedMap
 
 		await handleModeFieldsChange(
 			{
 				provider: { plan: "planModeApiProvider", act: "actModeApiProvider" },
 				...(modelIdToWrite ? { modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" } } : {}),
+				...(provider !== "free" && provider !== "openai"
+					? { providerModelIds: { plan: "planModeProviderModelIds", act: "actModeProviderModelIds" } }
+					: {}),
 			},
 			{
 				provider,
 				...(modelIdToWrite ? { modelId: modelIdToWrite } : {}),
+				...(provider !== "free" && provider !== "openai" ? { providerModelIds: updatedMap } : {}),
 			},
 			mode,
 		)

@@ -21,6 +21,7 @@ import {
 	modelIdToWriteOnProviderSwitch,
 	resolveBigmodelModelId,
 } from "../../src/shared/api"
+import * as bigmodelRequest from "../../src/shared/bigmodel-request"
 import { BIGMODEL_BASE_URL, bigmodelThinkingParam, buildBigmodelParams } from "../../src/shared/bigmodel-request"
 import { calculateBigmodelCost } from "../../src/shared/bigmodelPricing"
 import { ApiProvider as ProtoApiProvider } from "../../src/shared/proto/cline/models"
@@ -120,6 +121,41 @@ test("思考参数映射：none → disabled，其余不发", () => {
 	assert.deepEqual(bigmodelThinkingParam("none"), { thinking: { type: "disabled" } })
 	assert.deepEqual(bigmodelThinkingParam("high"), {})
 	assert.deepEqual(bigmodelThinkingParam(undefined), {})
+})
+
+test("#57 输出预算夹紧：窗口含输出，max_tokens 不得吃掉全部输入预算", () => {
+	const { clampBigmodelOutputTokens, estimateBigmodelPromptTokens } = bigmodelRequest
+
+	// 4.5-flash（128K 窗 / 96K 目录输出）在 30k 输入时：实际可用输出 = 128K−30K−4096余量
+	assert.equal(clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: 128_000, estimatedPromptTokens: 30_000 }), 93_904)
+	// 输入未超限时保持目录值（200K 窗 / 128K 输出 / 10K 输入 → 夹不住，原样）
+	assert.equal(
+		clampBigmodelOutputTokens({ maxTokens: 128_000, contextWindow: 200_000, estimatedPromptTokens: 10_000 }),
+		128_000,
+	)
+	// 输入逼近窗口：夹到下限（4K 与目录值取小，不虚构输出预算）
+	assert.equal(clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: 128_000, estimatedPromptTokens: 125_000 }), 4_096)
+	// 小输出模型（4v-flash 16K 窗 / 1K 输出）：下限不超过目录值
+	assert.equal(clampBigmodelOutputTokens({ maxTokens: 1_000, contextWindow: 16_000, estimatedPromptTokens: 14_000 }), 1_000)
+	// 拿不到窗口/预估/目录值：保持旧行为
+	assert.equal(
+		clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: undefined, estimatedPromptTokens: 30_000 }),
+		96_000,
+	)
+	assert.equal(
+		clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: 128_000, estimatedPromptTokens: undefined }),
+		96_000,
+	)
+	assert.equal(
+		clampBigmodelOutputTokens({ maxTokens: undefined, contextWindow: 128_000, estimatedPromptTokens: 30_000 }),
+		undefined,
+	)
+
+	// 粗估：序列化长度 / 2，向上取整（宁可高估——高估只是少给输出，低估撞 1261）
+	assert.equal(
+		estimateBigmodelPromptTokens([{ role: "user", content: "abcd" }]),
+		Math.ceil(`{"role":"user","content":"abcd"}`.length / 2),
+	)
 })
 
 test("proto 往返：bigmodel ↔ BIGMODEL，key 与模型信息不会丢", () => {

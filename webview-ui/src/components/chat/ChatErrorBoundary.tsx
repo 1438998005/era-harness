@@ -1,5 +1,6 @@
 import i18next from "i18next"
 import React from "react"
+import { reportUiError } from "@/services/ui-error-reporter"
 
 interface ChatErrorBoundaryProps {
 	children: React.ReactNode
@@ -30,6 +31,12 @@ export class ChatErrorBoundary extends React.Component<ChatErrorBoundaryProps, C
 	componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
 		console.error("Error in ChatErrorBoundary:", error.message)
 		console.error("Component stack:", errorInfo.componentStack)
+		// 回传宿主落审计：React 渲染崩溃此前只在本 devtools console 可见，诊断包里没有
+		reportUiError({
+			kind: "react-error-boundary",
+			message: error.message,
+			stack: [error.stack, `component stack:${errorInfo.componentStack ?? ""}`].filter(Boolean).join("\n"),
+		})
 	}
 
 	render() {

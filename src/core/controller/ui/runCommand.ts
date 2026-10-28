@@ -13,6 +13,7 @@ import type { Controller } from "../index"
 const ALLOWED_COMMANDS = new Set<string>([
 	"eraHarness.erabasic.yieldToSasami",
 	"eraHarness.erabasic.reclaimFiles",
+	"eraHarness.erabasic.disableHighlighting",
 	"era-harness.updateGame",
 	"era-harness.checkForUpdates",
 	"era-harness.openDiagnosticsFolder",

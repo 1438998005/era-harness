@@ -107,6 +107,10 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	planModeDeepSeekModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
+	// #52（2026-10-28）：per-provider 模型记忆。deepseek/mimo/bigmodel 共用 planModeApiModelId
+	// 一个槽位，快速切换切走再切回就被覆盖成默认档——按 provider 各记一份，读侧仍过归属校验
+	//（记忆 id 不属本家清单 → 兑底默认档，KB 18 §18.11 教训不得绕过）。
+	planModeProviderModelIds: { default: {} as Record<string, string> },
 
 	// Act mode configurations
 	actModeApiModelId: { default: undefined as string | undefined },
@@ -116,6 +120,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	actModeDeepSeekModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
+	actModeProviderModelIds: { default: {} as Record<string, string> },
 
 	// Model-specific settings
 	planModeApiProvider: { default: DEFAULT_API_PROVIDER as ApiProvider },

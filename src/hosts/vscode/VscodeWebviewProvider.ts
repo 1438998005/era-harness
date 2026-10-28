@@ -2,6 +2,7 @@ import { sendShowWebviewEvent } from "@core/controller/ui/subscribeToShowWebview
 import { WebviewProvider } from "@core/webview"
 import * as vscode from "vscode"
 import { handleGrpcRequest, handleGrpcRequestCancel } from "@/core/controller/grpc-handler"
+import { recordAudit } from "@/core/logging/auditLog"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import type { ExtensionMessage } from "@/shared/ExtensionMessage"
@@ -171,6 +172,23 @@ export class VscodeWebviewProvider extends WebviewProvider implements vscode.Web
 			case "grpc_request_cancel": {
 				if (message.grpc_request_cancel) {
 					await handleGrpcRequestCancel(postMessageToWebview, message.grpc_request_cancel)
+				}
+				break
+			}
+			case "ui_error": {
+				// webview 侧未捕获错误（window.onerror / unhandledrejection / ErrorBoundary）落审计：
+				// 此前这些错误只存在于 webview devtools console，扩展侧与诊断包完全看不见。
+				const report = message.ui_error
+				if (report) {
+					Logger.error(`[webview:${report.kind}] ${report.message}`)
+					recordAudit({
+						event: "error",
+						source: "webview",
+						errorKind: report.kind,
+						outcome: "error",
+						message: report.message,
+						snapshot: report.stack,
+					})
 				}
 				break
 			}

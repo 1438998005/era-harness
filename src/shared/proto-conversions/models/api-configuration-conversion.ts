@@ -195,6 +195,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		planModeDeepSeekModelInfo: convertModelInfoToProtoOpenRouter(config.planModeDeepSeekModelInfo),
 		planModeMimoModelInfo: convertModelInfoToProtoOpenRouter(config.planModeMimoModelInfo),
 		planModeBigmodelModelInfo: convertModelInfoToProtoOpenRouter(config.planModeBigmodelModelInfo),
+		planModeProviderModelIds: config.planModeProviderModelIds ?? {},
 
 		// Act mode configurations
 		actModeApiProvider: config.actModeApiProvider ? convertApiProviderToProto(config.actModeApiProvider) : undefined,
@@ -205,6 +206,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		actModeDeepSeekModelInfo: convertModelInfoToProtoOpenRouter(config.actModeDeepSeekModelInfo),
 		actModeMimoModelInfo: convertModelInfoToProtoOpenRouter(config.actModeMimoModelInfo),
 		actModeBigmodelModelInfo: convertModelInfoToProtoOpenRouter(config.actModeBigmodelModelInfo),
+		actModeProviderModelIds: config.actModeProviderModelIds ?? {},
 	}
 }
 
@@ -235,6 +237,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		planModeDeepSeekModelInfo: convertProtoToModelInfo(protoConfig.planModeDeepSeekModelInfo),
 		planModeMimoModelInfo: convertProtoToModelInfo(protoConfig.planModeMimoModelInfo),
 		planModeBigmodelModelInfo: convertProtoToModelInfo(protoConfig.planModeBigmodelModelInfo),
+		planModeProviderModelIds: protoConfig.planModeProviderModelIds ?? {},
 
 		// Act mode configurations
 		actModeApiProvider:
@@ -246,5 +249,6 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		actModeDeepSeekModelInfo: convertProtoToModelInfo(protoConfig.actModeDeepSeekModelInfo),
 		actModeMimoModelInfo: convertProtoToModelInfo(protoConfig.actModeMimoModelInfo),
 		actModeBigmodelModelInfo: convertProtoToModelInfo(protoConfig.actModeBigmodelModelInfo),
+		actModeProviderModelIds: protoConfig.actModeProviderModelIds ?? {},
 	}
 }

@@ -758,9 +758,23 @@ export async function checkForUpdates(context: vscode.ExtensionContext): Promise
 
 		if (!candidates.length) {
 			if (sawOlder) {
+				// 有渠道明确说「没有更新」，但**另一个渠道可能只是这次没连上**——3.91.13 用户实测踩过：
+				// jihulab 超时 + GitHub 只有旧版 → 弹「已是最新」，刚发布的新版本被静默吞掉。
+				// 所以渠道失败必须跟着说出口，不能只报喜。
+				const failureDetail = failures
+					.map((item) => `${RELEASE_SOURCES[item.source].label}渠道本次检查失败：${item.message}`)
+					.join("；")
+				const caveat = failureDetail ? `（注意：${failureDetail}——若刚发布过新版本，可能是该渠道暂时不可达）` : ""
+				recordAudit({
+					event: "update",
+					action: "check",
+					outcome: failures.length > 0 ? "error" : "info",
+					message: caveat || undefined,
+				})
 				await HostProvider.window.showMessage({
 					type: ShowMessageType.INFORMATION,
-					message: `当前已是最新版本 v${ExtensionRegistryInfo.version}`,
+					message: `当前已是最新版本 v${ExtensionRegistryInfo.version}${caveat}`,
+					options: failures.length > 0 ? { items: [OPEN_RELEASES] } : undefined,
 				})
 				return
 			}

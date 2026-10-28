@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import CreditLimitError from "@/components/chat/CreditLimitError"
 import { ClineError, ClineErrorType } from "../../../../src/services/error/ClineError"
 import { isDuplicateErrorCode } from "../../../../src/services/error/error-code"
+import { extractBigmodelError } from "../../../../src/shared/bigmodel-request"
 
 const _errorColor = "var(--vscode-errorForeground)"
 
@@ -26,10 +27,14 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 				if (rawApiError) {
 					// FIXME: ClineError parsing should not be applied to non-Cline providers, but it seems we're using clineErrorMessage below in the default error display
 					const clineError = ClineError.parse(rawApiError)
-					const errorMessage = clineError?._error?.message || clineError?.message || rawApiError
 					const requestId = clineError?._error?.request_id
 					const providerId = clineError?.providerId || clineError?._error?.providerId
 					const errorCode = clineError?._error?.code
+					// #60：BigModel 错误翻人话（1261 指出路）。宿主在产生错误时已改写过 message，
+					// 这里再兜一层——旧任务历史里存的还是原始消息，按结构化字段现场重翻。
+					const bigmodelError = providerId === "bigmodel" ? extractBigmodelError(clineError?._error) : undefined
+					const errorMessage =
+						bigmodelError?.humanMessage || clineError?._error?.message || clineError?.message || rawApiError
 					// code 常常就是 status 的字符串形式（服务端回 "401"），而 message 自己也以
 					// "401 Invalid API Key" 开头 → 直接拼会渲染成 `[MIMO] 401401 Invalid API Key`。
 					const showErrorCode = !!errorCode && !isDuplicateErrorCode(clineError?._error?.status, errorCode)
@@ -85,8 +90,9 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 								</div>
 							)}
 
-							{/* Display raw API error if different from parsed error message */}
-							{errorMessage !== rawApiError && <div>{rawApiError}</div>}
+							{/* Display raw API error if different from parsed error message。
+								#60：BigModel 已翻人话时不再回显原始 JSON 块（那正是「裸 JSON 直显」的来源） */}
+							{errorMessage !== rawApiError && !bigmodelError && <div>{rawApiError}</div>}
 
 							<div className="mt-4">
 								<span className="text-description">{t("error.clickRetry")}</span>

@@ -16,7 +16,7 @@ import {
 	collectRecentLines,
 	compareAuditFilesDesc,
 	diagnosticsFileName,
-	foldUpdateEventsForExport,
+	foldEventsForExport,
 	parseAuditFileDate,
 	sanitizeAuditEntry,
 	scrubSecrets,
@@ -390,7 +390,7 @@ test("D5：update 事件折叠——超限时保留最近 10 条、其余折成�
 			JSON.stringify({ ts: 1_700_000_000_000 + i * 2 + 1, event: "tool", tool: "search_files", outcome: "error" }),
 		)
 	}
-	const folded = foldUpdateEventsForExport(lines, 500)
+	const folded = foldEventsForExport(lines, 500)
 	const parsed = folded.map((l) => JSON.parse(l) as { event: string; action?: string; folded?: number })
 	const updateRows = parsed.filter((p) => p.event === "update" && p.action !== "folded")
 	const toolRows = parsed.filter((p) => p.event === "tool")
@@ -408,7 +408,62 @@ test("D5：update 事件折叠——超限时保留最近 10 条、其余折成�
 
 test("D5：不超 limit 时折叠函数原样返回", () => {
 	const lines = [JSON.stringify({ ts: 1, event: "update", action: "check" })]
-	assert.equal(foldUpdateEventsForExport(lines, 500), lines)
+	assert.equal(foldEventsForExport(lines, 500), lines)
+})
+
+test("3.92.0：error 事件进白名单（source/errorKind）且密钥擦洗、正文剥离照常生效", () => {
+	const line = serializeAuditEntry(
+		{
+			event: "error",
+			source: "host",
+			errorKind: "grpc",
+			tool: "cline.UiService.runCommand",
+			outcome: "error",
+			message: "命令不在允许列表里：x. apiKey=sk-abcdef0123456789abcdef <file_content>【整段正文】</file_content>",
+			snapshot: "Error: boom\n    at f (/c:/x/y.ts:1:1)",
+		},
+		1_700_000_000_000,
+	)!
+	const parsed = JSON.parse(line) as Record<string, unknown>
+	assert.equal(parsed.event, "error")
+	assert.equal(parsed.source, "host")
+	assert.equal(parsed.errorKind, "grpc")
+	assert.equal(parsed.tool, "cline.UiService.runCommand")
+	// message 走 cleanAuditMessage：剥正文块 + 擦密钥 + 80 字截断
+	const message = parsed.message as string
+	assert.equal(message.includes("sk-abcdef"), false, "message 里的密钥必须被擦")
+	assert.equal(message.includes("【整段正文】"), false, "message 里的正文块必须被剥")
+	// 非法 source 不落盘
+	const bad = JSON.parse(serializeAuditEntry({ event: "error", source: "hacker" as never }, 1)!) as Record<string, unknown>
+	assert.equal(bad.source, undefined)
+})
+
+test("3.92.0：error 事件折叠——保留最近 50 条、更早折成摘要，与 update 折叠互不干扰", () => {
+	const lines: string[] = []
+	for (let i = 0; i < 80; i++) {
+		lines.push(JSON.stringify({ ts: 1_700_000_000_000 + i, event: "error", errorKind: "grpc" }))
+	}
+	for (let i = 0; i < 480; i++) {
+		lines.push(JSON.stringify({ ts: 1_700_000_100_000 + i, event: "tool", tool: "read_file" }))
+	}
+	for (let i = 0; i < 3; i++) {
+		lines.push(JSON.stringify({ ts: 1_700_000_200_000 + i, event: "update", action: "check" }))
+	}
+	const folded = foldEventsForExport(lines, 500)
+	const parsed = folded.map((l) => JSON.parse(l) as { event: string; action?: string; folded?: number })
+	const errorRows = parsed.filter((p) => p.event === "error" && p.action !== "folded")
+	const errorSummary = parsed.filter((p) => p.event === "error" && p.action === "folded")
+	const toolRows = parsed.filter((p) => p.event === "tool")
+	const updateRows = parsed.filter((p) => p.event === "update")
+	// 折叠先保留最近 50 条 error；随后 limit 切片按时间序再丢掉最老的 33 条（全是 error）
+	// → 非折叠 error 行只剩 17 条。摘要是「至少丢了多少」的底标，与 D5 的既有交互一致。
+	assert.equal(errorRows.length, 17)
+	assert.equal(errorSummary.length, 1, "折叠摘要一行")
+	assert.equal(errorSummary[0].folded, 30, "error 折叠计数 = 80 - 50")
+	assert.equal(toolRows.length, 480, "tool 全保留（error 是更旧的事件，被切掉的是 error）")
+	assert.equal(updateRows.length, 3, "少量 update 不折叠")
+	// 533 kept（480 tool + 50 error + 3 update）→ slice(-500) → 500 行 + 1 条摘要
+	assert.equal(folded.length, 501)
 })
 
 test("S4：dialect-guard——定位类参数含 DSML/方言标签语法时拒执行并产出快照", () => {

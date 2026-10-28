@@ -10,7 +10,7 @@
  * 2. **脱敏**：所有字符串字段先截断再擦除形如 `sk-...` / `Bearer ...` / 长哈希的片段。
  */
 
-export type AuditEventKind = "tool" | "task" | "memory" | "update" | "api" | "parse"
+export type AuditEventKind = "tool" | "task" | "memory" | "update" | "api" | "parse" | "error"
 
 export type AuditOutcome = "ok" | "error" | "denied" | "cancelled" | "info"
 
@@ -65,6 +65,10 @@ export interface AuditEntry {
 	delayMs?: number
 	/** parse 事件：归一化/修复命中摘要（如 `dsml=3,dots=1`），仅非零时携带 */
 	repairs?: string
+	/** error 事件：错误来自哪一侧 */
+	source?: "host" | "webview"
+	/** error 事件：错误种类，如 grpc / unhandledRejection / uncaughtException / ui_error */
+	errorKind?: string
 }
 
 /** 单个字符串字段的最大长度：路径足够用，正文一定被砍掉。 */
@@ -203,7 +207,7 @@ function cleanRange(value: unknown): [number, number] | undefined {
 	return [start, end]
 }
 
-const EVENT_KINDS = new Set<AuditEventKind>(["tool", "task", "memory", "update", "api", "parse"])
+const EVENT_KINDS = new Set<AuditEventKind>(["tool", "task", "memory", "update", "api", "parse", "error"])
 const OUTCOMES = new Set<AuditOutcome>(["ok", "error", "denied", "cancelled", "info"])
 
 /**
@@ -293,6 +297,12 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 	// parse 事件的修复命中摘要
 	const repairs = cleanAuditText(entry.repairs, 200)
 	if (repairs) record.repairs = repairs
+
+	// error 事件的来源侧与种类（message/snapshot 复用上面的通用清洗：先剥正文块再脱敏截断）
+	const source = entry.source === "host" || entry.source === "webview" ? entry.source : undefined
+	if (source) record.source = source
+	const errorKind = cleanAuditText(entry.errorKind, 32)
+	if (errorKind) record.errorKind = errorKind
 
 	return record
 }
@@ -415,16 +425,20 @@ export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
 }
 
 /**
- * D5（2026-10-25）：诊断包导出时的 update 事件折叠。
+ * D5（2026-10-25）：诊断包导出时的高频事件折叠（update / error 两类）。
  *
- * 实测一轮装机（多次 check/install/cancel）可产生 17 条 update 事件，在 500 条窗口里
- * 挤占 tool/api/parse 等排障关键事件的额度。策略：保留最近 KEEP 条 update（回溯版本
- * 安装史仍有用），更早的折叠成一行机器可读摘要（19 §19.8：机器字段独占、不含正文）。
+ * 实测一轮装机（多次 check/install/cancel）可产生 17 条 update 事件；error 事件
+ * （3.92.0 起：grpc 失败 / 全局兜底 / webview 回传）在故障期也可能成串，都会在
+ * 500 条窗口里挤占 tool/api/parse 等排障关键事件的额度。策略：每类各自保留最近
+ * KEEP 条，更早的折叠成一行机器可读摘要（19 §19.8：机器字段独占、不含正文）。
  * 其余事件全保留；总行数不超过 limit（超出时丢最老的，与 collectRecentLines 同语义）。
  */
 const EXPORT_UPDATE_KEEP = 10
+const EXPORT_ERROR_KEEP = 50
 
-export function foldUpdateEventsForExport(lines: string[], limit: number): string[] {
+const foldKeepFor = (event: string): number => (event === "update" ? EXPORT_UPDATE_KEEP : EXPORT_ERROR_KEEP)
+
+export function foldEventsForExport(lines: string[], limit: number): string[] {
 	if (lines.length <= limit) {
 		return lines
 	}
@@ -435,12 +449,38 @@ export function foldUpdateEventsForExport(lines: string[], limit: number): strin
 			return { line, index, obj: undefined as { ts?: number; event?: string } | undefined }
 		}
 	})
-	const updates = parsed.filter((p) => p.obj?.event === "update")
-	const others = parsed.filter((p) => p.obj?.event !== "update")
-	const keepUpdates = updates.slice(-EXPORT_UPDATE_KEEP)
-	const foldedCount = updates.length - keepUpdates.length
 
-	const kept = [...others, ...keepUpdates]
+	const groups = new Map<string, typeof parsed>()
+	const rest: typeof parsed = []
+	for (const p of parsed) {
+		const event = p.obj?.event
+		if (event === "update" || event === "error") {
+			const group = groups.get(event) ?? []
+			group.push(p)
+			groups.set(event, group)
+		} else {
+			rest.push(p)
+		}
+	}
+
+	const kept = [...rest]
+	const summaries: string[] = []
+	for (const [event, group] of groups) {
+		const keepRows = group.slice(-foldKeepFor(event))
+		kept.push(...keepRows)
+		const foldedCount = group.length - keepRows.length
+		if (foldedCount > 0) {
+			summaries.push(
+				JSON.stringify({
+					event,
+					action: "folded",
+					folded: foldedCount,
+					note: `另有 ${foldedCount} 条更早的 ${event} 事件已折叠`,
+				}),
+			)
+		}
+	}
+
 	// 恢复时间序：全部可解析时按 ts 排，否则按原顺序稳定兜底
 	kept.sort((a, b) => {
 		const ta = typeof a.obj?.ts === "number" ? a.obj.ts : undefined
@@ -450,15 +490,6 @@ export function foldUpdateEventsForExport(lines: string[], limit: number): strin
 	})
 
 	const result = kept.slice(-limit).map((p) => p.line)
-	if (foldedCount > 0) {
-		result.push(
-			JSON.stringify({
-				event: "update",
-				action: "folded",
-				folded: foldedCount,
-				note: `另有 ${foldedCount} 条更早的 update 事件已折叠`,
-			}),
-		)
-	}
+	result.push(...summaries)
 	return result
 }

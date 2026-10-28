@@ -13,7 +13,13 @@ import { type BigmodelModelId, bigmodelDefaultModelId, getBigmodelModelInfo, typ
 import { calculateBigmodelCost } from "@shared/bigmodelPricing"
 import OpenAI from "openai"
 import type { ChatCompletionTool } from "openai/resources/chat/completions"
-import { BIGMODEL_BASE_URL, bigmodelThinkingParam, buildBigmodelParams } from "@/shared/bigmodel-request"
+import {
+	BIGMODEL_BASE_URL,
+	bigmodelThinkingParam,
+	buildBigmodelParams,
+	clampBigmodelOutputTokens,
+	estimateBigmodelPromptTokens,
+} from "@/shared/bigmodel-request"
 import { ClineStorageMessage } from "@/shared/messages/content"
 import { createOpenAIClient } from "@/shared/net"
 import { ApiHandler, CommonApiHandlerOptions } from "../index"
@@ -35,6 +41,11 @@ interface BigmodelHandlerOptions extends CommonApiHandlerOptions {
 export class BigmodelHandler implements ApiHandler {
 	private options: BigmodelHandlerOptions
 	private client: OpenAI | undefined
+	/**
+	 * 上一轮真实用量（prompt+completion，#57）：下一轮的输入 ≈ 上一轮总量 + 新增消息，
+	 * 与字符粗估取 max 作预估——Exact 但滞后 × 粗糙但新鲜，两个界取大的更稳。
+	 */
+	private lastRoundTokens: number | undefined
 
 	constructor(options: BigmodelHandlerOptions) {
 		this.options = options
@@ -72,11 +83,18 @@ export class BigmodelHandler implements ApiHandler {
 			...convertToOpenAiMessages(messages),
 		]
 
+		// #57：BigModel 窗口含输出，满额 max_tokens 会把实际输入预算压到窗口−输出
+		// （glm-4.5-flash 仅 32K，实测 28.6k prompt 即 400×3）。输出上限按预估输入夹紧。
+		const estimatedPromptTokens = Math.max(estimateBigmodelPromptTokens(openAiMessages), this.lastRoundTokens ?? 0)
 		const stream = await client.chat.completions.create(
 			buildBigmodelParams({
 				model: model.id,
 				messages: openAiMessages,
-				maxTokens: model.info.maxTokens,
+				maxTokens: clampBigmodelOutputTokens({
+					maxTokens: model.info.maxTokens,
+					contextWindow: model.info.contextWindow,
+					estimatedPromptTokens,
+				}),
 				thinkingParam,
 				toolParams: getOpenAIToolParams(tools),
 			}),
@@ -114,6 +132,8 @@ export class BigmodelHandler implements ApiHandler {
 
 		if (finalUsage) {
 			const promptTokens = finalUsage.prompt_tokens || 0
+			// 记住本轮总量（输入+输出），供下一轮预估输入预算（#57）
+			this.lastRoundTokens = promptTokens + (finalUsage.completion_tokens || 0)
 			const cacheHitTokens = finalUsage.prompt_tokens_details?.cached_tokens || 0
 			// 未命中输入 = prompt_tokens - 命中。官方把输入拆成两档计价，没有「普通输入」这一档，
 			// 沿用 DeepSeek/MiMo 口径：inputTokens 恒 0、未命中进 cacheWriteTokens。

@@ -23,6 +23,8 @@ interface ContextWindowProgressProps extends ContextWindowInfoProps {
 	lastApiReqTotalTokens?: number
 	lastApiReqUsage?: LastApiReqUsage
 	contextWindow?: number
+	/** 模型目录的输出上限（#58）：进度条分母 = 有效输入预算 = 窗口 − 预留输出 */
+	maxOutputTokens?: number
 	onSendMessage?: (command: string, files: string[], images: string[]) => void
 }
 
@@ -60,6 +62,7 @@ ConfirmationDialog.displayName = "ConfirmationDialog"
 
 const ContextWindow: React.FC<ContextWindowProgressProps> = ({
 	contextWindow = 0,
+	maxOutputTokens,
 	lastApiReqTotalTokens = 0,
 	lastApiReqUsage,
 	onSendMessage,
@@ -103,13 +106,18 @@ const ContextWindow: React.FC<ContextWindowProgressProps> = ({
 		if (!contextWindow) {
 			return null
 		}
+		// #58：分母用「有效输入预算」= 窗口 − 预留输出（目录 maxTokens，至多窗口一半）。
+		// 满窗口径对窗口含输出的供应商（BigModel）双重高估：glm-4.5-flash 实际预算仅 32K，
+		// 旧进度条在 1261 前仍显示「28.6k/128.0k 余量充足」。
+		const reservedOutput = Math.min(maxOutputTokens || 0, Math.floor(contextWindow / 2))
+		const effectiveBudget = contextWindow - reservedOutput
 		return {
 			// 防溢出：即使个别提供方上报异常用量，进度条也不超过 100%
-			percentage: Math.min(100, (lastApiReqTotalTokens / contextWindow) * 100),
-			max: contextWindow,
+			percentage: Math.min(100, (lastApiReqTotalTokens / effectiveBudget) * 100),
+			max: effectiveBudget,
 			used: lastApiReqTotalTokens,
 		}
-	}, [contextWindow, lastApiReqTotalTokens])
+	}, [contextWindow, maxOutputTokens, lastApiReqTotalTokens])
 
 	// 缓存命中徽标：与进度条同源，取「上一次请求」的分段用量（而非整段对话累计），
 	// 否则会出现「命中 > 已用」的错觉。命中量 = 本次 cacheReads，命中率 = 命中 / 本次总输入。

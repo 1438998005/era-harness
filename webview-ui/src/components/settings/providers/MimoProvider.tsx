@@ -10,7 +10,7 @@ import { ApiKeyField } from "../common/ApiKeyField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
-import { mergeLiveModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
+import { mergeLiveModelIds, nextProviderModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 // 基址、控制台与文档入口取自 @shared/mimo-request（与扩展侧发请求同一份，避免漂移）。
@@ -51,7 +51,7 @@ interface MimoProviderProps {
  */
 export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoProviderProps) => {
 	const { t } = useTranslation("settings")
-	const { apiConfiguration } = useExtensionState()
+	const { apiConfiguration, planActSeparateModelsSetting } = useExtensionState()
 	const { handleFieldChange, handleModeFieldsChange } = useApiConfigurationHandlers()
 
 	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
@@ -177,8 +177,20 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 								{
 									modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" },
 									modelInfo: { plan: "planModeMimoModelInfo", act: "actModeMimoModelInfo" },
+									// #52：设置页与快速切换双写同一份 per-provider 记忆
+									providerModelIds: { plan: "planModeProviderModelIds", act: "actModeProviderModelIds" },
 								},
-								{ modelId, modelInfo: models[modelId] },
+								{
+									modelId,
+									modelInfo: models[modelId],
+									providerModelIds: nextProviderModelIds(
+										apiConfiguration,
+										"mimo",
+										modelId,
+										currentMode,
+										planActSeparateModelsSetting,
+									),
+								},
 								currentMode,
 							)
 						}}

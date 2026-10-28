@@ -656,4 +656,8 @@ message ModelsApiConfiguration {
   optional string gemini_act_mode_thinking_level = 239;
   optional string act_mode_cline_model_id = 240;
   optional OpenRouterModelInfo act_mode_cline_model_info = 241;
+  // #52（2026-10-28）：deepseek/mimo/bigmodel 的 per-provider 模型记忆
+  //（共用 api_model_id 槽位，切走即被覆盖；读侧仍过归属校验）
+  map<string, string> plan_mode_provider_model_ids = 251;
+  map<string, string> act_mode_provider_model_ids = 252;
 }

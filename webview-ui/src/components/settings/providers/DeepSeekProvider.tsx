@@ -9,7 +9,7 @@ import { ApiKeyField } from "../common/ApiKeyField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
-import { mergeLiveModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
+import { mergeLiveModelIds, nextProviderModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -45,7 +45,7 @@ interface DeepSeekProviderProps {
  */
 export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: DeepSeekProviderProps) => {
 	const { t } = useTranslation("settings")
-	const { apiConfiguration } = useExtensionState()
+	const { apiConfiguration, planActSeparateModelsSetting } = useExtensionState()
 	const { handleFieldChange, handleModeFieldsChange } = useApiConfigurationHandlers()
 
 	// Get the normalized configuration
@@ -133,8 +133,20 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 								{
 									modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" },
 									modelInfo: { plan: "planModeDeepSeekModelInfo", act: "actModeDeepSeekModelInfo" },
+									// #52：设置页与快速切换双写同一份 per-provider 记忆
+									providerModelIds: { plan: "planModeProviderModelIds", act: "actModeProviderModelIds" },
 								},
-								{ modelId, modelInfo: models[modelId] },
+								{
+									modelId,
+									modelInfo: models[modelId],
+									providerModelIds: nextProviderModelIds(
+										apiConfiguration,
+										"deepseek",
+										modelId,
+										currentMode,
+										planActSeparateModelsSetting,
+									),
+								},
 								currentMode,
 							)
 						}}

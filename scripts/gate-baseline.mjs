@@ -252,13 +252,18 @@ function push(name, detail, status, problems) {
 		problems.push("src/hosts/vscode/erabasic/index.ts 缺少 healLegacyAssociations（旧脏值无法自愈）")
 	}
 
-	// 语法高亮开关（off 态）：枚举要有 off、宿主要认 plaintext、读态接口要透传
+	// 语法高亮开关（off 态）：枚举要有 off、宿主 associations 纯函数要认 RUBY（off = 原版 Ruby 配色）、
+	// 且保留 plaintext 只作为迁移/清理输入（3.92.0-dev 用户写过的旧表示法）
 	const ownerCfg = pkg.contributes?.configuration?.properties?.["eraHarness.erabasic.languageOwner"]
 	if (!ownerCfg?.enum?.includes("off")) {
 		problems.push("languageOwner 枚举缺少 off（语法高亮开关回归丢失）")
 	}
-	if (!hostSrc.includes("PLAINTEXT_LANGUAGE_ID")) {
-		problems.push("src/hosts/vscode/erabasic/index.ts 缺少 PLAINTEXT_LANGUAGE_ID（off 态无法绑定纯文本）")
+	const assocSrc = fs.readFileSync(path.join(ROOT, "src/hosts/vscode/erabasic/associations.ts"), "utf8")
+	if (!assocSrc.includes('RUBY_LANGUAGE_ID = "ruby"')) {
+		problems.push("erabasic/associations.ts 缺少 RUBY_LANGUAGE_ID = ruby（off 态语义：绑内置 Ruby 保留原版配色）")
+	}
+	if (!assocSrc.includes("PLAINTEXT_LANGUAGE_ID")) {
+		problems.push("erabasic/associations.ts 缺少 PLAINTEXT_LANGUAGE_ID（旧 off 表示法的迁移/清理丢失）")
 	}
 	const ownerUiSrc = fs.readFileSync(path.join(ROOT, "src/core/controller/ui/getEraBasicLanguageOwner.ts"), "utf8")
 	if (!ownerUiSrc.includes('"off"')) {
@@ -387,6 +392,40 @@ function push(name, detail, status, problems) {
 		if (!declared.has(match[1])) {
 			problems.push(`runCommand 白名单引用了未声明的命令：${match[1]}`)
 		}
+	}
+
+	// 反向：webview 实际发送的命令 id 必须都在白名单里。3.92.0 实测踩过：三态卡片
+	// 新加 disableHighlighting 时漏同步白名单，用户点「关闭高亮」必报「命令不在允许列表里」，
+	// 而上面的「白名单→声明」方向查不出这种漏。只扫 runCommand 调用点附近窗口，避免误伤
+	// webview 里其他用途的命令字符串。
+	const allowed = new Set([...allowBlock.matchAll(/"([\w.-]+)"/g)].map((match) => match[1]))
+	const webviewFiles = []
+	const walkWebview = (dir) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			if (entry.isDirectory()) {
+				if (["node_modules", "build", "dist"].includes(entry.name)) continue
+				walkWebview(path.join(dir, entry.name))
+			} else if (/\.(tsx?|jsx?)$/.test(entry.name) && !/\.(test|spec)\./.test(entry.name)) {
+				webviewFiles.push(path.join(dir, entry.name))
+			}
+		}
+	}
+	walkWebview(path.join(ROOT, "webview-ui", "src"))
+	const reportedMissing = new Set()
+	for (const file of webviewFiles) {
+		const lines = fs.readFileSync(file, "utf8").split(/\r?\n/)
+		lines.forEach((line, index) => {
+			if (!line.includes(".runCommand(")) return
+			// 调用可能跨行（三元映射命令 id），取调用行前后一个窗口
+			const window = lines.slice(Math.max(0, index - 5), index + 20).join("\n")
+			for (const match of window.matchAll(/"((?:eraHarness|era-harness)\.[\w.-]+)"/g)) {
+				if (allowed.has(match[1]) || reportedMissing.has(match[1])) continue
+				reportedMissing.add(match[1])
+				problems.push(
+					`webview 发送的命令不在 runCommand 白名单：${match[1]}（${path.relative(ROOT, file)}:${index + 1} 附近）`,
+				)
+			}
+		})
 	}
 
 	push(

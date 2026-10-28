@@ -22,6 +22,8 @@ interface PanelMessage {
 	backupDir?: string | null
 	merged?: number
 	kept?: number
+	/** 仅更新成功落盘时为 true：决定结果态是否显示「撤销这次更新」按钮 */
+	canUndo?: boolean
 }
 
 const vscodeApi = (window as unknown as { acquireVsCodeApi?: () => { postMessage(msg: unknown): void } }).acquireVsCodeApi?.()
@@ -48,7 +50,9 @@ function App() {
 		backupDir: string | null
 		merged?: number
 		kept?: number
+		canUndo?: boolean
 	} | null>(null)
+	const [undoRequested, setUndoRequested] = useState(false)
 	const logRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
@@ -77,6 +81,7 @@ function App() {
 					backupDir: data.backupDir ?? null,
 					merged: data.merged,
 					kept: data.kept,
+					canUndo: data.canUndo,
 				})
 			}
 		}
@@ -92,6 +97,16 @@ function App() {
 		vscodeApi?.postMessage({ type: "cancel" })
 	}
 
+	const requestUndo = () => {
+		setUndoRequested(true)
+		vscodeApi?.postMessage({ type: "undo" })
+	}
+
+	const openBackup = (event: { preventDefault(): void }) => {
+		event.preventDefault()
+		vscodeApi?.postMessage({ type: "openBackup" })
+	}
+
 	const mono: CSSProperties = { fontFamily: "var(--vscode-editor-font-family, monospace)", fontSize: 12 }
 
 	return (
@@ -101,34 +116,39 @@ function App() {
 			<div style={{ fontSize: 13, marginBottom: 6 }}>{result ? "更新流程已结束" : stage}</div>
 
 			{!result && (
-				<div
-					style={{
-						height: 6,
-						borderRadius: 3,
-						background: "var(--vscode-progressBar-background, #3794FF)",
-						opacity: percent === null ? 0.25 : 1,
-						width: percent === null ? "100%" : `${percent}%`,
-						transition: "width 0.2s ease",
-						marginBottom: 10,
-					}}
-				/>
+				<div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+					<div
+						style={{
+							flex: 1,
+							height: 6,
+							borderRadius: 3,
+							background: "var(--vscode-progressBar-background, #3794FF)",
+							opacity: percent === null ? 0.25 : 1,
+							width: percent === null ? "100%" : `${percent}%`,
+							transition: "width 0.2s ease",
+						}}
+					/>
+					<button
+						onClick={cancel}
+						style={{
+							background: "var(--vscode-errorBackground, #5A1D1D)",
+							color: "var(--vscode-errorForeground, #F48771)",
+							border: "1px solid var(--vscode-errorForeground, #F48771)",
+							borderRadius: 2,
+							padding: "4px 14px",
+							cursor: "pointer",
+							whiteSpace: "nowrap",
+						}}
+						title="取消在下一个步骤边界安全停下；写入阶段的取消会自动回滚到更新前"
+						type="button">
+						取消更新
+					</button>
+				</div>
 			)}
-
 			{!result && (
-				<button
-					onClick={cancel}
-					style={{
-						background: "var(--vscode-button-secondaryBackground, #3A3D41)",
-						color: "var(--vscode-button-secondaryForeground, #FFFFFF)",
-						border: "none",
-						borderRadius: 2,
-						padding: "4px 12px",
-						cursor: "pointer",
-						marginBottom: 10,
-					}}
-					type="button">
-					取消更新（写入阶段的取消会自动回滚）
-				</button>
+				<div style={{ fontSize: 11, opacity: 0.75, marginBottom: 10 }}>
+					取消在下一个步骤边界安全停下；写入阶段的取消会自动回滚。
+				</div>
 			)}
 
 			{result && (
@@ -154,7 +174,39 @@ function App() {
 						</div>
 					)}
 					{result.backupDir && (
-						<div style={{ fontSize: 12, marginTop: 4 }}>备份位置：{result.backupDir}（随时可以撤销这次更新）。</div>
+						<div style={{ fontSize: 12, marginTop: 4 }}>
+							备份位置：
+							<a
+								href="#"
+								onClick={openBackup}
+								style={{ color: "var(--vscode-textLink-foreground, #4daafc)" }}
+								title="在资源管理器中打开备份目录">
+								{result.backupDir}
+							</a>
+						</div>
+					)}
+					{result.canUndo && result.backupDir && (
+						<div style={{ marginTop: 8 }}>
+							<button
+								disabled={undoRequested}
+								onClick={requestUndo}
+								style={{
+									background: undoRequested
+										? "var(--vscode-button-secondaryBackground, #3A3D41)"
+										: "var(--vscode-button-background, #0E639C)",
+									color: "var(--vscode-button-foreground, #FFFFFF)",
+									border: "none",
+									borderRadius: 2,
+									padding: "5px 14px",
+									cursor: undoRequested ? "default" : "pointer",
+								}}
+								type="button">
+								{undoRequested ? "正在撤销…" : "撤销这次更新"}
+							</button>
+							<span style={{ fontSize: 11, opacity: 0.75, marginLeft: 8 }}>
+								把游戏恢复到更新前的样子（用上面的备份）
+							</span>
+						</div>
 					)}
 				</div>
 			)}

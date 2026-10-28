@@ -2,6 +2,7 @@ import { Controller } from "@core/controller/index"
 import { serviceHandlers } from "@generated/hosts/vscode/protobus-services"
 import { GrpcRecorderBuilder } from "@/core/controller/grpc-recorder/grpc-recorder.builder"
 import { GrpcRequestRegistry } from "@/core/controller/grpc-request-registry"
+import { recordAudit } from "@/core/logging/auditLog"
 import { ExtensionMessage } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
 import { GrpcCancel, GrpcRequest } from "@/shared/WebviewMessage"
@@ -45,6 +46,22 @@ function recordRequest(request: GrpcRequest, controller: Controller): void {
 	} catch (e) {
 		Logger.warn("Failed to record gRPC request:", e)
 	}
+}
+
+/**
+ * UI 触发的 rpc 失败落审计（3.92.0）：错误会回传 webview 显示，但此前不留任何持久痕迹，
+ * 用户只能截图报错弹窗、诊断包里什么都没有。落一条 error 事件后，导出诊断包即自带现场。
+ */
+function auditGrpcError(request: GrpcRequest, error: unknown): void {
+	recordAudit({
+		event: "error",
+		source: "host",
+		errorKind: "grpc",
+		tool: `${request.service}.${request.method}`,
+		outcome: "error",
+		message: error instanceof Error ? error.message : String(error),
+		snapshot: error instanceof Error ? error.stack : undefined,
+	})
 }
 
 /**
@@ -93,6 +110,7 @@ async function handleUnaryRequest(
 	} catch (error) {
 		// Send error response
 		Logger.log("Protobus error:", error)
+		auditGrpcError(request, error)
 		await postMessageToWebview({
 			type: "grpc_response",
 			grpc_response: {
@@ -107,7 +125,7 @@ async function handleUnaryRequest(
 /**
  * Handle a streaming gRPC request from the webview.
  *
- * Calls the handler using the service and method name, and creates a streaming response handler
+ * Calls the service handler using the service and method name, and creates a streaming response handler
  * which posts results back to the webview.
  */
 async function handleStreamingRequest(
@@ -144,6 +162,7 @@ async function handleStreamingRequest(
 	} catch (error) {
 		// Send error response
 		Logger.log("Protobus error:", error)
+		auditGrpcError(request, error)
 		await postMessageToWebview({
 			type: "grpc_response",
 			grpc_response: {

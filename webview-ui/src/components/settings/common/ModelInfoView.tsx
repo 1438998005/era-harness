@@ -216,8 +216,10 @@ export const ModelInfoView = ({
 	const cachePricedInput =
 		!!modelInfo.supportsPromptCache && modelInfo.inputPrice === 0 && modelInfo.cacheReadsPrice !== undefined
 
-	// Check if we have cache pricing to show in Advanced section
-	const hasCachePricing = modelInfo.supportsPromptCache && (modelInfo.cacheWritesPrice || modelInfo.cacheReadsPrice)
+	// Check if we have cache pricing to show in Advanced section。
+	// ⚠️ 必须 Boolean()：免费款两档缓存价全 0 时 `(0 || 0)` 求值为数字 0，
+	// React 的 `{0 && …}` 会把 0 渲染成字面「0」孤行（#54，2026-10-28 用户实测）。
+	const hasCachePricing = Boolean(modelInfo.supportsPromptCache && (modelInfo.cacheWritesPrice || modelInfo.cacheReadsPrice))
 
 	return (
 		<div style={{ marginTop: 4 }}>

@@ -5,12 +5,12 @@ import { UiServiceClient } from "@/services/grpc-client"
 const LANGUAGE_OWNER_OPTIONS = [
 	{ value: "era", label: "era harness", hint: "内置高亮（默认）" },
 	{ value: "sasami", label: "sasami.erabasic", hint: "需已安装该扩展" },
-	{ value: "off", label: "关闭高亮", hint: "纯文本；补全/跳转/符号同失" },
+	{ value: "off", label: "关闭高亮", hint: "原版 Ruby 配色；补全/跳转/符号同失" },
 ] as const
 
 export type LanguageOwner = (typeof LANGUAGE_OWNER_OPTIONS)[number]["value"]
 
-/** EraBasic 语法归属：三选一的单选卡，选中项实心高亮；off = 把 .erb/.erh 绑到纯文本（补全/跳转/符号同失） */
+/** EraBasic 语法归属：三选一的单选卡，选中项实心高亮；off = 把 .erb/.erh 绑到内置 Ruby（保留原版配色，补全/跳转/符号同失） */
 export const EraBasicOwnerChoice = memo(() => {
 	const [owner, setOwner] = useState<LanguageOwner | null>(null)
 	const [pending, setPending] = useState<LanguageOwner | null>(null)
@@ -66,8 +66,8 @@ export const EraBasicOwnerChoice = memo(() => {
 		<div className="flex flex-col gap-2">
 			<div className="text-sm font-medium text-foreground">EraBasic 语法归属</div>
 			<div className="text-xs text-description">
-				.erb / .erh 的语法高亮由谁提供，三选一。切换会写入用户级
-				files.associations，随时可换回；「关闭高亮」会把文件绑到纯文本，补全/跳转/符号对这些文件同时失效。
+				.erb / .erh 的语法高亮由谁提供，三选一。切换会写入用户级 files.associations，随时可换回；「关闭高亮」会关掉
+				EraBasic 着色、保留 VS Code 原版 Ruby 配色，补全/跳转/符号对这些文件同时失效。
 			</div>
 			<div aria-label="EraBasic 语法归属" className="grid grid-cols-3 gap-2 pt-1" role="radiogroup">
 				{LANGUAGE_OWNER_OPTIONS.map((option) => {

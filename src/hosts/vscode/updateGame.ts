@@ -452,14 +452,42 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		verifyMismatches: result.verify?.mismatches.map((m) => m.path) ?? [],
 	})
 
-	// F5：结果同步进面板（标题/明细/备份位置/合并与保留计数），面板留给用户看完再关
+	// F5：结果同步进面板（标题/明细/备份位置/合并与保留计数），面板留给用户看完再关。
+	// 单一来源（#53）：结构化字段（backupDir/merged/kept）由面板自行渲染，lines 里与之重复的行
+	// 在此滤掉——此前两侧都画，备份路径出现两条且措辞不一。无面板降级路径（下方 modal）仍用完整 lines。
+	const backupDir = result.report?.backupDir ?? null
+	// kept 追加行只进 modal（面板由结构化 kept 渲染同一信息）
+	const modalLines = [...narrative2.lines, ...(keptLocal > 0 ? ["这些文件社区这次没能更新它们，下次更新会再问。"] : [])]
+	// 校验失败分支的备份行自带「手动对照」提示，过滤后补回一句等价的，提示不丢
+	const keepCompareAdvice =
+		backupDir !== null && modalLines.some((line) => line.includes(backupDir) && line.includes("不放心可以手动对照"))
+	const panelLines = modalLines.filter(
+		(line) =>
+			!(backupDir !== null && line.includes(backupDir)) && !line.startsWith("其中 ") && !line.startsWith("这些文件社区"),
+	)
+	if (keepCompareAdvice) {
+		panelLines.push("备份还在原处，不放心可以打开对照。")
+	}
 	panel?.finish({
 		title: narrative2.title,
-		lines: [...narrative2.lines, ...(keptLocal > 0 ? ["这些文件社区这次没能更新它们，下次更新会再问。"] : [])],
-		backupDir: result.report?.backupDir ?? null,
+		lines: panelLines,
+		backupDir,
 		merged,
 		kept: keptLocal,
+		// 只有成功落盘的更新才有「撤销」的意义（失败分支已自动回滚，没有可撤销的东西）
+		canUndo: result.status === "applied",
 	})
+	// #61：结果态的撤销 / 打开备份目录按钮走这条回调（面板可能已关，panel 为 null 时自然跳过）
+	if (panel && backupDir) {
+		panel.handlers.openBackup = () => {
+			void vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(backupDir))
+		}
+		if (result.status === "applied") {
+			panel.handlers.undo = () => {
+				void undo(result, root)
+			}
+		}
+	}
 
 	// 对话工作台的备注（有几个窗口没交、AI 有没有动工作台之外的文件）：
 	// 不影响成败，但用户有权知道，所以单独弹一次而不塞进结果框。
@@ -471,7 +499,7 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 	if (result.status === "applied") {
 		const choice = await vscode.window.showInformationMessage(
 			narrative2.title,
-			{ modal: true, detail: narrative2.lines.join("\n") },
+			{ modal: true, detail: modalLines.join("\n") },
 			"撤销这次更新",
 			"知道了",
 		)

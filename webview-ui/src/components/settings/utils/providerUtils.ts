@@ -231,6 +231,13 @@ export async function syncModeConfigurations(
 			break
 	}
 
+	// #52：模型记忆随模式同步一起对齐（联动后两张 map 保持一致，避免切回时两侧恢复出不同的模型）
+	const sourceMap = sourceMode === "plan" ? apiConfiguration.planModeProviderModelIds : apiConfiguration.actModeProviderModelIds
+	if (sourceMap) {
+		updates.planModeProviderModelIds = { ...sourceMap }
+		updates.actModeProviderModelIds = { ...sourceMap }
+	}
+
 	// Make the atomic update
 	await handleFieldsChange(updates)
 }
@@ -264,6 +271,50 @@ export function mergeLiveModelIds(
 		merged[selectedModelId] = infoFor(selectedModelId)
 	}
 	return merged
+}
+
+/**
+ * 下拉选项文案：免费款尾缀「· 免费」（#55，2026-10-28 用户建议「扫描定价，全 0 就打免费标记」）。
+ *
+ * 目录里 `name` 虽带「免费」，但下拉渲染的是模型 id，name 进不来——所以按**定价派生**：
+ * 至少两档价已知且全部为 0 即视为免费。静态目录与 #50 在线同步回来的 id 走同一份判断，
+ * 不依赖 name 字符串；DeepSeek 这类「输入 0 但缓存价非 0」的模型不会被误标。
+ */
+export function modelOptionLabel(models: Record<string, ModelInfo>, modelId: string): string {
+	const info = models[modelId]
+	if (!info) {
+		return modelId
+	}
+	const knownPrices = [info.inputPrice, info.outputPrice, info.cacheReadsPrice, info.cacheWritesPrice].filter(
+		(price) => price !== undefined,
+	)
+	const isFree = knownPrices.length >= 2 && knownPrices.every((price) => price === 0)
+	return isFree ? `${modelId} · 免费` : modelId
+}
+
+/**
+ * #52：设置页选模型时同步更新的 per-provider 记忆表。
+ * 快速切换与设置页必须**双写同一份记忆**，否则设置里改完模型 → 快速切换切走再切回，
+ * 恢复的是旧记忆（#52 的原始抱怨）。模式联动（不分开）时两张 map 合并保持同一份
+ *（与 modelId 槽位「联动即同值」的语义一致）；分开时只动当前模式的 map。
+ */
+export function nextProviderModelIds(
+	apiConfiguration: ApiConfiguration | undefined,
+	provider: string,
+	modelId: string,
+	currentMode: Mode,
+	planActSeparate: boolean | undefined,
+): Record<string, string> {
+	if (planActSeparate) {
+		const currentMap =
+			currentMode === "plan" ? apiConfiguration?.planModeProviderModelIds : apiConfiguration?.actModeProviderModelIds
+		return { ...(currentMap ?? {}), [provider]: modelId }
+	}
+	return {
+		...(apiConfiguration?.planModeProviderModelIds ?? {}),
+		...(apiConfiguration?.actModeProviderModelIds ?? {}),
+		[provider]: modelId,
+	}
 }
 
 export { filterOpenRouterModelIds } from "@shared/utils/model-filters"

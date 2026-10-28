@@ -51,11 +51,13 @@ const SPECS = [
 	"audit-redaction.spec.ts",
 	"mimo-model.spec.ts",
 	"bigmodel-model.spec.ts",
+	"bigmodel-error.spec.ts",
 	"model-id.spec.ts",
 	"error-text.spec.ts",
 	"open-folder.spec.ts",
 	"era-domain-prompt.spec.ts",
 	"era-write-guard.spec.ts",
+	"erabasic-owner.spec.ts",
 ]
 
 const aliasResolverPlugin = {

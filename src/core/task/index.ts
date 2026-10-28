@@ -101,6 +101,7 @@ import {
 } from "@/integrations/terminal"
 import { ClineError, ClineErrorType, ErrorService } from "@/services/error"
 import { telemetryService } from "@/services/telemetry"
+import { extractBigmodelError } from "@/shared/bigmodel-request"
 import { ClineClient } from "@/shared/cline"
 import {
 	ClineAssistantContent,
@@ -2143,6 +2144,13 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			const isContextWindowExceededError = checkContextWindowExceededError(error)
 			const { model, providerId } = this.getCurrentProviderInfo()
 			const clineError = ErrorService.get().toClineError(error, model.id, providerId)
+			if (providerId === "bigmodel") {
+				// #60：BigModel 错误翻成人话（1261 指出路），审计与展示链同源受益
+				const bigmodelError = extractBigmodelError(error)
+				if (bigmodelError) {
+					clineError.message = bigmodelError.humanMessage
+				}
+			}
 
 			// era harness（D1 请求层审计，2026-10-25）：首 chunk 失败此前审计零痕迹——
 			// 第三方端点失败循环在诊断包里只有 start/abort（08 #46 实测）。
@@ -2219,6 +2227,13 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 					}
 				})()
 
+				// #59（2026-10-28）：确定性 4xx 不自动重试——请求没变，结果不会变。
+				// 实测 glm-4.5-flash 的 1261（400）原样重试 3 轮全败，白等 2s/4s/8s。
+				// 429 除外（限流值得等）；.status 经 ClineError 保留（ClineError.ts 构造时存入 _error.status）。
+				const errorStatus = (clineError as unknown as { _error?: { status?: number } })._error?.status
+				const isDeterministic4xx =
+					typeof errorStatus === "number" && errorStatus >= 400 && errorStatus < 500 && errorStatus !== 429
+
 				let response: ClineAskResponse
 				// Skip auto-retry for Cline provider insufficient credits, auth errors, or spend limit errors
 				const shouldRetry =
@@ -2226,6 +2241,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 					!isAuthError &&
 					!isSpendLimitError &&
 					!quotaExceeded &&
+					!isDeterministic4xx &&
 					this.taskState.autoRetryAttempts < 3
 				if (shouldRetry) {
 					// Auto-retry enabled with max 3 attempts: automatically approve the retry
@@ -3914,7 +3930,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		}
 
 		// Add context window usage information (conditionally for some models)
-		const { contextWindow } = getContextWindowInfo(this.api)
+		// #58：分母用「有效输入预算」（窗口−预留输出）——满窗口径对窗口含输出的供应商
+		// （BigModel）双重高估，1261 前模型与用户都看到「余量充足」。
+		const { contextWindow, effectiveInputBudget } = getContextWindowInfo(this.api)
 
 		// Get the token count from the most recent API request to accurately reflect context management
 		const getTotalTokensFromApiReqMessage = (msg: ClineMessage) => {
@@ -3939,7 +3957,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		})
 
 		const lastApiReqTotalTokens = lastApiReqMessage ? getTotalTokensFromApiReqMessage(lastApiReqMessage) : 0
-		const usagePercentage = Math.round((lastApiReqTotalTokens / contextWindow) * 100)
+		const usagePercentage = Math.round((lastApiReqTotalTokens / effectiveInputBudget) * 100)
 
 		// Determine if context window info should be displayed
 		const currentModelId = this.api.getModel().id
@@ -3950,13 +3968,13 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		if (isNextGenModel) {
 			const autoCondenseThreshold = 0.75
 			const displayThreshold = autoCondenseThreshold - 0.15
-			const currentUsageRatio = lastApiReqTotalTokens / contextWindow
+			const currentUsageRatio = lastApiReqTotalTokens / effectiveInputBudget
 			shouldShowContextWindow = currentUsageRatio >= displayThreshold
 		}
 
 		if (shouldShowContextWindow) {
 			details += "\n\n# Context Window Usage"
-			details += `\n${lastApiReqTotalTokens.toLocaleString()} / ${(contextWindow / 1000).toLocaleString()}K tokens used (${usagePercentage}%)`
+			details += `\n${lastApiReqTotalTokens.toLocaleString()} / ${(effectiveInputBudget / 1000).toLocaleString()}K tokens used (${usagePercentage}%)`
 		}
 
 		details += "\n\n# Current Mode"

@@ -117,7 +117,7 @@ export async function exportDiagnosticsPackage(): Promise<void> {
 
 		const answer = await HostProvider.window.showMessage({
 			type: ShowMessageType.INFORMATION,
-			message: `诊断包已生成：${result.filePath}（含最近 ${result.auditLineCount} 条操作记录，不含密钥）。`,
+			message: `诊断包已生成：${result.filePath}（含最近 ${result.auditLineCount} 条操作与运行时错误记录，不含密钥）。`,
 			options: { items: ["在资源管理器中显示"] },
 		})
 		if (answer.selectedOption === "在资源管理器中显示") {

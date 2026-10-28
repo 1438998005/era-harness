@@ -1,16 +1,33 @@
-import { bigmodelModels, type ModelInfo } from "@shared/api"
-import { BIGMODEL_CONSOLE_URL, BIGMODEL_DOCS_URL } from "@shared/bigmodel-request"
+import { bigmodelModels, type ModelInfo, resolveBigmodelModelId } from "@shared/api"
+import { BIGMODEL_BASE_URL, BIGMODEL_CONSOLE_URL, BIGMODEL_DOCS_URL } from "@shared/bigmodel-request"
 import { Mode } from "@shared/storage/types"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { UiServiceClient } from "@/services/grpc-client"
+import { ModelsServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { ApiKeyField } from "../common/ApiKeyField"
 import { ModelInfoView } from "../common/ModelInfoView"
 import { ModelSelector } from "../common/ModelSelector"
 import ReasoningEffortSelector from "../ReasoningEffortSelector"
-import { normalizeApiConfiguration } from "../utils/providerUtils"
+import { mergeLiveModelIds, nextProviderModelIds, normalizeApiConfiguration } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
+
+const BUILTIN_MODELS = bigmodelModels as Record<string, ModelInfo>
+
+/** API 返回了本地没有的模型时用的保守元数据（不带价格：未知模型标错价 = 算错账） */
+const FALLBACK_MODEL_INFO: ModelInfo = {
+	contextWindow: 1_000_000,
+	maxTokens: 128_000,
+	supportsImages: false,
+	supportsPromptCache: true,
+}
+
+/** 按小写命中内置清单；在线同步回来的新模型用保守元数据（不显示价格） */
+function modelInfoFor(id: string): ModelInfo {
+	const knownId = resolveBigmodelModelId(id)
+	return (knownId && BUILTIN_MODELS[knownId]) || FALLBACK_MODEL_INFO
+}
 
 interface BigmodelProviderProps {
 	showModelOptions: boolean
@@ -19,18 +36,60 @@ interface BigmodelProviderProps {
 }
 
 /**
- * 智谱 BigModel 配置（计划任务 C）。
- * 静态内置清单 14 款（5.x 平价四款 / 一维阶梯三款 / 长文款 / 免费六款），无 /v1/models 在线同步
- * （官方文档未见该端点，列入知识库 23 待验证）；价格与阶梯口径见尾部文案与 @shared/bigmodelPricing。
+ * 智谱 BigModel 配置（计划任务 C；#50 在线同步 2026-10-28）。
+ * 内置清单 14 款（5.x 平价四款 / 一维阶梯三款 / 长文款 / 免费六款）作底，填 Key 后
+ * `GET /api/paas/v4/models` 在线同步（官方已有该端点，2026-10-28 探测确认，需 Bearer）；
+ * 拉取失败静默回落内置清单。价格与阶梯口径见尾部文案与 @shared/bigmodelPricing。
  */
 export const BigmodelProvider = ({ showModelOptions, isPopup, currentMode }: BigmodelProviderProps) => {
 	const { t } = useTranslation("settings")
-	const { apiConfiguration } = useExtensionState()
+	const { apiConfiguration, planActSeparateModelsSetting } = useExtensionState()
 	const { handleFieldChange, handleModeFieldsChange } = useApiConfigurationHandlers()
 
 	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
 
-	const models = bigmodelModels as Record<string, ModelInfo>
+	const apiKey = apiConfiguration?.bigmodelApiKey || ""
+	const [liveModelIds, setLiveModelIds] = useState<string[] | null>(null)
+	const [isRefreshing, setIsRefreshing] = useState(false)
+
+	const refreshModels = useCallback(async (key: string) => {
+		if (!key) {
+			setLiveModelIds(null)
+			return
+		}
+		setIsRefreshing(true)
+		try {
+			const response = await ModelsServiceClient.refreshOpenAiModels({
+				metadata: {},
+				baseUrl: BIGMODEL_BASE_URL,
+				apiKey: key,
+			} as any)
+			const ids = (response?.values ?? []).filter((id): id is string => !!id)
+			setLiveModelIds(ids.length > 0 ? ids : null)
+		} catch {
+			// 离线或 Key 无效时静默回落，不打断配置流程
+			setLiveModelIds(null)
+		} finally {
+			setIsRefreshing(false)
+		}
+	}, [])
+
+	// 输入 Key 后自动拉一次；防抖避免逐字符请求（与 DeepSeek/MiMo 同款）
+	useEffect(() => {
+		if (!apiKey) {
+			setLiveModelIds(null)
+			return
+		}
+		const timer = setTimeout(() => void refreshModels(apiKey), 800)
+		return () => clearTimeout(timer)
+	}, [apiKey, refreshModels])
+
+	const models = useMemo<Record<string, ModelInfo>>(() => {
+		if (!liveModelIds) {
+			return BUILTIN_MODELS
+		}
+		return mergeLiveModelIds(liveModelIds, resolveBigmodelModelId, modelInfoFor, selectedModelId)
+	}, [liveModelIds, selectedModelId])
 
 	const open = (url: string) => void UiServiceClient.openUrl({ value: url }).catch(console.error)
 
@@ -64,13 +123,43 @@ export const BigmodelProvider = ({ showModelOptions, isPopup, currentMode }: Big
 								{
 									modelId: { plan: "planModeApiModelId", act: "actModeApiModelId" },
 									modelInfo: { plan: "planModeBigmodelModelInfo", act: "actModeBigmodelModelInfo" },
+									// #52：设置页与快速切换双写同一份 per-provider 记忆
+									providerModelIds: { plan: "planModeProviderModelIds", act: "actModeProviderModelIds" },
 								},
-								{ modelId, modelInfo: models[modelId] },
+								{
+									modelId,
+									modelInfo: models[modelId],
+									providerModelIds: nextProviderModelIds(
+										apiConfiguration,
+										"bigmodel",
+										modelId,
+										currentMode,
+										planActSeparateModelsSetting,
+									),
+								},
 								currentMode,
 							)
 						}}
 						selectedModelId={selectedModelId}
 					/>
+
+					<div className="flex items-center justify-between mt-1">
+						<span className="text-xs text-(--vscode-descriptionForeground)">
+							{liveModelIds
+								? `已从智谱同步 ${liveModelIds.length} 个模型`
+								: apiKey
+									? "同步失败，暂用内置清单"
+									: "填入密钥后自动同步官方模型列表"}
+						</span>
+						<button
+							className="text-xs underline bg-transparent border-none cursor-pointer p-0"
+							disabled={!apiKey || isRefreshing}
+							onClick={() => void refreshModels(apiKey)}
+							style={{ color: "var(--vscode-textLink-foreground)", opacity: apiKey ? 1 : 0.5 }}
+							type="button">
+							{isRefreshing ? "同步中…" : "刷新模型列表"}
+						</button>
+					</div>
 
 					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
 

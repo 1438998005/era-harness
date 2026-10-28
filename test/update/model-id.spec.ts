@@ -10,6 +10,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+	bigmodelModels,
 	deepSeekDefaultModelId,
 	deepSeekModels,
 	getDeepSeekModelInfo,
@@ -24,7 +25,7 @@ import {
 	resolveMimoModelId,
 	shouldResetModelForProvider,
 } from "../../src/shared/api"
-import { normalizeApiConfiguration } from "../../webview-ui/src/components/settings/utils/providerUtils"
+import { modelOptionLabel, normalizeApiConfiguration } from "../../webview-ui/src/components/settings/utils/providerUtils"
 
 test("DeepSeek 模型 id 按小写归一：同步回来的大小写不能掉进未知分支", () => {
 	assert.equal(resolveDeepSeekModelId("deepseek-v4-pro"), "deepseek-v4-pro")
@@ -192,4 +193,29 @@ test("对话模型判定：asr/tts 段要排除，但只能按段匹配、不能
 	for (const id of Object.keys(mimoModels)) {
 		assert.equal(isChatCapableModelId(id), true, `内置清单里的 ${id} 必须是对话模型`)
 	}
+})
+
+/**
+ * #55：下拉选项的免费标记。规则是「扫描定价，全 0 就打免费标」——不依赖 name 字符串，
+ * 静态目录与 #50 在线同步回来的 id 共用同一份判断。
+ */
+test("下拉免费标记：定价全 0 尾缀「· 免费」，付费与价格未知不带标", () => {
+	const bigmodelFree = bigmodelModels["glm-4.7-flash"]
+	const bigmodelPaid = bigmodelModels["glm-5.3-flash"]
+	assert.ok(bigmodelFree && bigmodelPaid, "清单里必须有免费款与付费款")
+
+	const models = { "glm-4.7-flash": bigmodelFree, "glm-5.3-flash": bigmodelPaid } as Record<string, typeof bigmodelFree>
+	assert.equal(modelOptionLabel(models, "glm-4.7-flash"), "glm-4.7-flash · 免费")
+	assert.equal(modelOptionLabel(models, "glm-5.3-flash"), "glm-5.3-flash", "付费款不带标")
+
+	// DeepSeek 输入价 0 但缓存价非 0：不能误标
+	const deepseek = deepSeekModels[deepSeekDefaultModelId]
+	assert.ok(deepseek)
+	assert.equal(modelOptionLabel({ x: deepseek }, "x"), "x", "缓存价非 0 不算免费")
+
+	// 价格全未知（自填模型）：不标
+	assert.equal(modelOptionLabel({ y: { contextWindow: 128_000, maxTokens: 8_000 } as never }, "y"), "y")
+
+	// 在线同步回来的未知 id（不在 models 里）：原样
+	assert.equal(modelOptionLabel({}, "brand-new-model"), "brand-new-model")
 })

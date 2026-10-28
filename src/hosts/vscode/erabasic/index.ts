@@ -8,27 +8,21 @@
 //   - 本文件**不再自动写任何用户设置**。唯一会写 `files.associations` 的是三条显式命令：
 //       · `eraHarness.erabasic.yieldToSasami` —— 用户主动把 .erb/.erh 让给 sasami.erabasic；
 //       · `eraHarness.erabasic.reclaimFiles`   —— 撤销上述让位（以及清理历史脏值）；
-//       · `eraHarness.erabasic.disableHighlighting` —— 关闭语法着色（off 态，绑到纯文本）。
-//   - 启动时会**自愈**：把旧版本写进去的 `"*.erb": "era-erb"` 静默删掉（现在不需要它了）。
+//       · `eraHarness.erabasic.disableHighlighting` —— 关闭 EraBasic 着色（off 态，绑到内置 Ruby
+//         保留原版配色；补全/跳转/符号同失——平台没有「只关颜色保住语言」的 API）。
+//   - 启动时会**自愈**：把旧版本写进去的 `"*.erb": "era-erb"` 静默删掉（现在不需要它了），
+//     并把 3.92.0-dev off 态写过的 plaintext 迁移成 ruby（或已不是 off 时直接清掉）。
 
 import type { ExtensionContext } from "vscode"
 import * as vscode from "vscode"
+import { computeAssociationsForOwner, healAssociations } from "./associations"
 import { BuiltinComplationItems } from "./completionData"
 import { DeclarationProvider } from "./declarationProvider"
 import { DefinitionRepository } from "./definitionProvider"
 import { readSymbolInformations, SymbolInformationRepository } from "./symbolProvider"
 
 const ERABASIC_EXTENSION_ID = "sasami.erabasic"
-/**
- * sasami.erabasic 的语言 id。
- * 正常让位时从它的 package.json 读；但它被卸载/禁用后 `getExtension` 返回 undefined，
- * 只能靠这个稳定值兜底清理残留的 files.associations，否则「收回」会清不掉、.erb 变纯文本。
- */
-const SASAMI_LANGUAGE_ID = "erabasic"
 const LANGUAGE_ID = "era-erb"
-/** 内置恒存在的语言 id：off 态把 .erb/.erh 绑到它 = 无语法着色（原版颜色）。 */
-const PLAINTEXT_LANGUAGE_ID = "plaintext"
-const MANAGED_ASSOCIATIONS = ["*.erb", "*.erh"]
 const OWNER_SECTION = "eraHarness.erabasic"
 const OWNER_KEY = "languageOwner"
 
@@ -107,22 +101,15 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 	}
 
 	/**
-	 * 自愈：删掉旧版本（≤3.88.0）在激活时写进用户设置里的 "*.erb": "era-erb"。
-	 * 那时不声明 extensions 只能靠关联抢文件；现在语言声明替了它，这两条值既多余、
-	 * 又正是「禁用扩展后 .erb 变纯文本」的根因。只在真的存在脏值时才写一次。
-	 * ⚠️ 只删 `era-erb`：off 态写入的 `plaintext` 是本功能的合法状态，绝不能在这里被清掉。
+	 * 自愈：清掉旧版本（≤3.88.0）在激活时写进用户设置里的 "*.erb": "era-erb"，
+	 * 并把 3.92.0-dev off 态写入的 plaintext 迁移成 ruby（已不是 off 则直接清掉）。
+	 * 只在真的有变化时才写一次。纯判定在 associations.ts，这里只管读写设置。
 	 */
 	async function healLegacyAssociations(): Promise<void> {
 		const assoc = await readAssociations()
-		let changed = false
-		for (const key of MANAGED_ASSOCIATIONS) {
-			if (assoc[key] === LANGUAGE_ID) {
-				delete assoc[key]
-				changed = true
-			}
-		}
-		if (changed) {
-			await writeAssociations(assoc)
+		const { next, changed } = healAssociations(assoc, readOwner())
+		if (changed.length > 0) {
+			await writeAssociations(next)
 		}
 	}
 
@@ -137,8 +124,7 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 	}
 
 	/**
-	 * 把「语言归属」落到 files.associations。
-	 * 只动本扩展管理的两个键，且只认 era-erb / sasami 的语言 id —— 用户自己写的映射不碰。
+	 * 把「语言归属」落到 files.associations（三态的键值计算在 associations.ts 纯函数里）。
 	 * ⚠️ 调用方只能是**用户动作**（设置项变更 / 让位 / 收回命令），⛔ 不要在 evaluate() 里自动调。
 	 */
 	async function applyOwner(owner: LanguageOwner): Promise<{ ok: boolean; changed: string[] }> {
@@ -150,34 +136,9 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 			return { ok: false, changed: [] }
 		}
 		const assoc = await readAssociations()
-		const changed: string[] = []
-		for (const key of MANAGED_ASSOCIATIONS) {
-			const value = assoc[key]
-			if (owner === "off") {
-				// 关闭语法着色：绑到内置 plaintext（恒存在，卸载残留也无坏状态）。与 sasami 分支同构，无条件落值。
-				if (value !== PLAINTEXT_LANGUAGE_ID) {
-					assoc[key] = PLAINTEXT_LANGUAGE_ID
-					changed.push(key)
-				}
-			} else if (owner === "sasami" && target) {
-				if (value !== target) {
-					assoc[key] = target
-					changed.push(key)
-				}
-			} else if (
-				value === LANGUAGE_ID ||
-				(target !== undefined && value === target) ||
-				// sasami 已被卸载时 target 读不到，用稳定语言 id 兕底（让位过的用户点「收回」能清干净）
-				value === SASAMI_LANGUAGE_ID ||
-				// off 态写入的纯文本绑定同样是本扩展写的，切回 era 时一并清掉
-				value === PLAINTEXT_LANGUAGE_ID
-			) {
-				delete assoc[key]
-				changed.push(key)
-			}
-		}
+		const { next, changed } = computeAssociationsForOwner(owner, assoc, target)
 		if (changed.length > 0) {
-			await writeAssociations(assoc)
+			await writeAssociations(next)
 		}
 		return { ok: true, changed }
 	}
@@ -213,14 +174,14 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 		}
 	}
 
-	/** 关闭语法着色：.erb/.erh 绑到纯文本（用户主动点的命令）。补全/跳转/符号对这些文件同时失效——平台没有「只关颜色保住语言」的 API。 */
+	/** 关闭 EraBasic 着色：.erb/.erh 绑到内置 Ruby（原版配色）。补全/跳转/符号对这些文件同时失效——平台没有「只关颜色保住语言」的 API。 */
 	async function disableHighlighting(): Promise<void> {
 		const { changed } = await applyOwner("off")
 		await setOwner("off")
 		void vscode.window.showInformationMessage(
 			changed.length > 0
-				? "已关闭 .erb/.erh 的语法高亮（纯文本）。补全/跳转/符号对这些文件同时失效；恢复：设置「EraBasic 语法归属」切回 era，或点状态栏。"
-				: "语法高亮已是关闭状态。",
+				? "已关闭 .erb/.erh 的 EraBasic 语法着色（保留 VS Code 原版 Ruby 配色）。补全/跳转/符号对这些文件同时失效；恢复：设置「EraBasic 语法归属」切回 era，或点状态栏。"
+				: "EraBasic 语法着色已是关闭状态。",
 		)
 	}
 
@@ -249,9 +210,9 @@ export function registerEraBasicLanguageSupport(context: ExtensionContext): void
 			statusBarItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground")
 		} else if (owner === "off") {
 			statusBarItem.command = "eraHarness.erabasic.reclaimFiles"
-			statusBarItem.text = "$(eye-closed) EraBasic: 高亮已关"
+			statusBarItem.text = "$(eye-closed) EraBasic: EraBasic 着色已关"
 			statusBarItem.tooltip =
-				".erb/.erh 当前为纯文本（无语法着色，补全/跳转/符号亦不生效）。点此恢复 era harness 语法高亮。"
+				".erb/.erh 当前为 VS Code 原版 Ruby 配色（无 EraBasic 着色；补全/跳转/符号亦不生效）。点此恢复 era harness 语法高亮。"
 		} else if (yielded) {
 			statusBarItem.command = "eraHarness.erabasic.reclaimFiles"
 			statusBarItem.text = "$(check) EraBasic：高亮归 sasami"

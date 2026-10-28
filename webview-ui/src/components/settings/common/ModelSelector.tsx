@@ -2,6 +2,7 @@ import { ModelInfo } from "@shared/api"
 import { VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
 import { useTranslation } from "react-i18next"
 import styled from "styled-components"
+import { modelOptionLabel } from "../utils/providerUtils"
 
 /**
  * Container for dropdowns that ensures proper z-index handling
@@ -58,7 +59,7 @@ export const ModelSelector = ({ models, selectedModelId, onChange, zIndex, label
 				<VSCodeOption value="">{t("settings.selectModel")}</VSCodeOption>
 				{Object.keys(models).map((modelId) => (
 					<VSCodeOption className="break-words whitespace-normal max-w-full" key={modelId} value={modelId}>
-						{modelId}
+						{modelOptionLabel(models, modelId)}
 					</VSCodeOption>
 				))}
 			</VSCodeDropdown>

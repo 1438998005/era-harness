@@ -22,8 +22,24 @@ export interface UpdatePanelHandle {
 	post(payload: Record<string, unknown>): void
 	/** 用户点了取消；调用方在下一个事件边界抛错安全停下 */
 	readonly cancelled: boolean
+	/**
+	 * 结果态动作（#61）：面板结果态的「撤销这次更新 / 打开备份目录」按钮回调。
+	 * 结果出来后由调用方按状态赋值；未赋值时面板点击静默忽略。
+	 */
+	readonly handlers: {
+		undo?: () => void
+		openBackup?: () => void
+	}
 	/** 推送最终结果（面板转为结果态，不自动关闭） */
-	finish(input: { title: string; lines: string[]; backupDir?: string | null; merged?: number; kept?: number }): void
+	finish(input: {
+		title: string
+		lines: string[]
+		backupDir?: string | null
+		merged?: number
+		kept?: number
+		/** 仅 status==="applied" 时为 true：面板据此决定是否显示撤销按钮 */
+		canUndo?: boolean
+	}): void
 	dispose(): void
 }
 
@@ -53,9 +69,19 @@ export async function createUpdatePanel(rootLabel: string): Promise<UpdatePanelH
 			.replace(/__CSP_SOURCE__/g, panel.webview.cspSource)
 
 		let cancelled = false
+		const handlers: UpdatePanelHandle["handlers"] = {}
 		panel.webview.onDidReceiveMessage((msg: unknown) => {
-			if ((msg as { type?: string })?.type === "cancel") {
+			const type = (msg as { type?: string })?.type
+			if (type === "cancel") {
 				cancelled = true
+				return
+			}
+			if (type === "undo") {
+				handlers.undo?.()
+				return
+			}
+			if (type === "openBackup") {
+				handlers.openBackup?.()
 			}
 		})
 
@@ -66,7 +92,15 @@ export async function createUpdatePanel(rootLabel: string): Promise<UpdatePanelH
 			get cancelled(): boolean {
 				return cancelled
 			},
-			finish(input: { title: string; lines: string[]; backupDir?: string | null; merged?: number; kept?: number }): void {
+			handlers,
+			finish(input: {
+				title: string
+				lines: string[]
+				backupDir?: string | null
+				merged?: number
+				kept?: number
+				canUndo?: boolean
+			}): void {
 				void Promise.resolve(panel.webview.postMessage({ type: "result", ...input })).catch(() => {})
 			},
 			dispose(): void {

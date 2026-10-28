@@ -136,6 +136,8 @@ message Settings {
   optional bool free_exclude_collecting = 192;
   optional OpenRouterModelInfo plan_mode_bigmodel_model_info = 193;
   optional OpenRouterModelInfo act_mode_bigmodel_model_info = 194;
+  map<string, string> plan_mode_provider_model_ids = 195;
+  map<string, string> act_mode_provider_model_ids = 196;
 }
 
 message State {
