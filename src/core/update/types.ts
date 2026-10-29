@@ -17,6 +17,12 @@ export type RelPath = string
  */
 export interface FileFingerprint {
 	sha1: string
+	/**
+	 * **规范形内容的 git blob id**（换行/BOM 无关，见 `canonical.ts`）。
+	 * 与 `sha1` 同口径（都是 blob id），所以能和 3.92.1 老记录里的 `sha1` 直接比。
+	 * 可选：老路径（备份 / 自检）只算 raw，不填；超过 `CANON_BLOB_MAX_BYTES` 也不填。
+	 */
+	canonBlobSha1?: string
 	size: number
 	mtimeMs: number
 }
@@ -24,6 +30,8 @@ export interface FileFingerprint {
 /** 上游快照中的一项。上游的 mtime 无意义，故不记录。 */
 export interface UpstreamFile {
 	sha1: string
+	/** 规范形内容的 git blob id（换行/BOM 无关） */
+	canonBlobSha1?: string
 	size: number
 }
 
@@ -81,6 +89,8 @@ export type PlanReason =
 	| "local-deleted" // 本地删了、上游没动 → 尊重本地删除
 	| "first-sync-bulk" // 首次同步：mtime 在批量内 → 判为上游旧版，覆盖
 	| "first-sync-human" // 首次同步：mtime 在批量外 → 判为人手改过，冲突
+	| "bulk-keep-local" // 比对不可信：用户选了「只更新能确定的部分」，冲突一律保留
+	| "bulk-take-theirs" // 比对不可信：用户选了「全部换成社区版」，冲突一律覆盖
 
 export interface PlanEntry {
 	path: RelPath
@@ -150,6 +160,23 @@ export type PlanWarning =
 	| "first-sync-unreliable" // 首次同步但批量识别不可信 → 必须让用户二选一
 	| "first-sync" // 本次是首次同步（无基线）
 	| "no-deletable-root" // 上游顶层目录为空，禁止任何删除
+	| "baseline-untrusted" // 有基线但对不上（整合包/转码/路径错位）→ 停止逐文件询问
+
+/**
+ * 基线可信度（`plan.ts#checkBaseline` 的产物）。
+ *
+ * 判据：上游没动过的文件里，本地与基线内容一致的比例。真人手改不会超过全树
+ * 15%（13k 文件改 2000 个以上不成立），低于阈值只可能是基线指错了版本/来源。
+ */
+export interface BaselineCheck {
+	level: "ok" | "suspect" | "unknown"
+	/** 参与判断的样本数（上游没动过、本地也有的文件） */
+	sample: number
+	/** 样本里本地与基线一致的比例（0–1） */
+	agreement: number
+	/** 基线与上游路径的重合率（0–1）；低 = 路径前缀没剥净/版本完全不同 */
+	coverage: number
+}
 
 /**
  * 存档迁移时机提醒（G1–G8 之外的第九问，判据见 `version.ts`）。
@@ -170,6 +197,8 @@ export interface UpdatePlan {
 	groups: ConflictGroup[]
 	summary: PlanSummary
 	warnings: PlanWarning[]
+	/** 基线可信度；首次同步（无基线）时为 undefined */
+	baseline?: BaselineCheck
 	/** 闸门 finding（G2/G3/G6/G7）；没跑过内容闸门时为 undefined */
 	gateFindings?: GateFinding[]
 	/** 因超出扫描上限而未过闸门的脚本文件数（>0 时 finding 不完整） */
@@ -180,7 +209,10 @@ export interface UpdatePlan {
 
 /** 落盘状态：`.era-harness/update-state.json` */
 export interface UpdateState {
-	schemaVersion: 1
+	/** v2 起每个文件多记 canonBlobSha1；v1 仍可读（缺规范形时退回纯字节比对） */
+	schemaVersion: 1 | 2
+	/** 规范形算法版本（归一规则版本）；不等于 1 时忽略 canonBlobSha1（将来换算法用） */
+	canonVersion?: 1
 	source: {
 		projectUrl: string
 		/** 仅内部使用，绝不出现在 UI */
@@ -191,7 +223,7 @@ export interface UpdateState {
 		nowVersion: string
 		appliedAt: string
 	}
-	files: Record<RelPath, { sha1: string; size: number; mtimeMs: number }>
+	files: Record<RelPath, { sha1: string; canonBlobSha1?: string; size: number; mtimeMs: number }>
 	localOverrides: RelPath[]
 	lastBackup?: string
 }

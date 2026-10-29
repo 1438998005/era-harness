@@ -115,9 +115,11 @@ export async function exportDiagnosticsPackage(): Promise<void> {
 			settings: collectSettingsSummary(),
 		})
 
+		// #63：把错误条数摆到提示里——以前只说「含运行时错误记录」，用户无从判断
+		// 到底记到了没有；现在 0 条也明写 0，导一次就知道捕获链路在不在工作。
 		const answer = await HostProvider.window.showMessage({
 			type: ShowMessageType.INFORMATION,
-			message: `诊断包已生成：${result.filePath}（含最近 ${result.auditLineCount} 条操作与运行时错误记录，不含密钥）。`,
+			message: `诊断包已生成：${result.filePath}（最近 ${result.auditLineCount} 条记录，其中运行时错误 ${result.errorCount} 条；不含密钥）。`,
 			options: { items: ["在资源管理器中显示"] },
 		})
 		if (answer.selectedOption === "在资源管理器中显示") {

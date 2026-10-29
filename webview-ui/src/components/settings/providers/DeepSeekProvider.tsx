@@ -87,12 +87,12 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 		return () => clearTimeout(timer)
 	}, [apiKey, refreshModels])
 
-	const models = useMemo<Record<string, ModelInfo>>(() => {
-		if (!liveModelIds) {
-			return BUILTIN_MODELS
-		}
-		return mergeLiveModelIds(liveModelIds, resolveDeepSeekModelId, modelInfoFor, selectedModelId)
-	}, [liveModelIds, selectedModelId])
+	// 内置清单打底、在线清单并入（#62）：同步回来的清单不含旧名 `deepseek-v4-flash`，
+	// 直接用它会把这个仍可调用的模型从下拉框里抹掉。
+	const models = useMemo<Record<string, ModelInfo>>(
+		() => mergeLiveModelIds(BUILTIN_MODELS, liveModelIds ?? [], resolveDeepSeekModelId, modelInfoFor, selectedModelId),
+		[liveModelIds, selectedModelId],
+	)
 
 	return (
 		<div>

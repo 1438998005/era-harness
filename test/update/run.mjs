@@ -23,6 +23,11 @@ const outDir = path.join(__dirname, "out")
 /** 默认模式下要跑的全部测试文件 */
 const SPECS = [
 	"update.spec.ts",
+	"canonical.spec.ts",
+	"plan-canon.spec.ts",
+	"baseline-trust.spec.ts",
+	"service-trust.spec.ts",
+	"conflictPolicy.spec.ts",
 	"history-base.spec.ts",
 	"tarball.spec.ts",
 	"emptyfile.spec.ts",
@@ -39,6 +44,7 @@ const SPECS = [
 	"mergeResolve.spec.ts",
 	"mergeProvider.spec.ts",
 	"mergeWorkbench.spec.ts",
+	"merge-model.spec.ts",
 	"describe.spec.ts",
 	"reference.spec.ts",
 	"game-runner.spec.ts",

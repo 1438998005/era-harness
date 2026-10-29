@@ -13,6 +13,7 @@ import { createHash } from "node:crypto"
 import type { Dirent } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { CanonicalHasher, looksTextPath } from "./canonical"
 import { decodeLikeEngine } from "./decode"
 import { buildLabelIndex, type LabelIndex } from "./labels"
 import {
@@ -118,6 +119,35 @@ export async function hashLocalFile(absPath: string): Promise<FileFingerprint> {
 		await stream.close()
 	}
 	return { sha1: hash.digest("hex"), size: stat.size, mtimeMs: stat.mtimeMs }
+}
+
+/**
+ * 流式计算 raw + 规范形两个指纹（一次读盘，不读两遍）。
+ *
+ * raw = git blob sha1（与 GitLab 同构，写盘自检/备份用）；
+ * canonBlob = **规范形内容的** git blob sha1（换行/BOM 无关，判定「内容是否真的不同」用）。
+ * 详见 `canonical.ts` 头注释 —— 它刻意做成 blob id，好和 3.92.1 的老记录直接比。
+ */
+export async function hashLocalFileCanonical(absPath: string): Promise<FileFingerprint> {
+	const stat = await fs.stat(winLongPath(absPath))
+	const hasher = new CanonicalHasher({ text: looksTextPath(absPath), size: stat.size })
+	const stream = await fs.open(winLongPath(absPath), "r")
+	try {
+		const buf = Buffer.allocUnsafe(1024 * 256)
+		let pos = 0
+		for (;;) {
+			const { bytesRead } = await stream.read(buf, 0, buf.length, pos)
+			if (bytesRead === 0) {
+				break
+			}
+			hasher.update(buf.subarray(0, bytesRead))
+			pos += bytesRead
+		}
+	} finally {
+		await stream.close()
+	}
+	const { raw, canonBlob } = hasher.digest()
+	return { sha1: raw, canonBlobSha1: canonBlob, size: stat.size, mtimeMs: stat.mtimeMs }
 }
 
 export interface BatchOptions {
@@ -248,7 +278,7 @@ export async function scanLocal(root: string, opts: ScanOptions = {}): Promise<L
 				return
 			}
 			try {
-				files.set(rel, await hashLocalFile(toFsPath(root, rel)))
+				files.set(rel, await hashLocalFileCanonical(toFsPath(root, rel)))
 			} catch {
 				// 单文件读失败（占用/权限）不应中断整次扫描；由上层报告"跳过 N 个"
 			}
@@ -334,7 +364,12 @@ export async function readState(root: string): Promise<UpdateState | null> {
 	try {
 		const raw = await fs.readFile(statePath(root), "utf8")
 		const parsed = JSON.parse(raw) as UpdateState
-		if (parsed?.schemaVersion !== 1 || typeof parsed.files !== "object" || parsed.files === null) {
+		// v1 必须继续可读：返回 null 会把老用户打回首次同步（重下归档 + 重新猜基线）
+		if (
+			(parsed?.schemaVersion !== 1 && parsed?.schemaVersion !== 2) ||
+			typeof parsed.files !== "object" ||
+			parsed.files === null
+		) {
 			return null
 		}
 		return parsed
@@ -351,23 +386,31 @@ export async function writeState(root: string, state: UpdateState): Promise<void
 	await fs.rename(tmp, target)
 }
 
-/** 状态里的 files 转成 plan 需要的 base 映射（只要 sha1） */
-export function stateToBase(state: UpdateState | null): Map<RelPath, { sha1: string }> | null {
+/** 状态里的 files 转成 plan 需要的 base 映射（v1 只有 sha1；v2 多带规范形 blob id） */
+export function stateToBase(state: UpdateState | null): Map<RelPath, { sha1: string; canonBlobSha1?: string }> | null {
 	if (!state) {
 		return null
 	}
-	const map = new Map<RelPath, { sha1: string }>()
+	// canonVersion 不符 = 归一规则换过，旧规范形不可比 —— 宁可退回纯字节，也不能误判 unchanged。
+	// 注意 v1 记录（没有 canonVersion）本来就取不到规范形，`same()` 会用跨口径比较兜住它。
+	const useCanon = state.canonVersion === 1 || (state.canonVersion === undefined && state.schemaVersion === 2)
+	const map = new Map<RelPath, { sha1: string; canonBlobSha1?: string }>()
 	for (const [rel, fp] of Object.entries(state.files)) {
-		map.set(toRel(rel), { sha1: fp.sha1 })
+		map.set(toRel(rel), useCanon && fp.canonBlobSha1 ? { sha1: fp.sha1, canonBlobSha1: fp.canonBlobSha1 } : { sha1: fp.sha1 })
 	}
 	return map
 }
 
 /** 从本地扫描结果构造一份"当作上游快照"的映射（用于把当前状态存成基线） */
-export function scanToSnapshotFiles(scan: LocalScan): Map<RelPath, { sha1: string; size: number }> {
-	const map = new Map<RelPath, { sha1: string; size: number }>()
+export function scanToSnapshotFiles(scan: LocalScan): Map<RelPath, { sha1: string; canonBlobSha1?: string; size: number }> {
+	const map = new Map<RelPath, { sha1: string; canonBlobSha1?: string; size: number }>()
 	for (const [rel, fp] of scan.files) {
-		map.set(rel, { sha1: fp.sha1, size: fp.size })
+		map.set(
+			rel,
+			fp.canonBlobSha1
+				? { sha1: fp.sha1, canonBlobSha1: fp.canonBlobSha1, size: fp.size }
+				: { sha1: fp.sha1, size: fp.size },
+		)
 	}
 	return map
 }

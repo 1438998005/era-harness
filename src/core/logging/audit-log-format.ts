@@ -391,10 +391,119 @@ export interface DiagnosticsHeader {
 	generatedAt?: Date
 	/** 已脱敏的设置摘要（键值都经过 cleanAuditText） */
 	settings?: Record<string, unknown>
+	/**
+	 * #63（2026-10-29）：包内 error 事件的小计。
+	 * 不传就整段不出现——保持「老调用方零改动」的兼容性。
+	 */
+	errorStats?: ErrorEventStats
+}
+
+/** error 事件来源侧的人话；未知侧原样显示（将来新增来源不用回来改这里）。 */
+const ERROR_SOURCE_LABEL: Record<string, string> = {
+	host: "宿主",
+	webview: "界面",
+	unknown: "来源未记",
 }
 
 /**
- * 生成诊断包正文（不含审计行）：版本、环境、脱敏设置。
+ * errorKind 的人话。键是**写入侧的真实取值**，改一处就要改三处（见注释里的出处），
+ * 所以这里只做显示映射，不认识的值原样打出来——宁可露出 `xxx`，也不要静默归成「其它」。
+ */
+const ERROR_KIND_LABEL: Record<string, string> = {
+	// 扩展宿主：core/controller/grpc-handler.ts（界面调过来的请求失败）
+	grpc: "界面调用宿主失败",
+	// 扩展宿主：core/logging/global-error-capture.ts
+	unhandledRejection: "未处理的 Promise 拒绝",
+	uncaughtException: "未捕获异常",
+	// 界面：webview-ui/src/services/ui-error-reporter.ts
+	"window.onerror": "界面脚本错误",
+	unhandledrejection: "界面未处理拒绝",
+	// 界面：webview-ui/src/components/chat/ChatErrorBoundary.tsx
+	"react-error-boundary": "界面渲染崩溃",
+}
+
+/** 包内 error 事件的小计结果（#63）。 */
+export interface ErrorEventStats {
+	/** 包内 error 事件条数（不含「已折叠」摘要行，那行本身也带 event:"error"） */
+	total: number
+	/** 按来源侧小计，条数降序、同数按名字排（保证同一份包每次导出的行序一致） */
+	bySource: Array<{ source: string; count: number }>
+	/** 按「来源侧 + 种类」小计，排序同上 */
+	byKind: Array<{ source: string; kind: string; count: number }>
+}
+
+/**
+ * #63：统计诊断包内 `event:"error"` 的行数与来源/种类小计。
+ *
+ * 为什么统计**包内**而不是磁盘全部：用户与开发者看的是同一个 txt，头部说 3 条、
+ * 正文只找得到 2 条，比不给数字更糟。折叠摘要行（`action:"folded"`）自己就写了
+ * 「另有 N 条已折叠」，不重复计入。
+ *
+ * 解析失败的行直接跳过：诊断包宁可少统计一行，也不能因为半行 JSON 而导不出来。
+ */
+export function summarizeErrorEvents(lines: readonly string[]): ErrorEventStats {
+	const sourceCounts = new Map<string, number>()
+	const kindCounts = new Map<string, number>()
+	let total = 0
+
+	for (const line of lines) {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(line)
+		} catch {
+			continue
+		}
+		if (!parsed || typeof parsed !== "object") {
+			continue
+		}
+		const record = parsed as Record<string, unknown>
+		if (record.event !== "error" || record.action === "folded") {
+			continue
+		}
+		total++
+		const source = typeof record.source === "string" && record.source ? record.source : "unknown"
+		const kind = typeof record.errorKind === "string" && record.errorKind ? record.errorKind : "unknown"
+		sourceCounts.set(source, (sourceCounts.get(source) ?? 0) + 1)
+		const key = `${source}\u0000${kind}`
+		kindCounts.set(key, (kindCounts.get(key) ?? 0) + 1)
+	}
+
+	const bySource = [...sourceCounts.entries()]
+		.map(([source, count]) => ({ source, count }))
+		.sort((a, b) => b.count - a.count || a.source.localeCompare(b.source))
+	const byKind = [...kindCounts.entries()]
+		.map(([key, count]) => {
+			const [source, kind] = key.split("\u0000")
+			return { source, kind, count }
+		})
+		.sort((a, b) => b.count - a.count || a.source.localeCompare(b.source) || a.kind.localeCompare(b.kind))
+
+	return { total, bySource, byKind }
+}
+
+/**
+ * #63：把小计渲染成诊断包头部的几行。
+ *
+ * 0 条也**必须**写出来：这段存在的意义就是让用户能自己验证「错误有没有被记到」。
+ * 省略 = 用户无法区分「没错误」和「功能没做」，正是 #63 抱怨的那个状态。
+ */
+export function describeErrorStats(stats: ErrorEventStats): string[] {
+	if (stats.total === 0) {
+		return ["运行时错误: 0 条（记录窗口内没有错误；若刚触发过失败操作仍为 0，说明该错误没被捕获链路覆盖）"]
+	}
+
+	const sources = stats.bySource.map(({ source, count }) => `${ERROR_SOURCE_LABEL[source] ?? source} ${count}`).join(" / ")
+	const lines = [`运行时错误: ${stats.total} 条（${sources}）`]
+	for (const { source, kind, count } of stats.byKind) {
+		const sourceLabel = ERROR_SOURCE_LABEL[source] ?? source
+		const kindLabel = ERROR_KIND_LABEL[kind] ?? kind
+		lines.push(`  ${sourceLabel} · ${kindLabel}(${kind}): ${count}`)
+	}
+	return lines
+}
+
+/**
+ * 生成诊断包正文（不含审计行）：版本、环境、脱敏设置、运行时错误小计。
  * 刻意不写任何绝对路径以外的环境细节（用户名可能出现在路径里，但用户自己发的文件）。
  */
 export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
@@ -407,6 +516,10 @@ export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
 	lines.push(`平台: ${cleanAuditText(header.platform) ?? process.platform}`)
 	if (header.vscodeVersion) {
 		lines.push(`VS Code: ${cleanAuditText(header.vscodeVersion) ?? "unknown"}`)
+	}
+	// #63：错误统计紧跟在环境信息后面——这是拿到包的人第一眼要找的东西
+	if (header.errorStats) {
+		lines.push(...describeErrorStats(header.errorStats))
 	}
 
 	const settings = Object.entries(header.settings ?? {})

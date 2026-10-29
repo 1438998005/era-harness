@@ -111,12 +111,12 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 		return () => clearTimeout(timer)
 	}, [apiKey, refreshModels])
 
-	const models = useMemo<Record<string, ModelInfo>>(() => {
-		if (!liveModelIds) {
-			return BUILTIN_MODELS
-		}
-		return mergeLiveModelIds(liveModelIds, resolveMimoModelId, modelInfoFor, selectedModelId)
-	}, [liveModelIds, selectedModelId])
+	// 内置清单打底、在线清单并入（#62）：`/v1/models` 只回「这把 key 能访问的」模型，
+	// 换过套餐/降级的账号会少几款，直接用同步结果会把它们从下拉框里抹掉。
+	const models = useMemo<Record<string, ModelInfo>>(
+		() => mergeLiveModelIds(BUILTIN_MODELS, liveModelIds ?? [], resolveMimoModelId, modelInfoFor, selectedModelId),
+		[liveModelIds, selectedModelId],
+	)
 
 	const open = (url: string) => void UiServiceClient.openUrl({ value: url }).catch(console.error)
 

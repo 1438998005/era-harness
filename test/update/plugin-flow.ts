@@ -59,6 +59,10 @@ async function main(): Promise<void> {
 	const pickHint = process.env.ERA_PLUGIN_PICK
 	stub.__setResponder((call: DialogCall) => {
 		if (call.kind === "quickPick") {
+			// #64：合并用模型的选择框——回车即接受第一行（当前在用的那款），不换家
+			if (call.message.includes("合并用哪个模型")) {
+				return call.items[0]
+			}
 			const pool = pickHint ? call.items.filter((label) => label.includes(pickHint)) : call.items
 			// 没给提示时：勾掉副本，其余全选
 			return pickHint ? pool : pool.filter((label) => !label.includes("$(copy)"))

@@ -91,8 +91,18 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 						</VSCodeButton>
 					</div>
 					<p className="m-0 text-xs text-description">
-						每次工具调用（读了哪个文件、第几次、耗时、成功与否）都会记到诊断目录，只记元数据，不记对话正文与密钥；保留
-						14 天。 遇到奇怪行为时，先点「导出诊断包」，把生成的 txt 发给开发者即可定位。
+						诊断目录里记两类东西，都只记元数据，不记对话正文与密钥；保留 14 天。
+					</p>
+					<ul className="m-0 text-xs text-description pl-4">
+						<li>工具调用：读了哪个文件、第几次、耗时、成功与否。</li>
+						<li>
+							运行时错误：界面上按钮点了没反应或报错的失败、未捕获的异常与 Promise
+							拒绝、侧栏渲染崩溃——连错误堆栈一起记下。
+						</li>
+					</ul>
+					<p className="m-0 text-xs text-description">
+						导出的 txt 头部会写清「这个包里有多少条运行时错误」，为 0 也明写 0，所以导一次就能看出捕获有没有在工作。
+						遇到奇怪行为时，先点「导出诊断包」，把生成的 txt 发给开发者即可定位。
 					</p>
 
 					<h3 className="text-md font-semibold mt-2">本地版说明</h3>

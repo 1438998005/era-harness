@@ -29,6 +29,7 @@ import {
 	foldEventsForExport,
 	parseAuditFileDate,
 	serializeAuditEntry,
+	summarizeErrorEvents,
 } from "./audit-log-format"
 
 /** `<globalStorage>/diagnostics` —— 用户只需要发这一个目录里的东西。 */
@@ -149,10 +150,12 @@ export async function readRecentAuditLines(limit = AUDIT_EXPORT_LINE_LIMIT): Pro
 export interface DiagnosticsExportResult {
 	filePath: string
 	auditLineCount: number
+	/** #63：包内运行时错误条数（0 也是有效值，导出提示要明写「0 条」） */
+	errorCount: number
 }
 
 /**
- * 生成单文件诊断包：环境 + 脱敏设置摘要 + 最近审计行。
+ * 生成单文件诊断包：环境 + 脱敏设置摘要 + 运行时错误小计 + 最近审计行。
  * 返回文件路径（供命令提示用户），失败时抛错由命令层提示。
  */
 export async function exportDiagnostics(header: DiagnosticsHeader): Promise<DiagnosticsExportResult> {
@@ -163,8 +166,12 @@ export async function exportDiagnostics(header: DiagnosticsHeader): Promise<Diag
 	const rawLines = await readRecentAuditLines(AUDIT_EXPORT_LINE_LIMIT * 2)
 	const lines = foldEventsForExport(rawLines, AUDIT_EXPORT_LINE_LIMIT)
 
+	// #63：统计口径是**包内**（折叠之后）——头部说几条，正文就得能数出几条。
+	// 折叠摘要行自己写了「另有 N 条已折叠」，不在小计里重复计入。
+	const errorStats = summarizeErrorEvents(lines)
+
 	const body = [
-		buildDiagnosticsHeader(header),
+		buildDiagnosticsHeader({ ...header, errorStats }),
 		"",
 		`最近审计事件（最多 ${AUDIT_EXPORT_LINE_LIMIT} 条，JSONL）:`,
 		lines.length > 0 ? lines.join("\n") : "(暂无记录)",
@@ -173,5 +180,5 @@ export async function exportDiagnostics(header: DiagnosticsHeader): Promise<Diag
 
 	const filePath = path.join(dir, diagnosticsFileName(new Date()))
 	await fs.writeFile(filePath, body, "utf8")
-	return { filePath, auditLineCount: lines.length }
+	return { filePath, auditLineCount: lines.length, errorCount: errorStats.total }
 }

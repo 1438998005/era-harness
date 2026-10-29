@@ -13,6 +13,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { createGunzip } from "node:zlib"
 import { type ApplyReport, applyPlan, applyPlanFromTar } from "./apply"
+import { ConflictCancelled } from "./conflictPolicy"
 import { decodeLikeEngine } from "./decode"
 import { readNowVersion } from "./discover"
 import { findBaseCommit } from "./historyBase"
@@ -31,7 +32,7 @@ import {
 } from "./manifest"
 import type { MergeAsk } from "./merge"
 import { type ResolveConflictsResult, resolveConflicts } from "./mergeResolve"
-import { buildPlan } from "./plan"
+import { buildPlan, type ConflictPolicy } from "./plan"
 import {
 	createGitLabSource,
 	DEFAULT_BRANCH,
@@ -92,6 +93,17 @@ export interface RunUpdateOptions {
 		shouldMerge?: (group: ConflictGroup) => Promise<boolean> | boolean
 		maxAttempts?: number
 	}
+	/**
+	 * 「比对不可信」时的一次性策略回调（只有 plan.baseline.level === "suspect" 才会调）。
+	 *
+	 * 返回 `cancel` / `undefined` ⇒ 整次更新取消（零写盘）；`keep-all` / `take-theirs`
+	 * ⇒ 按该策略重建计划（冲突不再逐组询问）。不传则维持逐组询问的旧行为。
+	 */
+	onBaselineUntrusted?: (info: {
+		sample: number
+		agreement: number
+		coverage: number
+	}) => Promise<"keep-all" | "take-theirs" | "cancel" | undefined> | "keep-all" | "take-theirs" | "cancel" | undefined
 	/**
 	 * 自定义冲突解决。传了就**不再**用内置的 `resolveConflicts`——对话工作台路径
 	 * （`resolveConflictsViaWorkbench`）靠它把合并塞进一个用户可见的对话里。
@@ -366,7 +378,12 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 			}
 			const snapshot = await snapshotFromArchiveFile(cache, `base@${commit.slice(0, 8)}`).catch(() => null)
 			if (snapshot) {
-				base = new Map([...snapshot.files].map(([rel, file]) => [rel, { sha1: file.sha1 }]))
+				base = new Map(
+					[...snapshot.files].map(([rel, file]) => [
+						rel,
+						file.canonBlobSha1 ? { sha1: file.sha1, canonBlobSha1: file.canonBlobSha1 } : { sha1: file.sha1 },
+					]),
+				)
 				historyBaseCommit = commit
 				emit(opts, {
 					stage: "plan",
@@ -376,11 +393,31 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		}
 	}
 	// 先出草案计划拿改动集（纯 sha1 层，便宜）；再按改动脚本喂内容闸门重建
-	const draft = buildPlan({
+	let draft = buildPlan({
 		base,
 		local: scan,
 		theirs: prepared.snapshot,
 	})
+	// 比对不可信（整合包/转码/路径错位）时先问一次策略，再重建计划 —— 绝不逐文件问上千次
+	let conflictPolicy: ConflictPolicy = "ask"
+	if (draft.baseline?.level === "suspect" && draft.summary.conflict > 0 && opts.onBaselineUntrusted) {
+		emit(opts, { stage: "plan", message: "比对结果对不上，正在确认怎么处理" })
+		const choice = await opts.onBaselineUntrusted({
+			sample: draft.baseline.sample,
+			agreement: draft.baseline.agreement,
+			coverage: draft.baseline.coverage,
+		})
+		if (!choice || choice === "cancel") {
+			return { status: "cancelled", plan: draft, head: prepared.head }
+		}
+		conflictPolicy = choice
+		draft = buildPlan({
+			base,
+			local: scan,
+			theirs: prepared.snapshot,
+			conflictPolicy,
+		})
+	}
 	const gateInput = await collectGateContents(opts, prepared, draft)
 	// 存档迁移时机判据的输入：两边 NOW_VERSION（各读一个 DIM.ERH，便宜）
 	const versions: NowVersions = {
@@ -399,6 +436,7 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		base,
 		local: scan,
 		theirs: prepared.snapshot,
+		conflictPolicy,
 		gateContents: gateInput.contents,
 		gateSkipped: gateInput.skipped,
 		labelIndex,
@@ -412,7 +450,10 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		message: `${plan.summary.write} 改 / ${plan.summary.delete} 删 / ${plan.summary.conflict} 待定${gateNote}${migrationNote}`,
 	})
 
-	if (plan.summary.write + plan.summary.delete + plan.summary.conflict === 0) {
+	// 「什么都不写」≠「已经是最新」：用户选了「只更新能确定的」时，冲突被静默保留，
+	// 磁盘没动但本地确实和社区不一样 —— 必须走 nothing-to-do，不能谎报 up-to-date。
+	const bulkKept = plan.entries.some((entry) => entry.reason === "bulk-keep-local")
+	if (!bulkKept && plan.summary.write + plan.summary.delete + plan.summary.conflict === 0) {
 		return { status: "up-to-date", plan, head: prepared.head }
 	}
 
@@ -465,21 +506,29 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 		}
 
 		emit(opts, { stage: "merge", message: "合并你改过的文件" })
-		if (opts.resolveConflicts) {
-			// 对话工作台：合并在一个可见的对话里进行，这里只接结果
-			resolve = await opts.resolveConflicts(plan, readers)
-		} else if (opts.merge) {
-			resolve = await resolveConflicts({
-				plan,
-				...readers,
-				ask: opts.merge.ask,
-				shouldMerge: opts.merge.shouldMerge,
-				maxAttempts: opts.merge.maxAttempts,
-				onProgress: (done, total, rel) => emit(opts, { stage: "merge", progress: { done, total }, message: rel }),
-			})
-		} else {
-			// 外层条件保证了二者必有其一，走到这里说明判断写错了
-			return { status: "failed", plan, head: prepared.head, error: "内部错误：没有可用的冲突解决方式" }
+		try {
+			if (opts.resolveConflicts) {
+				// 对话工作台：合并在一个可见的对话里进行，这里只接结果
+				resolve = await opts.resolveConflicts(plan, readers)
+			} else if (opts.merge) {
+				resolve = await resolveConflicts({
+					plan,
+					...readers,
+					ask: opts.merge.ask,
+					shouldMerge: opts.merge.shouldMerge,
+					maxAttempts: opts.merge.maxAttempts,
+					onProgress: (done, total, rel) => emit(opts, { stage: "merge", progress: { done, total }, message: rel }),
+				})
+			} else {
+				// 外层条件保证了二者必有其一，走到这里说明判断写错了
+				return { status: "failed", plan, head: prepared.head, error: "内部错误：没有可用的冲突解决方式" }
+			}
+		} catch (error) {
+			// 用户在冲突询问里点了取消：磁盘一个字节都没动
+			if (error instanceof ConflictCancelled) {
+				return { status: "cancelled", plan, head: prepared.head }
+			}
+			throw error
 		}
 		overrides = resolve.overrides
 		plan = promoteMerged(plan, new Set(resolve.overrides.keys()))
@@ -532,7 +581,8 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 	const localOverrides = [...new Set([...(state?.localOverrides ?? []), ...mergedPaths])]
 
 	const nextState: UpdateState = {
-		schemaVersion: 1,
+		schemaVersion: 2,
+		canonVersion: 1,
 		source: { projectUrl: prepared.projectUrl, branch: prepared.branch },
 		applied: {
 			commit: prepared.head?.commit ?? "",
@@ -540,7 +590,12 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 			appliedAt: new Date().toISOString(),
 		},
 		files: Object.fromEntries(
-			[...prepared.snapshot.files].map(([rel, file]) => [rel, { sha1: file.sha1, size: file.size, mtimeMs: 0 }]),
+			[...prepared.snapshot.files].map(([rel, file]) => [
+				rel,
+				file.canonBlobSha1
+					? { sha1: file.sha1, canonBlobSha1: file.canonBlobSha1, size: file.size, mtimeMs: 0 }
+					: { sha1: file.sha1, size: file.size, mtimeMs: 0 },
+			]),
 		),
 		localOverrides,
 		lastBackup: report.backupDir ?? undefined,

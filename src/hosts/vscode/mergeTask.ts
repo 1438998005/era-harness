@@ -24,6 +24,8 @@
 
 import type { Controller } from "@core/controller"
 import { scanLocal } from "@core/update/manifest"
+import type { MergeModelOption } from "@core/update/mergeModel"
+import { mergeModelOverride } from "@core/update/mergeModel"
 import type { UnexpectedChange, WorkbenchLayout, WorkbenchRunOutcome } from "@core/update/mergeWorkbench"
 import type { RelPath } from "@core/update/types"
 import { Logger } from "@shared/services/Logger"
@@ -96,6 +98,9 @@ function sleep(ms: number): Promise<void> {
 /**
  * 开一个对话跑完整个合并，然后回报「树里有没有被意外改动」。
  *
+ * #64：`model` 非空时按它跑这次合并（任务级覆盖，见 `mergeModelOverride` 的注释）。
+ * 不传就沿用用户当前聊天用的模型——与 3.92.1 之前的行为一致。
+ *
  * 任何失败/取消都**不抛错**，一律变成返回值——调用方（`resolveConflictsViaWorkbench`）
  * 会把它记进 `notes`，冲突文件按「保留本地」处理。合并这条路上没有任何异常
  * 应该逃出去把更新流程弄崩。
@@ -105,6 +110,7 @@ export async function runMergeConversation(
 	root: string,
 	prompt: string,
 	layout: WorkbenchLayout,
+	model?: MergeModelOption,
 ): Promise<WorkbenchRunOutcome> {
 	if (isConversationBusy(controller)) {
 		return { status: "busy", detail: "现在有一个对话正在跑。等它结束或取消之后，再点更新合并。" }
@@ -123,7 +129,14 @@ export async function runMergeConversation(
 
 	let started: string
 	try {
-		started = await controller.initTask(prompt)
+		// 第 5 个参数是任务级设置覆盖：只影响这个合并对话，`clearTask()` 时自动还原
+		started = await controller.initTask(
+			prompt,
+			undefined,
+			undefined,
+			undefined,
+			model ? mergeModelOverride(model) : undefined,
+		)
 	} catch (error) {
 		return { status: "failed", detail: `开对话没成功：${error instanceof Error ? error.message : String(error)}` }
 	}

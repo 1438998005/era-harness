@@ -21,6 +21,7 @@ import {
 	sanitizeAuditEntry,
 	scrubSecrets,
 	serializeAuditEntry,
+	summarizeErrorEvents,
 } from "../../src/core/logging/audit-log-format"
 import { buildToolParamSnapshot, findDialectResidueParam } from "../../src/core/task/dialect-guard"
 import {
@@ -482,4 +483,89 @@ test("S4：dialect-guard——定位类参数含 DSML/方言标签语法时拒�
 	assert.ok(snapshot!.includes('path="ERB"'), "快照含短参数值")
 	assert.ok(snapshot!.includes("…"), "长值被截断")
 	assert.equal(snapshot!.includes("【文件正文】"), false, "content 不进快照（正文剥离纪律）")
+})
+
+// —— #63（2026-10-29）：诊断包「全局错误」不可见 ——
+// 用户抱怨「还是老样子、诊断不了全局错误」：功能在，但包里没有汇总，
+// 拿到包的人无法一眼确认错误到底有没有被记到。下面锁住三件事：
+// ① 统计口径是**包内**（头部数字必须能在正文里数出来）；
+// ② 0 条也要有这一行（否则「没错误」和「没做」长得一样）；
+// ③ 折叠摘要行（action:"folded"）不重复计入。
+
+function errorLine(fields: Record<string, unknown>): string {
+	return JSON.stringify({ ts: 1_700_000_000_000, iso: "2023-11-14T22:13:20.000Z", event: "error", outcome: "error", ...fields })
+}
+
+test("#63 错误小计：按来源与种类分别计数，0 条也返回 0", () => {
+	const stats = summarizeErrorEvents([
+		errorLine({ source: "host", errorKind: "grpc", message: "boom" }),
+		errorLine({ source: "host", errorKind: "grpc", message: "boom2" }),
+		errorLine({ source: "webview", errorKind: "react-error-boundary", message: "render" }),
+		JSON.stringify({ event: "tool", tool: "read_file" }),
+	])
+	assert.equal(stats.total, 3)
+	assert.deepEqual(stats.bySource, [
+		{ source: "host", count: 2 },
+		{ source: "webview", count: 1 },
+	])
+	assert.deepEqual(stats.byKind, [
+		{ source: "host", kind: "grpc", count: 2 },
+		{ source: "webview", kind: "react-error-boundary", count: 1 },
+	])
+
+	const empty = summarizeErrorEvents([JSON.stringify({ event: "tool", tool: "read_file" })])
+	assert.equal(empty.total, 0)
+	assert.deepEqual(empty.bySource, [])
+})
+
+test("#63 折叠摘要行不重复计入（它自己也带 event:error）", () => {
+	const folded = JSON.stringify({ event: "error", action: "folded", folded: 12, note: "另有 12 条更早的 error 事件已折叠" })
+	const stats = summarizeErrorEvents([errorLine({ source: "host", errorKind: "uncaughtException" }), folded])
+	assert.equal(stats.total, 1, "摘要行不是一条真实错误")
+})
+
+test("#63 半行/非法 JSON 不能让导出失败（跳过即可）", () => {
+	const stats = summarizeErrorEvents(["not json", "{}", "", errorLine({ source: "host", errorKind: "grpc" })])
+	assert.equal(stats.total, 1)
+})
+
+test("#63 头部：0 条也明写 0，并给出「怎么验证」的判据", () => {
+	const header = buildDiagnosticsHeader({
+		extensionVersion: "3.92.2",
+		errorStats: summarizeErrorEvents([JSON.stringify({ event: "tool", tool: "read_file" })]),
+	})
+	assert.match(header, /运行时错误: 0 条/)
+	// 关键：不能因为 0 条就整行消失，否则用户无法区分「没错误」与「功能没做」
+	assert.match(header, /若刚触发过失败操作仍为 0/)
+})
+
+test("#63 头部：有错误时给出总数 + 分来源小计 + 逐类明细（含人话与原始 kind）", () => {
+	const lines = [
+		errorLine({ source: "host", errorKind: "grpc" }),
+		errorLine({ source: "host", errorKind: "grpc" }),
+		errorLine({ source: "webview", errorKind: "react-error-boundary" }),
+	]
+	const header = buildDiagnosticsHeader({ extensionVersion: "3.92.2", errorStats: summarizeErrorEvents(lines) })
+	assert.match(header, /运行时错误: 3 条（宿主 2 \/ 界面 1）/)
+	assert.match(header, /宿主 · 界面调用宿主失败\(grpc\): 2/)
+	assert.match(header, /界面 · 界面渲染崩溃\(react-error-boundary\): 1/)
+})
+
+test("#63 头部：不传 errorStats 时整段不出现（老调用方零改动）", () => {
+	const header = buildDiagnosticsHeader({ extensionVersion: "3.92.2" })
+	assert.equal(header.includes("运行时错误"), false)
+})
+
+test("#63 统计口径是包内：头部数字必须能在正文里数出来", () => {
+	// 600 条 error 超过 500 行窗口 → 折叠后只留 50 条 + 1 行摘要
+	const many = Array.from({ length: 600 }, (_, i) => errorLine({ source: "host", errorKind: "grpc", message: `e${i}` }))
+	const exported = foldEventsForExport(many, 500)
+	const stats = summarizeErrorEvents(exported)
+	const bodyErrorRows = exported.filter((line) => JSON.parse(line).event === "error" && JSON.parse(line).action !== "folded")
+	assert.equal(stats.total, bodyErrorRows.length, "头部条数与正文可数的行数必须一致")
+	assert.equal(stats.total, 50, "保留最近 50 条（EXPORT_ERROR_KEEP）")
+	assert.ok(
+		exported.some((line) => JSON.parse(line).action === "folded"),
+		"折叠摘要行仍在包里说明折叠了多少",
+	)
 })

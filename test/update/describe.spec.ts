@@ -74,7 +74,7 @@ test("文案：冲突不说「冲突」", () => {
 	)
 	assert.equal(narrative.hasConflicts, true)
 	assert.match(narrative.text, /你改过、社区也改了/)
-	assert.match(narrative.text, /逐个问你/)
+	assert.match(narrative.text, /可以一次性决定/)
 	assertNoJargon(narrative.text)
 })
 
@@ -103,6 +103,8 @@ test("文案：免费模型风险提醒说清轮换风险与手动备份建议�
 	assert.ok(risk.title.includes("免费模型"), `标题应点明免费模型：${risk.title}`)
 	assert.match(risk.detail, /抽到智力不高的模型/)
 	assert.match(risk.detail, /复制一份/)
+	// #64：合并模型改为每次单独选，这段文案不能还暗示「合并一定用免费款」
+	assert.match(risk.detail, /下一步会让你选这次合并用哪一款/)
 	assertNoJargon(`${risk.title}\n${risk.detail}`)
 })
 

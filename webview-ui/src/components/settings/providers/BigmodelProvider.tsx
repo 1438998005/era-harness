@@ -84,12 +84,12 @@ export const BigmodelProvider = ({ showModelOptions, isPopup, currentMode }: Big
 		return () => clearTimeout(timer)
 	}, [apiKey, refreshModels])
 
-	const models = useMemo<Record<string, ModelInfo>>(() => {
-		if (!liveModelIds) {
-			return BUILTIN_MODELS
-		}
-		return mergeLiveModelIds(liveModelIds, resolveBigmodelModelId, modelInfoFor, selectedModelId)
-	}, [liveModelIds, selectedModelId])
+	// 内置清单打底、在线清单并入（#62）：`GET /api/paas/v4/models` 不含免费六款，
+	// 同步一次就把它们从下拉框里抹掉，用户以为免费额度没了。
+	const models = useMemo<Record<string, ModelInfo>>(
+		() => mergeLiveModelIds(BUILTIN_MODELS, liveModelIds ?? [], resolveBigmodelModelId, modelInfoFor, selectedModelId),
+		[liveModelIds, selectedModelId],
+	)
 
 	const open = (url: string) => void UiServiceClient.openUrl({ value: url }).catch(console.error)
 

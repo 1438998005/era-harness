@@ -282,3 +282,53 @@ test("受保护路径永不进计划", () => {
 	assert.equal(isProtectedPath(".era-harness/update-state.json"), true)
 	assert.equal(isProtectedPath("ERB/SYSTEM.ERB"), false)
 })
+
+// ---------------------------------------------------------------- 7. 状态兼容
+
+test("readState：v1 与 v2 都能读，未知版本返回 null", async () => {
+	const fs = await import("node:fs/promises")
+	const os = await import("node:os")
+	const path = await import("node:path")
+	const { readState, stateToBase } = await import("../../src/core/update/manifest")
+
+	const base = await fs.mkdtemp(path.join(os.tmpdir(), "era-state-"))
+	try {
+		const write = async (dir: string, state: unknown) => {
+			const root = path.join(base, dir)
+			await fs.mkdir(path.join(root, ".era-harness"), { recursive: true })
+			await fs.writeFile(path.join(root, ".era-harness", "update-state.json"), JSON.stringify(state), "utf8")
+			return root
+		}
+		const v1 = await write("v1", {
+			schemaVersion: 1,
+			source: { projectUrl: "", branch: "develop" },
+			applied: { commit: "c1", nowVersion: "20261015", appliedAt: "" },
+			files: { "ERB/a.ERB": { sha1: "aaa", size: 1, mtimeMs: 0 } },
+			localOverrides: [],
+		})
+		const v2 = await write("v2", {
+			schemaVersion: 2,
+			canonVersion: 1,
+			source: { projectUrl: "", branch: "develop" },
+			applied: { commit: "c2", nowVersion: "20261029", appliedAt: "" },
+			files: { "ERB/a.ERB": { sha1: "bbb", canonBlobSha1: "ccc", size: 1, mtimeMs: 0 } },
+			localOverrides: [],
+		})
+		const v3 = await write("v3", {
+			schemaVersion: 3,
+			source: { projectUrl: "", branch: "develop" },
+			applied: { commit: "c3", nowVersion: "20261101", appliedAt: "" },
+			files: {},
+			localOverrides: [],
+		})
+
+		assert.equal((await readState(v1))?.schemaVersion, 1)
+		assert.equal((await readState(v2))?.schemaVersion, 2)
+		assert.equal(await readState(v3), null)
+		// v1 没有 canon → base 里也不该冒出一个假 canon
+		assert.deepEqual(stateToBase(await readState(v1))?.get("ERB/a.ERB"), { sha1: "aaa" })
+		assert.deepEqual(stateToBase(await readState(v2))?.get("ERB/a.ERB"), { sha1: "bbb", canonBlobSha1: "ccc" })
+	} finally {
+		await fs.rm(base, { recursive: true, force: true })
+	}
+})

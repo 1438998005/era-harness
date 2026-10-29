@@ -12,7 +12,17 @@
 
 import type { Controller } from "@core/controller"
 import { rollbackFromBackup } from "@core/update/apply"
-import { describeFreeModelRisk, describeGroup, describeGroupDetail, describePlan, describeResult } from "@core/update/describe"
+import { type BatchChoice, type ConflictChoice, createConflictPolicy } from "@core/update/conflictPolicy"
+import {
+	describeBaselineUntrusted,
+	describeBatchConflict,
+	describeFreeModelRisk,
+	describeGroup,
+	describeGroupDetail,
+	describeMergeCost,
+	describePlan,
+	describeResult,
+} from "@core/update/describe"
 import {
 	defaultSelection,
 	describeCandidate,
@@ -20,6 +30,16 @@ import {
 	type GameRootCandidate,
 	readNowVersion,
 } from "@core/update/discover"
+import {
+	availableMergeModelOptions,
+	defaultMergeModelOption,
+	describeMergeModelPicker,
+	describeMergeModelUsed,
+	describeWeakMergeModel,
+	type MergeModelOption,
+	mergeModelOptions,
+	mergeModelOverride,
+} from "@core/update/mergeModel"
 import { resolveConflictsViaWorkbench } from "@core/update/mergeResolve"
 import { planFingerprint } from "@core/update/plan"
 import type { MergeReaders, RunUpdateResult, UpdateEvent, UpdateSourceInput } from "@core/update/service"
@@ -86,8 +106,11 @@ function stageReporter(progress: vscode.Progress<{ message?: string }>): (event:
  * `@core/api` 是**动态加载**的：更新本身不需要模型，只有用户在冲突弹窗里
  * 真的点了「让 AI 帮我合并」才需要。这样即使 provider 层没配好、甚至初始化
  * 失败，更新依然能走完（冲突文件原样保留），不会因为"AI 不可用"而更新不了。
+ *
+ * #64：传了 `model` 就按它覆盖**本次**请求用的家与模型——不写全局设置，
+ * 用户聊天的模型一点不变。
  */
-async function mergeAsk(controller?: Controller) {
+async function mergeAsk(controller?: Controller, model?: MergeModelOption) {
 	if (!controller) {
 		return null
 	}
@@ -95,7 +118,8 @@ async function mergeAsk(controller?: Controller) {
 		const { buildApiHandler } = await import("@core/api")
 		const { createMergeAsk } = await import("@core/update/mergeProvider")
 		const config = controller.stateManager.getApiConfiguration()
-		const api = buildApiHandler({ ...config, ulid: ulid() }, "act")
+		const override = model ? mergeModelOverride(model) : {}
+		const api = buildApiHandler({ ...config, ...override, ulid: ulid() }, "act")
 		return createMergeAsk(api)
 	} catch (error) {
 		// 没配模型也能更新，只是不能帮你合并 —— 冲突文件会原样保留
@@ -238,14 +262,138 @@ function isFreeModelProvider(controller?: Controller): boolean {
 	return provider === "free"
 }
 
-/** 逐组问「你改过，社区也改了」；完整路径放 detail（弹窗正文只露短名，F4） */
+/**
+ * 逐组问「你改过，社区也改了」；完整路径放 detail（弹窗正文只露短名，F4）。
+ *
+ * 后两个按钮是「剩下的都这样」——用户点到一半发现还有几十个，可以一次收尾。
+ */
 function askGroup(group: ConflictGroup): Thenable<string | undefined> {
 	return vscode.window.showWarningMessage(
 		describeGroup(group),
 		{ modal: true, detail: describeGroupDetail(group) },
 		"让 AI 帮我合并",
 		"保留我的版本",
+		"剩下的都合并",
+		"剩下的都保留",
 	)
+}
+
+/** 冲突太多时先问一次整体做法：2785 个冲突不该变成 2785 次弹窗 */
+async function askBatchConflict(groups: number, files: number): Promise<BatchChoice | undefined> {
+	const narrative = describeBatchConflict(groups, files)
+	const choice = await vscode.window.showWarningMessage(
+		narrative.title,
+		{ modal: true, detail: narrative.detail },
+		narrative.options.mergeAll,
+		narrative.options.keepAll,
+		narrative.options.oneByOne,
+		narrative.options.cancel,
+	)
+	if (choice === narrative.options.mergeAll) {
+		// 选「全部合并」才提成本：一次性把轮数/时限说清，别让用户以为点一下就好
+		const proceed = await vscode.window.showWarningMessage(
+			"全部合并要花点时间",
+			{ modal: true, detail: describeMergeCost(files) },
+			"继续",
+			"取消更新",
+		)
+		return proceed === "继续" ? "merge-all" : undefined
+	}
+	if (choice === narrative.options.keepAll) {
+		return "keep-all"
+	}
+	if (choice === narrative.options.oneByOne) {
+		return "one-by-one"
+	}
+	return undefined
+}
+
+/** 一组冲突 → 策略枚举（关掉弹窗 = 取消整次更新） */
+async function askOneGroup(group: ConflictGroup): Promise<ConflictChoice | undefined> {
+	const choice = await askGroup(group)
+	if (choice === "让 AI 帮我合并") {
+		return "merge"
+	}
+	if (choice === "保留我的版本") {
+		return "keep"
+	}
+	if (choice === "剩下的都合并") {
+		return "merge-rest"
+	}
+	if (choice === "剩下的都保留") {
+		return "keep-rest"
+	}
+	return undefined
+}
+
+/** 选模型这一步的结果（三态必须分清，见 `pickMergeModel` 的注释） */
+type MergeModelPick =
+	| { kind: "picked"; option: MergeModelOption }
+	| { kind: "cancelled" }
+	| { kind: "unavailable"; reason: string }
+
+/**
+ * 每次合并前选一次模型（#64）。
+ *
+ * 三态而不是 `option | null`：
+ * - `picked`：用户选了，按它合并；
+ * - `cancelled`：用户放弃 → **中止整次更新**（⛔ 不要静默拿默认款继续：
+ *   「你没选，我就替你花了另一家的钱」比多问一句糟得多）；
+ * - `unavailable`：一个可用的都没有（全新用户只有免费池、没填任何付费密钥）
+ *   → 沿用当前模型，⛔ 绝不能当成 cancelled：那等于把免费用户的更新功能关掉。
+ */
+async function pickMergeModel(controller?: Controller): Promise<MergeModelPick> {
+	const stateManager = controller?.stateManager
+	const config = stateManager?.getApiConfiguration()
+	const all = mergeModelOptions()
+	// 没填密钥的家不列：选了也调不通，只会让合并 401 后白等一轮
+	const options = stateManager ? availableMergeModelOptions(all, (key) => Boolean(stateManager.getSecretKey(key))) : all
+	if (options.length === 0) {
+		return { kind: "unavailable", reason: "没有已填密钥的模型可选，这次沿用当前模型" }
+	}
+
+	const fallback = defaultMergeModelOption(options, {
+		provider: config?.actModeApiProvider,
+		modelId: config?.actModeApiModelId,
+	})
+	// quickpick 的数组形态没有「预选中」，所以把当前在用的那款顶到第一行并标注，
+	// 用户回车即等于「不改」。⛔ 不要默认选推荐款——那等于偷偷换家花钱。
+	const ordered = fallback ? [fallback, ...options.filter((option) => option !== fallback)] : options
+	const items = ordered.map((option) => ({
+		label: option.label,
+		description: option === fallback ? `当前在用 · ${option.description}` : option.description,
+		detail: option.detail,
+		option,
+	}))
+
+	const picked = await vscode.window.showQuickPick(items, {
+		...describeMergeModelPicker(),
+		ignoreFocusOut: true,
+		matchOnDetail: true,
+	})
+	if (!picked) {
+		return { kind: "cancelled" }
+	}
+
+	if (picked.option.weak) {
+		const warn = describeWeakMergeModel(picked.option)
+		const choice = await vscode.window.showWarningMessage(
+			warn.title,
+			{ modal: true, detail: warn.detail },
+			warn.keep,
+			warn.change,
+		)
+		if (choice === warn.change) {
+			// 重新选一次（而不是在这里列模型）：用户已经见过一遍清单了
+			return pickMergeModel(controller)
+		}
+		if (choice !== warn.keep) {
+			return { kind: "cancelled" }
+		}
+	}
+
+	Logger.log(`[update] 本次合并用模型：${picked.option.provider}/${picked.option.modelId}`)
+	return { kind: "picked", option: picked.option }
 }
 
 /** 冲突走哪条路 */
@@ -373,12 +521,31 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		return
 	}
 
-	const mode = await pickMergeMode(controller)
+	// #64：只有真有冲突才需要合并——也才需要问「开不开新对话」和「用哪个模型」。
+	// 没有冲突还问这两句，等于让用户为一件不会发生的事做决定。
+	const needsMerge = planned.result.plan.summary.conflict > 0
+	const mode = needsMerge ? await pickMergeMode(controller) : "silent"
 	if (mode === "abort") {
 		return
 	}
 
-	const ask = await mergeAsk(controller)
+	const pick = needsMerge ? await pickMergeModel(controller) : { kind: "unavailable" as const, reason: "这次没有要合并的文件" }
+	if (pick.kind === "cancelled") {
+		return
+	}
+	if (pick.kind === "unavailable") {
+		Logger.log(`[update] 未指定合并模型：${pick.reason}`)
+	}
+	const mergeModel = pick.kind === "picked" ? pick.option : undefined
+
+	const ask = await mergeAsk(controller, mergeModel ?? undefined)
+	// 会话级冲突策略：两条合并路径共用同一个实例，行为不可能分裂
+	const shouldMerge = createConflictPolicy({
+		groupCount: planned.result.plan.groups.length,
+		fileCount: planned.result.plan.summary.conflict,
+		askBatch: ({ groups, files }) => askBatchConflict(groups, files),
+		askOne: askOneGroup,
+	})
 	const resolveConflicts =
 		mode === "conversation" && controller
 			? (plan: UpdatePlan, readers: MergeReaders) =>
@@ -387,8 +554,9 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 						root,
 						stamp: workbenchStamp(),
 						...readers,
-						shouldMerge: async (group) => (await askGroup(group)) === "让 AI 帮我合并",
-						runTask: (prompt, layout) => runMergeConversation(controller, root, prompt, layout),
+						shouldMerge,
+						runTask: (prompt, layout) =>
+							runMergeConversation(controller, root, prompt, layout, mergeModel ?? undefined),
 						maxAttempts: 2,
 					})
 			: undefined
@@ -406,12 +574,30 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 					root,
 					source: planned.source,
 					confirm: (rebuilt) => confirmRebuiltPlan(rebuilt, planned.result.plan),
+					// 比对对不上时先问一次整体做法，绝不逐文件问上千次
+					onBaselineUntrusted: async (info) => {
+						const narrative = describeBaselineUntrusted(info)
+						const choice = await vscode.window.showWarningMessage(
+							narrative.title,
+							{ modal: true, detail: narrative.detail },
+							narrative.options.keepAll,
+							narrative.options.takeTheirs,
+							narrative.options.cancel,
+						)
+						if (choice === narrative.options.keepAll) {
+							return "keep-all"
+						}
+						if (choice === narrative.options.takeTheirs) {
+							return "take-theirs"
+						}
+						return "cancel"
+					},
 					merge:
 						resolveConflicts || !ask
 							? undefined
 							: {
 									ask,
-									shouldMerge: async (group) => (await askGroup(group)) === "让 AI 帮我合并",
+									shouldMerge,
 								},
 					resolveConflicts,
 					onEvent: (event) => {
@@ -458,6 +644,10 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 	const backupDir = result.report?.backupDir ?? null
 	// kept 追加行只进 modal（面板由结构化 kept 渲染同一信息）
 	const modalLines = [...narrative2.lines, ...(keptLocal > 0 ? ["这些文件社区这次没能更新它们，下次更新会再问。"] : [])]
+	// #64：用户选了合并用模型，就得在结果里看到它确实生效了（选了却看不到 = 等于没生效）
+	if (mergeModel && (merged > 0 || keptLocal > 0)) {
+		modalLines.push(describeMergeModelUsed(mergeModel))
+	}
 	// 校验失败分支的备份行自带「手动对照」提示，过滤后补回一句等价的，提示不丢
 	const keepCompareAdvice =
 		backupDir !== null && modalLines.some((line) => line.includes(backupDir) && line.includes("不放心可以手动对照"))

@@ -69,3 +69,21 @@ test("provider：逐段回调给 UI 用", async () => {
 	await ask(input)
 	assert.deepEqual(seen, ["AB", "CD"])
 })
+
+test("provider：模型挂住时超时放弃，并调用 abort", async () => {
+	let aborted = false
+	const hanging = {
+		createMessage: () =>
+			(async function* () {
+				// 永远不产出、也永不结束：模拟连接挂死
+				await new Promise(() => {})
+			})(),
+		getModel: () => ({ id: "fake-model", info: {} as never }),
+		abort: () => {
+			aborted = true
+		},
+	} as unknown as ApiHandler
+	const ask = createMergeAsk(hanging, { timeoutMs: 30 })
+	await assert.rejects(() => ask(input), /合并超时/)
+	assert.equal(aborted, true)
+})

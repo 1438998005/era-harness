@@ -10,11 +10,11 @@
  * 全量清单，不需要先解压到磁盘；真正要写的文件等用户确认后再从缓存里取。
  */
 
-import { createHash, type Hash } from "node:crypto"
 import { createReadStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { createGunzip } from "node:zlib"
+import { CanonicalHasher, looksTextPath } from "./canonical"
 import { httpDownload, httpGetBuffer } from "./http"
 import { gitBlobSha1, scanLocal } from "./manifest"
 import { extractTar } from "./tarball"
@@ -174,16 +174,16 @@ export async function snapshotFromTarStream(
 	label: string,
 	onProgress?: (files: number, bytes: number) => void,
 ): Promise<UpstreamSnapshot> {
-	const files = new Map<RelPath, { sha1: string; size: number }>()
-	let current: { path: RelPath; size: number; hash: Hash } | null = null
+	const files = new Map<RelPath, { sha1: string; canonBlobSha1?: string; size: number }>()
+	let current: { path: RelPath; size: number; hasher: CanonicalHasher } | null = null
 	let count = 0
 	let bytes = 0
 
-	// git blob sha1 = sha1("blob <size>\0" + content)；0 字节文件的 content 为空
+	// raw = git blob sha1（sha1("blob <size>\0" + content)）；canon = 换行/BOM 无关指纹
 	const startHash = (entryPath: RelPath, size: number) => ({
 		path: entryPath,
 		size,
-		hash: createHash("sha1").update(Buffer.from(`blob ${size}\0`, "utf8")),
+		hasher: new CanonicalHasher({ text: looksTextPath(entryPath), size }),
 	})
 
 	const stats = await extractTar(stream, {
@@ -191,13 +191,14 @@ export async function snapshotFromTarStream(
 			if (!current || current.path !== entry.path) {
 				current = startHash(entry.path, entry.size)
 			}
-			current.hash.update(chunk)
+			current.hasher.update(chunk)
 		},
 		onFileEnd: (entry) => {
 			// 兜底：即使这一条没收到内容块，也必须记录。
 			// 漏记的后果不是"少一个文件"，而是下游把它当成"上游已删除"→ 误删用户本地副本。
 			const tracked = current !== null && current.path === entry.path ? current : startHash(entry.path, entry.size)
-			files.set(entry.path, { sha1: tracked.hash.digest("hex"), size: entry.size })
+			const { raw, canonBlob } = tracked.hasher.digest()
+			files.set(entry.path, { sha1: raw, canonBlobSha1: canonBlob, size: entry.size })
 			current = null
 			count++
 			bytes += entry.size
@@ -227,9 +228,14 @@ export async function snapshotFromArchiveFile(
 /** 从已解压目录构建清单（第三条入口：朋友给的整合包，解压好直接选文件夹） */
 export async function snapshotFromDir(dir: string, label?: string): Promise<UpstreamSnapshot> {
 	const scan = await scanLocal(dir, { excludeDirs: [".git", "node_modules"] })
-	const files = new Map<RelPath, { sha1: string; size: number }>()
+	const files = new Map<RelPath, { sha1: string; canonBlobSha1?: string; size: number }>()
 	for (const [rel, fp] of scan.files) {
-		files.set(rel, { sha1: fp.sha1, size: fp.size })
+		files.set(
+			rel,
+			fp.canonBlobSha1
+				? { sha1: fp.sha1, canonBlobSha1: fp.canonBlobSha1, size: fp.size }
+				: { sha1: fp.sha1, size: fp.size },
+		)
 	}
 	return { label: label ?? dir, files }
 }

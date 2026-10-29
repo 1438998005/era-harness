@@ -15,6 +15,7 @@ import { collectChangedLabels, extractDefinedLabels, type GateInputs, runContent
 import { findOrphanedCallers, type LabelIndex } from "./labels"
 import { isProtectedPath } from "./manifest"
 import type {
+	BaselineCheck,
 	ConflictGroup,
 	GateFinding,
 	LocalScan,
@@ -55,12 +56,109 @@ export function personaKeyOf(rel: RelPath): string | null {
  */
 export type FirstSyncPolicy = "bulk" | "add-only"
 
+/**
+ * 比对不可信时的一次性策略（由用户在确认前选定，见 `service.ts#onBaselineUntrusted`）：
+ * - `ask`（默认）：照常逐组询问
+ * - `keep-all`：冲突一律保留本地（只做能确定的替换/新增/删除）
+ * - `take-theirs`：冲突一律用社区版覆盖（上游删掉的跟着删）
+ */
+export type ConflictPolicy = "ask" | "keep-all" | "take-theirs"
+
+/** 判定用的最小信息：raw blob id + 可选的规范形 blob id */
+interface Side {
+	sha1: string
+	canonBlobSha1?: string
+}
+
+/**
+ * 「内容相同」的唯一判据：**任何一侧的 blob id 与另一侧的任何 blob id 相等**。
+ *
+ * 两个 id 都是 git blob id（`sha1("blob " + 长度 + "\0" + 内容)`），只是内容口径不同
+ * （原文 vs 规范形），所以可以交叉比——这正是老记录能继续用的原因：
+ *
+ * - 新记录 × 新记录：`canonBlobSha1` 对 `canonBlobSha1`，换行/BOM 差异不算改动；
+ * - 新记录 × 3.92.1 的老记录：老记录只有 raw `sha1`（当时那份文件的字节）。
+ *   拿本地的 `canonBlobSha1` 去比它，就能认出「只差换行/BOM 的同一份内容」；
+ * - 老记录 × 老记录：还是纯字节，跟以前一样（无法更好，也没有更坏）。
+ *
+ * ⛔ 不要在这里加「按大小/按行数接近就认为相同」之类的模糊判据：那会把真的改动
+ * 一起抹掉，比误报「你改过」危险得多（用户会以为自己的改动被保住了）。
+ */
+function same(a: Side | null | undefined, b: Side | null | undefined): boolean {
+	if (!a || !b) {
+		return false
+	}
+	if (a.sha1 === b.sha1) {
+		return true
+	}
+	const aBlob = a.canonBlobSha1
+	const bBlob = b.canonBlobSha1
+	if (aBlob !== undefined && bBlob !== undefined && aBlob === bBlob) {
+		return true
+	}
+	// 跨口径：一边只有 raw（老记录），另一边有规范形
+	if (aBlob !== undefined && aBlob === b.sha1) {
+		return true
+	}
+	return bBlob !== undefined && bBlob === a.sha1
+}
+
+/**
+ * 基线可信度：上游没动过的文件里，本地与基线一致的比例。
+ *
+ * 真人手改不会超过全树 15%（13k 文件改 2000 个以上不成立，口上作者通常几十个），
+ * 低于阈值只可能是基线指错了版本/来源，或 base 的路径前缀没剥净。
+ * 样本不足 1000 时不下结论（`unknown`），避免小工程被误伤。
+ */
+export function checkBaseline(base: Map<RelPath, Side>, local: LocalScan, theirs: UpstreamSnapshot): BaselineCheck {
+	const total = theirs.files.size
+	let overlap = 0
+	for (const path of theirs.files.keys()) {
+		if (base.has(path)) {
+			overlap++
+		}
+	}
+	const coverage = total > 0 ? overlap / total : 0
+
+	let sample = 0
+	let agree = 0
+	for (const [path, theirsFile] of theirs.files) {
+		const baseFile = base.get(path)
+		const localFile = local.files.get(path)
+		if (!baseFile || !localFile) {
+			continue
+		}
+		// 上游改过的文件不能用来判基线：本地与 base 不同是正常的
+		if (!same(baseFile, theirsFile)) {
+			continue
+		}
+		sample++
+		if (same(localFile, baseFile)) {
+			agree++
+		}
+	}
+	const agreement = sample > 0 ? agree / sample : 0
+
+	if (total >= 1000 && coverage < 0.5) {
+		return { level: "suspect", sample, agreement, coverage }
+	}
+	if (sample < 1000) {
+		return { level: "unknown", sample, agreement, coverage }
+	}
+	return { level: agreement < 0.85 ? "suspect" : "ok", sample, agreement, coverage }
+}
+
 export interface BuildPlanInput {
 	/** 上次应用的上游快照；null = 首次同步 */
-	base: Map<RelPath, { sha1: string }> | null
+	base: Map<RelPath, { sha1: string; canonBlobSha1?: string }> | null
 	local: LocalScan
 	theirs: UpstreamSnapshot
 	firstSyncPolicy?: FirstSyncPolicy
+	/**
+	 * 比对不可信时的一次性策略。默认 `ask`（逐组询问）；
+	 * `keep-all` / `take-theirs` 把冲突批量改成保留/覆盖，不再产生任何询问。
+	 */
+	conflictPolicy?: ConflictPolicy
 	/**
 	 * 改动脚本文件的内容（过闸门用）。键 = 会改动的文件（write/conflict 的 .ERB/.ERH）。
 	 * 不传则不跑内容闸门（plan.gateFindings 为 undefined）。
@@ -94,11 +192,32 @@ function topSegment(rel: RelPath): string {
 export function buildPlan(input: BuildPlanInput): UpdatePlan {
 	const { base, local, theirs } = input
 	const policy: FirstSyncPolicy = input.firstSyncPolicy ?? "bulk"
+	const conflictPolicy: ConflictPolicy = input.conflictPolicy ?? "ask"
 	const mode: UpdatePlan["mode"] = base ? "incremental" : "first-sync"
 
 	const entries: PlanEntry[] = []
 	const warnings: PlanWarning[] = []
 	let unchanged = 0
+
+	/**
+	 * 冲突条目的唯一出口：按一次性策略改写。
+	 * `take-theirs` 没有上游内容（上游删了）时跟着删；其余一律覆盖。
+	 */
+	const pushConflict = (entry: PlanEntry): void => {
+		if (conflictPolicy === "keep-all") {
+			entries.push({ ...entry, action: "keep", reason: "bulk-keep-local" })
+			return
+		}
+		if (conflictPolicy === "take-theirs") {
+			entries.push(
+				entry.theirsSha1
+					? { ...entry, action: "write", reason: "bulk-take-theirs" }
+					: { ...entry, action: "delete", reason: "upstream-delete" },
+			)
+			return
+		}
+		entries.push(entry)
+	}
 
 	// 大小写不敏感兜底：git 区分大小写，Windows 不区分；上游改名大小写时不该被当成"新增+本地独有"
 	const localByLower = new Map<string, RelPath>()
@@ -125,7 +244,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		if (!lFile) {
 			// 上游有、本地没有
 			const b = base?.get(tPath)
-			if (b && b.sha1 === tFile.sha1) {
+			if (same(b, tFile)) {
 				// 本地删了、上游没动 → 尊重本地删除
 				entries.push({ path: tPath, action: "keep", reason: "local-deleted", theirsSha1: tFile.sha1 })
 			} else {
@@ -134,7 +253,8 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 			continue
 		}
 
-		if (lFile.sha1 === tFile.sha1) {
+		// 内容相同（允许只差换行/BOM）→ 无事可做，一个字节都不写
+		if (same(lFile, tFile)) {
 			unchanged++
 			continue
 		}
@@ -143,14 +263,14 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 			const b = base.get(tPath) ?? (lPath ? base.get(lPath) : undefined)
 			if (!b) {
 				// 上游有、本地也有，但基线里没有 → 用户自建了同名文件
-				entries.push({
+				pushConflict({
 					path: tPath,
 					action: "conflict",
 					reason: "add-vs-local",
 					localSha1: lFile.sha1,
 					theirsSha1: tFile.sha1,
 				})
-			} else if (b.sha1 === lFile.sha1) {
+			} else if (same(b, lFile)) {
 				entries.push({
 					path: tPath,
 					action: "write",
@@ -159,7 +279,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 					theirsSha1: tFile.sha1,
 					baseSha1: b.sha1,
 				})
-			} else if (b.sha1 === tFile.sha1) {
+			} else if (same(b, tFile)) {
 				entries.push({
 					path: tPath,
 					action: "keep",
@@ -169,7 +289,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 					baseSha1: b.sha1,
 				})
 			} else {
-				entries.push({
+				pushConflict({
 					path: tPath,
 					action: "conflict",
 					reason: "both-changed",
@@ -202,7 +322,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 				theirsSha1: tFile.sha1,
 			})
 		} else {
-			entries.push({
+			pushConflict({
 				path: tPath,
 				action: "conflict",
 				reason: "first-sync-human",
@@ -219,10 +339,10 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		}
 		const b = base?.get(rel)
 		if (b) {
-			if (b.sha1 === fp.sha1) {
+			if (same(b, fp)) {
 				entries.push({ path: rel, action: "delete", reason: "upstream-delete", localSha1: fp.sha1, baseSha1: b.sha1 })
 			} else {
-				entries.push({
+				pushConflict({
 					path: rel,
 					action: "conflict",
 					reason: "delete-vs-local-change",
@@ -252,10 +372,22 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 		warnings.push("no-deletable-root")
 	}
 
+	// 基线可信度：只在增量模式（有 base）下判断；不可信时上层停止逐文件询问
+	let baseline: BaselineCheck | undefined
+	if (base) {
+		baseline = checkBaseline(base, local, theirs)
+	}
+
 	const keepEntries = entries.filter((e) => e.action === "keep")
 	const keepByReason: Partial<Record<PlanReason, number>> = {}
 	for (const entry of keepEntries) {
 		keepByReason[entry.reason] = (keepByReason[entry.reason] ?? 0) + 1
+	}
+
+	// 只有「真的产生了冲突」才值得为基线不可信打扰用户：
+	// 重手改但上游没动的文件本来就静默保留，弹窗只会吓人（也做不了什么）。
+	if (baseline?.level === "suspect" && entries.some((entry) => entry.action === "conflict")) {
+		warnings.push("baseline-untrusted")
 	}
 
 	// 内容闸门（G2/G3/G6/G7）：只对调用方喂进来的改动脚本跑，纯函数、无 IO
@@ -305,6 +437,7 @@ export function buildPlan(input: BuildPlanInput): UpdatePlan {
 			keepByReason,
 		},
 		warnings,
+		...(baseline ? { baseline } : {}),
 		...(gateFindings ? { gateFindings } : {}),
 		...(input.gateSkipped ? { gatesSkipped: input.gateSkipped } : {}),
 		...(versionNotice ? { versionNotice } : {}),

@@ -56,7 +56,10 @@ const window = {
 			return undefined
 		}
 		const wanted = Array.isArray(answer) ? answer : [answer]
-		return list.filter((item) => wanted.includes(typeof item === "string" ? item : item.label))
+		const matched = list.filter((item) => wanted.includes(typeof item === "string" ? item : item.label))
+		// 真实 API：canPickMany 才回数组，否则回单个项。替身必须同形——
+		// 否则调用方 `picked.option` 会拿到 undefined（#64 的模型选择就这样被抓过一次）
+		return options?.canPickMany ? matched : matched[0]
 	},
 
 	async showWarningMessage(message, options, ...buttons) {

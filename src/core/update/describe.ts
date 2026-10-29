@@ -50,13 +50,14 @@ export function describePlan(plan: UpdatePlan, opts: DescribePlanOptions = {}): 
 	const lines: string[] = []
 	const reasons = countByReason(plan.entries)
 
-	const replaced =
-		(reasons.get("clean-update") ?? 0) + (reasons.get("first-sync-bulk") ?? 0) + (reasons.get("local-deleted") ?? 0)
+	const replaced = (reasons.get("clean-update") ?? 0) + (reasons.get("first-sync-bulk") ?? 0)
 	const added = reasons.get("upstream-add") ?? 0
 	const deleted = plan.summary.delete
 	const conflicted = plan.summary.conflict
 	const keptByMe = (reasons.get("local-change") ?? 0) + (reasons.get("first-sync-human") ?? 0)
 	const mineOnly = reasons.get("local-only") ?? 0
+	// 你删了、社区没动的文件：动作是 keep（不恢复），既不是「替换」也不是「你改过」
+	const deletedByMe = reasons.get("local-deleted") ?? 0
 
 	const from = opts.fromVersion
 	const to = opts.toVersion
@@ -99,14 +100,24 @@ export function describePlan(plan: UpdatePlan, opts: DescribePlanOptions = {}): 
 	}
 
 	if (conflicted > 0) {
-		lines.push(`其中 ${conflicted} 个文件你改过、社区也改了，我会逐个问你怎么处理。`)
+		lines.push(`其中 ${conflicted} 个文件你改过、社区也改了，我会问你怎么处理（可以一次性决定）。`)
 	}
 	if (keptByMe > 0) {
-		lines.push(`你自己改过的 ${keptByMe} 个文件会原样留着，不会被改掉。`)
+		// 只有比对可信时才敢说「你改过的」；对不上时说「和社区旧版不一样」，不替用户认账
+		const trusted = plan.baseline?.level === "ok" || plan.baseline === undefined
+		lines.push(
+			trusted
+				? `你自己改过的 ${keptByMe} 个文件会原样留着，不会被改掉。`
+				: `有 ${keptByMe} 个文件和社区旧版不一样，会原样留着，不会被改掉。`,
+		)
 	}
 	if (mineOnly > 0) {
 		lines.push(`你自己加的 ${mineOnly} 个文件（社区版里没有）不会被动。`)
 	}
+	if (deletedByMe > 0) {
+		lines.push(`你删掉的 ${deletedByMe} 个文件不会被恢复。`)
+	}
+	lines.push(...describeBaselineCheck(plan))
 
 	const migrationNotes = describeVersionNotes(plan)
 	for (const note of migrationNotes) {
@@ -124,6 +135,96 @@ export function describePlan(plan: UpdatePlan, opts: DescribePlanOptions = {}): 
 		narrative.text = `${narrative.text}\n\n${gateNotes.join("\n")}`
 	}
 	return narrative
+}
+
+/**
+ * 比对可信度 → 人话。
+ *
+ * 只在 `suspect` 时说话：ok/unknown 不打扰。措辞必须区分「还没决定」与
+ * 「用户已经选了整体做法」——否则 take-theirs 之后还说「都没动」就是撒谎。
+ */
+function describeBaselineCheck(plan: UpdatePlan): string[] {
+	const baseline = plan.baseline
+	if (!baseline || baseline.level !== "suspect") {
+		return []
+	}
+	const tookTheirs = plan.entries.some((entry) => entry.reason === "bulk-take-theirs")
+	const keptAll = plan.entries.some((entry) => entry.reason === "bulk-keep-local")
+	const lines = ["你这份游戏和社区这版差得太多，多到不像手改的——可能不是同一个来源（整合包/转过格式）。"]
+	if (tookTheirs) {
+		lines.push("按你选的「全部换成社区版」处理了，更新前已经备份。")
+	} else if (keptAll) {
+		lines.push("按你选的「只更新能确定的」处理了，分不清的都没动。")
+	} else if (plan.summary.conflict > 0) {
+		lines.push("分不清哪些是你改的，我会先问你怎么处理。")
+	} else {
+		lines.push("分不清哪些是你改的，所以都没动。")
+	}
+	return lines
+}
+
+export interface ChoiceNarrative {
+	title: string
+	detail: string
+	/** 按钮文案；`cancel` 是关闭/取消项 */
+	options: { keepAll: string; takeTheirs: string; cancel: string }
+}
+
+/**
+ * 比对不可信时的一次性选择（替代上千次逐文件询问）。
+ *
+ * 零词汇：不出现基线/commit/冲突/覆盖/上游/分支/仓库/diff/HEAD。
+ */
+export function describeBaselineUntrusted(info: { sample: number; agreement: number; coverage: number }): ChoiceNarrative {
+	const percent = Math.max(0, Math.min(100, Math.round(info.agreement * 100)))
+	const lines = [
+		`我拿社区那版当参照，比了 ${info.sample} 个文件，只有 ${percent}% 对得上。`,
+		"这不像你手改的，更像是整合包和社区版不是同一个来源，或者打包时整体转过格式。",
+		"",
+		"逐个问你要不要合并，可能要弹上千次。先选一个整体做法：",
+		"· 只更新能确定的：社区确实改了、你这边没动过的文件照常替换；分不清的一律留着。",
+		"· 全部换成社区版：分不清的也用社区版替换，更新前自动备份，随时能撤销。",
+		"· 取消：什么都不改。",
+	]
+	return {
+		title: "你的游戏文件夹和社区版对不上",
+		detail: lines.join("\n"),
+		options: { keepAll: "只更新能确定的", takeTheirs: "全部换成社区版", cancel: "取消更新" },
+	}
+}
+
+/** 冲突太多时的一次性提问（替代逐组弹窗） */
+export interface BatchConflictNarrative {
+	title: string
+	detail: string
+	options: { mergeAll: string; keepAll: string; oneByOne: string; cancel: string }
+}
+
+export function describeBatchConflict(groups: number, files: number): BatchConflictNarrative {
+	const lines = [
+		`一共 ${groups} 组，逐个问会弹 ${groups} 次。`,
+		"· 全部帮我合到一起：让 AI 一组一组合，可能要花很久。",
+		"· 全部保留我的：社区的新改动这次不进来，你的版本不动。",
+		"· 一个一个问：每组都问一次，中途可以改成「剩下的都这样」。",
+	]
+	return {
+		title: `有 ${files} 个文件你改过、社区也改了`,
+		detail: lines.join("\n"),
+		options: { mergeAll: "全部帮我合到一起", keepAll: "全部保留我的", oneByOne: "一个一个问", cancel: "取消更新" },
+	}
+}
+
+/**
+ * 「全部合并」的成本提示。
+ * 每轮上限与单轮时限分别来自 `mergeWorkbench.ts#MAX_WORKBENCH_ITEMS` 与
+ * `mergeTask.ts#MAX_CONVERSATION_MS`，改那两个常量时这里要跟着改。
+ */
+export function describeMergeCost(files: number): string {
+	const rounds = Math.max(1, Math.ceil(files / 200))
+	return [
+		`合到一起要花点时间：每轮最多 200 处、单轮最长 30 分钟，这次大约 ${rounds} 轮。`,
+		"跑不完的文件会原样留着，不会写坏。",
+	].join("\n")
 }
 
 /**
@@ -230,6 +331,7 @@ export function describeFreeModelRisk(): { title: string; detail: string } {
 			"免费模型是在几个候选模型里轮换的，这次可能抽到智力不高的模型。",
 			"更新时要 AI 把你改过的文件和社区的新版本合到一块儿，模型不好可能合错，你的口上容易变乱。",
 			"",
+			"下一步会让你选这次合并用哪一款——选一款标了「推荐」的，这条风险就不成立。",
 			"建议：更新前先把游戏文件夹整个复制一份留着；更新后进游戏确认没问题，再删掉那份复制。",
 			"更新自己也会自动备份，但手动复制多一层保险——万一合错了又跑了几轮，也能整个退回去。",
 		].join("\n"),
