@@ -54,3 +54,17 @@ export function assertPathAllowed(target: string, roots: readonly string[]): str
     `路径不在允许范围内（当前由 ${ALLOWED_ROOTS_ENV} 限定为 ${roots.join(', ')}）：${target}`,
   );
 }
+
+/**
+ * 启动提醒文案（#68）：未设置 roots 时返回提示，设了则返回 undefined。
+ *
+ * 默认不限制是用户裁定的方向（改默认会破坏现有用法），但「不限」这件事必须在启动时说一句。
+ * ⛔ 调用方只能写 **stderr**：stdio 传输下 stdout 是 JSON-RPC 通道，多一个字节就污染协议。
+ */
+export function rootsReminder(roots: readonly string[]): string | undefined {
+  if (roots.length > 0) return undefined;
+  return (
+    `[era-harness-mcp] 提示：未设置 ${ALLOWED_ROOTS_ENV}，本服务可读取宿主能访问的任意文件。` +
+    `建议设为游戏目录或工作区路径（多个用 ; 分隔），把读取范围收紧。\n`
+  );
+}

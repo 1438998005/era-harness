@@ -1,3 +1,4 @@
+import { getContextBudget } from "@shared/context-budget"
 import type { LastApiReqUsage } from "@shared/getApiMetrics"
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import debounce from "debounce"
@@ -23,8 +24,10 @@ interface ContextWindowProgressProps extends ContextWindowInfoProps {
 	lastApiReqTotalTokens?: number
 	lastApiReqUsage?: LastApiReqUsage
 	contextWindow?: number
-	/** 模型目录的输出上限（#58）：进度条分母 = 有效输入预算 = 窗口 − 预留输出 */
+	/** 模型目录的输出上限（#58）：窗口含输出时用于预留；输入输出独立时不影响分母 */
 	maxOutputTokens?: number
+	/** 窗口是否含输出（#80，来自模型目录）；缺省 false = 不扣预留 */
+	contextWindowIncludesOutput?: boolean
 	onSendMessage?: (command: string, files: string[], images: string[]) => void
 }
 
@@ -63,6 +66,7 @@ ConfirmationDialog.displayName = "ConfirmationDialog"
 const ContextWindow: React.FC<ContextWindowProgressProps> = ({
 	contextWindow = 0,
 	maxOutputTokens,
+	contextWindowIncludesOutput,
 	lastApiReqTotalTokens = 0,
 	lastApiReqUsage,
 	onSendMessage,
@@ -106,18 +110,23 @@ const ContextWindow: React.FC<ContextWindowProgressProps> = ({
 		if (!contextWindow) {
 			return null
 		}
-		// #58：分母用「有效输入预算」= 窗口 − 预留输出（目录 maxTokens，至多窗口一半）。
-		// 满窗口径对窗口含输出的供应商（BigModel）双重高估：glm-4.5-flash 实际预算仅 32K，
-		// 旧进度条在 1261 前仍显示「28.6k/128.0k 余量充足」。
-		const reservedOutput = Math.min(maxOutputTokens || 0, Math.floor(contextWindow / 2))
-		const effectiveBudget = contextWindow - reservedOutput
+		// #80：分母 = 有效输入预算，公式与扩展侧共用 `getContextBudget`。
+		// 只有目录显式标了 `contextWindowIncludesOutput` 的模型才预留输出（如 glm-4.5-flash）；
+		// MiMo / DeepSeek / GLM-5.1+ 的上下文是纯输入，扣了等于凭空少 128K～384K。
+		const budget = getContextBudget({
+			contextWindow,
+			maxTokens: maxOutputTokens,
+			contextWindowIncludesOutput,
+		})
 		return {
 			// 防溢出：即使个别提供方上报异常用量，进度条也不超过 100%
-			percentage: Math.min(100, (lastApiReqTotalTokens / effectiveBudget) * 100),
-			max: effectiveBudget,
+			percentage: Math.min(100, (lastApiReqTotalTokens / budget.effectiveInputBudget) * 100),
+			max: budget.effectiveInputBudget,
+			windowSize: budget.contextWindow,
+			reservedOutput: budget.reservedOutput,
 			used: lastApiReqTotalTokens,
 		}
-	}, [contextWindow, maxOutputTokens, lastApiReqTotalTokens])
+	}, [contextWindow, maxOutputTokens, contextWindowIncludesOutput, lastApiReqTotalTokens])
 
 	// 缓存命中徽标：与进度条同源，取「上一次请求」的分段用量（而非整段对话累计），
 	// 否则会出现「命中 > 已用」的错觉。命中量 = 本次 cacheReads，命中率 = 命中 / 本次总输入。
@@ -185,9 +194,11 @@ const ContextWindow: React.FC<ContextWindowProgressProps> = ({
 									cacheWrites={cacheWrites}
 									contextWindow={tokenData.max}
 									percentage={tokenData.percentage}
+									reservedOutput={tokenData.reservedOutput}
 									tokensIn={tokensIn}
 									tokensOut={tokensOut}
 									tokenUsed={tokenData.used}
+									windowSize={tokenData.windowSize}
 								/>
 							</HoverCardContent>
 							<HoverCardTrigger asChild>

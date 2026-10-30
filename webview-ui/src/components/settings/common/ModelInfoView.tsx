@@ -1,4 +1,5 @@
 import { ModelInfo } from "@shared/api"
+import { getContextBudget } from "@shared/context-budget"
 import { VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -211,6 +212,10 @@ export const ModelInfoView = ({
 	const hasBrowser = supportsBrowserUse(modelInfo)
 	const hasCaching = supportsPromptCache(modelInfo)
 
+	// #80：窗口含输出的模型（当前只有 glm-4.5-flash）要同时给出「可用输入」，
+	// 否则设置页显示 128K、侧栏显示 32K，用户会以为其中一个是 bug。
+	const contextBudget = modelInfo.contextWindow ? getContextBudget(modelInfo) : undefined
+
 	// DeepSeek 这类模型输入全部按缓存命中/未命中计价，inputPrice 为 0，
 	// 直接显示「输入 Free」会误导，改成把两档输入价都列出来。
 	const cachePricedInput =
@@ -234,6 +239,14 @@ export const ModelInfoView = ({
 					<InfoItem>
 						<InfoLabel>{t("commonFields.context")} </InfoLabel>
 						<InfoValue>{formatCompactContext(modelInfo.contextWindow)}</InfoValue>
+						{contextBudget && contextBudget.reservedOutput > 0 && (
+							<span className="opacity-70">
+								{t("commonFields.contextIncludesOutput", {
+									output: formatCompactContext(contextBudget.reservedOutput),
+									available: formatCompactContext(contextBudget.effectiveInputBudget),
+								})}
+							</span>
+						)}
 					</InfoItem>
 				)}
 				{cachePricedInput ? (

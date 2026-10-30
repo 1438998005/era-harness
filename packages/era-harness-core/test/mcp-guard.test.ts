@@ -6,6 +6,7 @@ import {
   assertPathAllowed,
   isInsideAllowedRoot,
   parseAllowedRoots,
+  rootsReminder,
 } from '../src/mcp/guard.js';
 
 test('未配置 ERA_HARNESS_MCP_ROOTS 时不限制任何路径', () => {
@@ -44,4 +45,12 @@ test('越界时抛错，错误信息里带出环境变量名与目标路径', ()
 test('相对路径按进程工作目录解析后再比较', () => {
   const root = process.cwd();
   assert.equal(isInsideAllowedRoot('some/relative/file.ERB', [root]), true);
+});
+
+test('#68 未设 roots 时给出启动提醒；设了则不提醒', () => {
+  const reminder = rootsReminder([]);
+  assert.ok(reminder, '未设 roots 必须有提醒');
+  assert.ok(reminder.includes(ALLOWED_ROOTS_ENV), '提醒里要写清是哪个环境变量');
+  assert.ok(reminder.endsWith('\n'), '提醒要自带换行，避免与后续 stderr 粘连');
+  assert.equal(rootsReminder([path.resolve('/tmp/era-root')]), undefined);
 });

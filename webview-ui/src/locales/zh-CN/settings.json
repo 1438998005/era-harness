@@ -251,6 +251,7 @@
 		"enterBaseUrl": "输入基础 URL...",
 		"baseUrlHint": "只填基础地址（如 https://api.xxx.cn/v1），不要带 /chat/completions 等结尾路径，否则会 404。",
 		"context": "上下文：",
+		"contextIncludesOutput": "（含输出 {{output}}，可用输入 {{available}}）",
 		"input": "输入：",
 		"output": "输出：",
 		"advanced": "高级",

@@ -58,6 +58,8 @@ const SPECS = [
 	"mimo-model.spec.ts",
 	"bigmodel-model.spec.ts",
 	"bigmodel-error.spec.ts",
+	"context-budget.spec.ts",
+	"commit-id.spec.ts",
 	"model-id.spec.ts",
 	"error-text.spec.ts",
 	"open-folder.spec.ts",

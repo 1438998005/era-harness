@@ -1,5 +1,5 @@
 import { bigmodelModels, type ModelInfo, resolveBigmodelModelId } from "@shared/api"
-import { BIGMODEL_BASE_URL, BIGMODEL_CONSOLE_URL, BIGMODEL_DOCS_URL } from "@shared/bigmodel-request"
+import { BIGMODEL_BASE_URL, BIGMODEL_CONSOLE_URL, BIGMODEL_DOCS_URL, bigmodelThinkingCapability } from "@shared/bigmodel-request"
 import { Mode } from "@shared/storage/types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -47,6 +47,8 @@ export const BigmodelProvider = ({ showModelOptions, isPopup, currentMode }: Big
 	const { handleFieldChange, handleModeFieldsChange } = useApiConfigurationHandlers()
 
 	const { selectedModelId, selectedModelInfo } = normalizeApiConfiguration(apiConfiguration, currentMode)
+	// #81：思考控件按模型能力渲染（5.3 系强制思考、5.2 可关、其余不显示）
+	const thinkingCapability = bigmodelThinkingCapability(selectedModelId)
 
 	const apiKey = apiConfiguration?.bigmodelApiKey || ""
 	const [liveModelIds, setLiveModelIds] = useState<string[] | null>(null)
@@ -163,17 +165,32 @@ export const BigmodelProvider = ({ showModelOptions, isPopup, currentMode }: Big
 
 					<ModelInfoView isPopup={isPopup} modelInfo={selectedModelInfo} selectedModelId={selectedModelId} />
 
-					{selectedModelInfo?.supportsReasoning && (
+					{thinkingCapability.kind !== "unsupported" && (
 						<ReasoningEffortSelector
-							allowedEfforts={["high", "none"]}
+							allowedEfforts={[...thinkingCapability.efforts]}
 							currentMode={currentMode}
-							defaultEffort="high"
-							description="官方参数是 thinking.type（enabled / disabled），与 MiMo 同构；思考内容在 reasoning_content 流式返回。输出上限 128K 为「思考 + 回答」总长。GLM 默认态以官方文档为准。"
-							label="深度思考"
-							labels={{
-								high: "开启（官方默认）",
-								none: "关闭（thinking: disabled）",
-							}}
+							defaultEffort={thinkingCapability.defaultEffort}
+							description={
+								thinkingCapability.kind === "forced"
+									? "GLM-5.3 系强制思考、无法关闭；这里调的是官方 reasoning_effort（low / high / max，默认 max）。思考内容在 reasoning_content 流式返回，输出上限 128K 为「思考 + 回答」总长。"
+									: "GLM-5.2 可用 thinking.type 开关，也可用 reasoning_effort 调档（medium 等同 high、xhigh 等同 max、none 等同关闭）。思考内容在 reasoning_content 流式返回。"
+							}
+							label="思维强度"
+							labels={
+								thinkingCapability.kind === "forced"
+									? {
+											low: "低（low）",
+											high: "高（high）",
+											xhigh: "最高（max，默认）",
+										}
+									: {
+											low: "低（low）",
+											medium: "中（medium）",
+											high: "高（high）",
+											xhigh: "最高（max）",
+											none: "关闭（thinking: disabled）",
+										}
+							}
 						/>
 					)}
 

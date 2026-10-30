@@ -365,7 +365,7 @@
 		"no": "不，保持任务不变",
 		"yes": "是，压缩任务",
 		"currentTokens": "当前请求使用的令牌数",
-		"maxContextWindow": "此模型的最大上下文窗口大小",
+		"maxContextWindow": "此模型的可用输入上限（窗口含输出时已扣除预留输出）",
 		"contextWindowUsage": "上下文窗口使用进度",
 		"currentBranch": "当前：",
 		"detachedHead": "分离的 HEAD",
@@ -390,6 +390,9 @@
 		"contextWindow": "上下文窗口",
 		"used": "已用：",
 		"total": "总计：",
+		"windowSize": "窗口：",
+		"reservedOutput": "预留输出：",
+		"availableInput": "可用输入：",
 		"remaining": "剩余：",
 		"tokenUsage": "令牌使用量"
 	},

@@ -251,6 +251,7 @@
 		"enterBaseUrl": "Enter base URL...",
 		"baseUrlHint": "Only the base address (e.g. https://api.xxx.cn/v1). Do NOT append /chat/completions or similar trailing paths, or you'll get a 404.",
 		"context": "Context:",
+		"contextIncludesOutput": "(incl. {{output}} output, {{available}} usable input)",
 		"input": "Input:",
 		"output": "Output:",
 		"advanced": "Advanced",

@@ -73,10 +73,9 @@ export class BigmodelHandler implements ApiHandler {
 		const client = this.ensureClient()
 		const model = this.getModel()
 
-		// GLM 思考开关与 MiMo 同构（thinking.type）；官方默认态未逐条核实，
-		// 所以只有用户显式选「关闭」时才发 disabled，其余情况不发参数交给官方默认。
-		// supportsReasoning = false 的模型（待验证项）同样不发。
-		const thinkingParam = model.info.supportsReasoning === false ? {} : bigmodelThinkingParam(this.options.reasoningEffort)
+		// 思考参数由模型白名单决定（#81）：5.3 系强制思考、**绝不发 disabled**（官方会请求失败），
+		// 5.2 可关；未知模型什么都不发。跨 provider 残留的 "none" 也在这里被吃掉。
+		const thinkingParam = bigmodelThinkingParam(this.options.reasoningEffort, model.id)
 
 		const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
 			{ role: "system", content: systemPrompt },

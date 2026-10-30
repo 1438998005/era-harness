@@ -253,6 +253,7 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 							cacheReads={cacheReads}
 							cacheWrites={cacheWrites}
 							contextWindow={selectedModelInfo?.contextWindow}
+							contextWindowIncludesOutput={selectedModelInfo?.contextWindowIncludesOutput}
 							lastApiReqTotalTokens={lastApiReqTotalTokens}
 							lastApiReqUsage={lastApiReqUsage}
 							maxOutputTokens={selectedModelInfo?.maxTokens}

@@ -74,6 +74,7 @@ Cline 的 MCP 配置（`cline_mcp_settings.json`，参考 `mcp-settings.example.
 ### 可选：限制工具能读到的路径
 
 三个工具接受调用方给的任意路径。默认不限制（与宿主 harness 的 `read_file` 同权限模型，审批在宿主侧）；
+未设置该变量时，server 启动会向 **stderr** 打一条一次性提醒（stdout 是 JSON-RPC 通道，不会污染协议）。
 若想防止 AI 被工作区里的内容诱导去读项目外文件（如 `~/.ssh/id_rsa`），在 MCP 配置里加环境变量：
 
 ```json
@@ -90,6 +91,9 @@ Cline 的 MCP 配置（`cline_mcp_settings.json`，参考 `mcp-settings.example.
 ```
 
 多个根用 `;` 或 `,` 分隔；超出范围的路径直接报错。注意它只做字面路径比较，不解析符号链接。
+
+单次读取上限 **256KB**（`parse_emuera_log` / `read_erb_file`）：超出时按行边界截断，响应里带
+`truncated: true` 与 `totalBytes`，不会把整份几百 MB 的日志灌进模型上下文。
 
 ### 指令手册的在线/离线开关
 

@@ -39,7 +39,11 @@ const MERMAID_THEME = {
 
 mermaid.initialize({
 	startOnLoad: false,
-	securityLevel: "loose",
+	// #70：`loose` 会放行节点 label 里的任意 HTML（foreignObject），而渲染结果是直接
+	// innerHTML 进 DOM 的——模型可控的 markdown 里一个 ```mermaid 代码块就能绕过
+	// react-markdown 的转义层（注入 <img src=https://…> 外连、或覆盖审批按钮的伪 UI）。
+	// strict 由 mermaid 内部消毒并禁用 click 回调；本项目未使用 click，无功能损失。
+	securityLevel: "strict",
 	theme: "dark",
 	themeVariables: {
 		...MERMAID_THEME,

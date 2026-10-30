@@ -46,7 +46,8 @@ import {
   listKnowledgeSummaries,
   searchKnowledge,
 } from '../knowledge/index.js';
-import { ALLOWED_ROOTS_ENV, assertPathAllowed, parseAllowedRoots } from './guard.js';
+import { ALLOWED_ROOTS_ENV, assertPathAllowed, parseAllowedRoots, rootsReminder } from './guard.js';
+import { jsonResult } from './result.js';
 import {
   SETTINGS_CATALOG,
   SETTINGS_CATEGORIES,
@@ -71,6 +72,19 @@ const knowledgeCatalogLine = KNOWLEDGE_ENTRIES.map((entry) => entry.title.split(
 /** 可选的范围限定：设了 ERA_HARNESS_MCP_ROOTS 就只放行其内的路径，否则不限制 */
 const allowedRoots = parseAllowedRoots(process.env[ALLOWED_ROOTS_ENV]);
 
+if (allowedRoots.length === 0) {
+  // #68：默认不限制是用户裁定的方向（与宿主 read_file 同权限模型），但必须在启动时说一句。
+  // ⛔ 只能走 stderr：stdio 传输下 stdout 是 JSON-RPC 通道，多一个字节就污染协议。
+  const reminder = rootsReminder(allowedRoots);
+  if (reminder) process.stderr.write(reminder);
+}
+
+/**
+ * #67：单次读取上限。日志动辄上百 MB，整份读进来会同时打爆宿主内存与模型上下文；
+ * 截断由 `readTextFile` 负责（按行边界切，不切坏多字节字符），这里只给上限。
+ */
+const MAX_READ_BYTES = 256 * 1024;
+
 /**
  * 指令库的在线开关：
  * - `ERA_HARNESS_REFERENCE_ONLINE=off` 完全不出网，只用内置快照
@@ -84,24 +98,35 @@ function referenceSourceOptions(useOnline: boolean | undefined): ReferenceSource
   };
 }
 
-function jsonResult(data: unknown): { content: { type: 'text'; text: string }[] } {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
-}
-
 server.registerTool(
   'parse_emuera_log',
   {
     title: '解析 Emuera 日志',
     description:
-      '读取 Emuera 引擎日志（UTF-8 BOM 自动剥离），返回结构化结果：引擎与变体信息、逐条诊断（分类/严重级/文件/行号/源码片段）、fatal 错误块、会话统计。日志路径为空时报错。',
+      '读取 Emuera 引擎日志（UTF-8 BOM 自动剥离），返回结构化结果：引擎与变体信息、逐条诊断（分类/严重级/文件/行号/源码片段）、fatal 错误块、会话统计。日志路径为空时报错。单次最多读取 256KB（超出按行截断并标注 truncated）。建议用 ERA_HARNESS_MCP_ROOTS 限定可读范围。',
     inputSchema: {
-      path: z.string().describe('日志文件路径，如 emuera.log 或 YYYYMMDD-HHMMSS.log'),
+      path: z.string().max(4096).describe('日志文件路径，如 emuera.log 或 YYYYMMDD-HHMMSS.log'),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   async ({ path: logPath }) => {
-    const { text } = await readTextFile(assertPathAllowed(logPath, allowedRoots));
-    return jsonResult(parseLog(text));
+    const source = await readTextFile(assertPathAllowed(logPath, allowedRoots), { maxBytes: MAX_READ_BYTES });
+    const parsed = parseLog(source.text);
+    // 只有截断时才补字段，正常响应形状保持不变（#67）
+    return jsonResult(
+      source.truncated
+        ? {
+            ...parsed,
+            source: {
+              path: source.path,
+              encoding: source.encoding,
+              totalBytes: source.totalBytes,
+              readBytes: source.byteLength,
+              truncated: true,
+            },
+          }
+        : parsed,
+    );
   },
 );
 
@@ -110,9 +135,9 @@ server.registerTool(
   {
     title: '提取工程画像',
     description:
-      '扫描 eratw 工程根目录，返回 ProjectProfile：引擎 exe/config/懒加载、版本变体、ERB/CSV 规模、变量家族、角色与口上结构、编码统计、harness 提示。只读，任何缺失降级为空值。',
+      '扫描 eratw 工程根目录，返回 ProjectProfile：引擎 exe/config/懒加载、版本变体、ERB/CSV 规模、变量家族、角色与口上结构、编码统计、harness 提示。只读，任何缺失降级为空值。建议用 ERA_HARNESS_MCP_ROOTS 限定可读范围。',
     inputSchema: {
-      path: z.string().describe('工程根目录路径（含 emuera.config 与 ERB/ 的目录）'),
+      path: z.string().max(4096).describe('工程根目录路径（含 emuera.config 与 ERB/ 的目录）'),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
@@ -126,20 +151,22 @@ server.registerTool(
   {
     title: '编码安全读取文件',
     description:
-      '读取 ERB/CSV/日志等工程文件并统一转为 UTF-8 文本：自动探测 UTF-8 BOM / UTF-8 / CP932，剥离 BOM，CRLF 原样保留（行号保真）。返回文本 + encoding/bom/lossy/byteLength 元信息；lossy=true 表示有不可解码字节被替换符替代。',
+      '读取 ERB/CSV/日志等工程文件并统一转为 UTF-8 文本：自动探测 UTF-8 BOM / UTF-8 / CP932，剥离 BOM，CRLF 原样保留（行号保真）。返回文本 + encoding/bom/lossy/byteLength/truncated 元信息；lossy=true 表示有不可解码字节被替换符替代。单次最多读取 256KB（超出按行截断并标注 truncated）。建议用 ERA_HARNESS_MCP_ROOTS 限定可读范围。',
     inputSchema: {
-      path: z.string().describe('文件绝对路径'),
+      path: z.string().max(4096).describe('文件绝对路径'),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   async ({ path: filePath }) => {
-    const r = await readTextFile(assertPathAllowed(filePath, allowedRoots));
+    const r = await readTextFile(assertPathAllowed(filePath, allowedRoots), { maxBytes: MAX_READ_BYTES });
     return jsonResult({
       path: r.path,
       encoding: r.encoding,
       bom: r.bom,
       lossy: r.lossy,
       byteLength: r.byteLength,
+      totalBytes: r.totalBytes,
+      truncated: r.truncated,
       text: r.text,
     });
   },

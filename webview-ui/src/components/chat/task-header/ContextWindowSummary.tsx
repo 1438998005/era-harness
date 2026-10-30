@@ -23,6 +23,10 @@ interface TaskContextWindowButtonsProps extends TokenUsageInfoProps {
 	percentage: number
 	tokenUsed: number
 	contextWindow: number
+	/** 原始窗口；与 contextWindow（有效输入预算）不同时展示拆分（#80） */
+	windowSize?: number
+	/** 预留输出；> 0 时展示拆分（#80） */
+	reservedOutput?: number
 	autoCompactThreshold?: number
 	isThresholdChanged?: boolean
 	isThresholdFadingOut?: boolean
@@ -110,6 +114,8 @@ TokenUsageDetails.displayName = "TokenUsageDetails"
 
 export const ContextWindowSummary: React.FC<TaskContextWindowButtonsProps> = ({
 	contextWindow,
+	windowSize,
+	reservedOutput = 0,
 	tokenUsed,
 	tokensIn,
 	tokensOut,
@@ -168,12 +174,25 @@ export const ContextWindowSummary: React.FC<TaskContextWindowButtonsProps> = ({
 				title={t("contextWindow.contextWindow")}
 				value={percentage ? `${percentage.toFixed(1)}%` : formatTokenNumber(contextWindow)}>
 				<div className="space-y-1">
+					{/* #80：只有「窗口含输出」的模型（预留 > 0）才拆开展示，普通模型保持原样 */}
+					{reservedOutput > 0 && windowSize !== undefined && (
+						<>
+							<div className="flex justify-between">
+								<span>{t("contextWindow.windowSize")}</span>
+								<span className="font-mono">{formatTokenNumber(windowSize)}</span>
+							</div>
+							<div className="flex justify-between">
+								<span>{t("contextWindow.reservedOutput")}</span>
+								<span className="font-mono">{formatTokenNumber(reservedOutput)}</span>
+							</div>
+						</>
+					)}
 					<div className="flex justify-between">
 						<span>{t("contextWindow.used")}</span>
 						<span className="font-mono">{formatTokenNumber(tokenUsed)}</span>
 					</div>
 					<div className="flex justify-between">
-						<span>{t("contextWindow.total")}</span>
+						<span>{reservedOutput > 0 ? t("contextWindow.availableInput") : t("contextWindow.total")}</span>
 						<span className="font-mono">{formatTokenNumber(contextWindow)}</span>
 					</div>
 					<div className="flex justify-between">

@@ -91,6 +91,26 @@ export interface GitLabSource {
 	listVersionCommits(maxPages?: number): Promise<Array<{ id: string }>>
 }
 
+/** GitLab 提交 id 的合法形态：40 位十六进制（大小写不敏感，GitLab 实际下发小写）。 */
+const GIT_COMMIT_RE = /^[0-9a-f]{40}$/i
+
+/**
+ * #69：提交 id 会被拼进缓存路径（`cachePath(root, `${commit}.tar.gz`)`），
+ * 必须先在**数据入口**校验形态。上游账号/服务器被入侵时，`commit.id` 带 `..` 或分隔符
+ * 就能把几百 MB 归档写到游戏目录之外。不合法直接抛，调用方按「拿不到」降级。
+ */
+export function assertCommitId(id: string, context: string): string {
+	if (!GIT_COMMIT_RE.test(id)) {
+		throw new Error(`上游返回了非法的提交 id（${context}）：${JSON.stringify(id)}`)
+	}
+	return id
+}
+
+/** 非抛出版本：调用方需要「不合法就静默降级」时用（如历史基线回落 mtime）。 */
+export function isValidCommitId(id: string | null | undefined): id is string {
+	return typeof id === "string" && GIT_COMMIT_RE.test(id)
+}
+
 export function createGitLabSource(project: GitLabProject): GitLabSource {
 	const projectName = project.path.split("/").pop() ?? "archive"
 
@@ -116,6 +136,8 @@ export function createGitLabSource(project: GitLabProject): GitLabSource {
 			if (!commit) {
 				throw new Error("分支响应里没有 commit")
 			}
+			// #69：先校验再往下传——后面会拿它拼缓存文件名
+			assertCommitId(commit, "分支 head")
 			let nowVersion: string | null = null
 			try {
 				// `ERB/DIM.ERH` 是**上游仓库**里的固定路径（经 GitLab API 读取），
@@ -153,7 +175,8 @@ export function createGitLabSource(project: GitLabProject): GitLabSource {
 				}
 				const data = JSON.parse(res.body.toString("utf8")) as Array<{ id?: string }>
 				for (const item of data) {
-					if (item.id) {
+					// #69：坏 id 不进候选列表 → findBaseCommit 拿不到 → 回落 mtime 基线
+					if (item.id && GIT_COMMIT_RE.test(item.id)) {
 						out.push({ id: item.id })
 					}
 				}

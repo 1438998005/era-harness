@@ -34,10 +34,12 @@ import type { MergeAsk } from "./merge"
 import { type ResolveConflictsResult, resolveConflicts } from "./mergeResolve"
 import { buildPlan, type ConflictPolicy } from "./plan"
 import {
+	assertCommitId,
 	createGitLabSource,
 	DEFAULT_BRANCH,
 	DEFAULT_PROJECT_URL,
 	type GitLabSource,
+	isValidCommitId,
 	parseNowVersion,
 	parseProjectUrl,
 	type RepoHead,
@@ -177,7 +179,8 @@ async function prepare(opts: RunUpdateOptions): Promise<Prepared> {
 	emit(opts, { stage: "check", message: "检查社区版本" })
 	const head = await client.head()
 
-	const cache = cachePath(opts.root, `${head.commit}.tar.gz`)
+	// #69：commit 会拼进缓存文件名——写盘前再校验一次（source 层已拦，这里是二道防线）
+	const cache = cachePath(opts.root, `${assertCommitId(head.commit, "head")}.tar.gz`)
 	const exists = await fs
 		.stat(winLongPath(cache))
 		.then(() => true)
@@ -366,7 +369,8 @@ export async function runUpdate(opts: RunUpdateOptions): Promise<RunUpdateResult
 	if (!base && localNowVersion && prepared.client) {
 		emit(opts, { stage: "plan", message: "首次同步：按本地版本号定位上游历史基线" })
 		const commit = await findBaseCommit(prepared.client, localNowVersion).catch(() => null)
-		if (commit) {
+		if (commit && isValidCommitId(commit)) {
+			// #69：历史基线同样要拼缓存路径——不合法就当定位失败，回落 mtime 路径
 			const cache = cachePath(opts.root, `${commit}.tar.gz`)
 			const exists = await fs
 				.stat(winLongPath(cache))

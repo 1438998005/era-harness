@@ -55,7 +55,14 @@ vi.mock("../common/ModelSelector", () => ({
 
 vi.mock("../common/ModelInfoView", () => ({ ModelInfoView: () => null }))
 
-vi.mock("../ReasoningEffortSelector", () => ({ default: () => null }))
+// 把档位选择器桩成回显 allowedEfforts：断言「哪些模型能调、能调哪几档」而不渲染真实控件
+vi.mock("../ReasoningEffortSelector", () => ({
+	default: ({ allowedEfforts, label }: any) => (
+		<div data-efforts={allowedEfforts.join(",")} data-testid="effort-selector">
+			{label}
+		</div>
+	),
+}))
 
 import { BigmodelProvider } from "./BigmodelProvider"
 
@@ -84,5 +91,26 @@ describe("BigmodelProvider（任务 C）", () => {
 		state.apiConfig = { actModeApiProvider: "bigmodel", actModeApiModelId: "glm-9.9" }
 		render(<BigmodelProvider currentMode={"act" as never} showModelOptions={true} />)
 		expect(screen.getByLabelText("填入 API 密钥…")).toBeTruthy()
+	})
+
+	it("#81 5.3 系渲染思维强度，档位 low/high/xhigh（不可关闭）", () => {
+		state.apiConfig = { actModeApiProvider: "bigmodel", bigmodelApiKey: "k", actModeApiModelId: "glm-5.3-flash" }
+		render(<BigmodelProvider currentMode={"act" as never} showModelOptions={true} />)
+		expect(screen.getByTestId("effort-selector").getAttribute("data-efforts")).toBe("low,high,xhigh")
+	})
+
+	it("#81 5.2 额外提供「关闭」档", () => {
+		state.apiConfig = { actModeApiProvider: "bigmodel", bigmodelApiKey: "k", actModeApiModelId: "glm-5.2" }
+		render(<BigmodelProvider currentMode={"act" as never} showModelOptions={true} />)
+		expect(screen.getByTestId("effort-selector").getAttribute("data-efforts")).toContain("none")
+	})
+
+	it("#81 未支持的模型不渲染思维强度（5.1 / 4.x / 未知）", () => {
+		for (const modelId of ["glm-5.1", "glm-4.5-flash", "glm-9.9"]) {
+			state.apiConfig = { actModeApiProvider: "bigmodel", bigmodelApiKey: "k", actModeApiModelId: modelId }
+			const { unmount } = render(<BigmodelProvider currentMode={"act" as never} showModelOptions={true} />)
+			expect(screen.queryByTestId("effort-selector")).toBeNull()
+			unmount()
+		}
 	})
 })

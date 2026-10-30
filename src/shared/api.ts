@@ -70,6 +70,14 @@ export interface ModelInfo {
 	supportsImages?: boolean
 	supportsPromptCache: boolean // this value is hardcoded for now
 	supportsReasoning?: boolean // Whether the model supports reasoning/thinking mode
+	/**
+	 * 上下文窗口是否**包含输出**（#80）。**缺省 false**：官方没注明互斥时，按
+	 * 「输入窗口与输出独立」处理，不做预留——否则会凭空没收 128K～384K 可用上下文。
+	 * 只有**实测证明共享**的模型才标 true（当前仅 `glm-4.5-flash`：满额 96K 输出时
+	 * 28.6k prompt 即 400 code=1261，见 D45）。GLM-5.1 起官方标注的上下文为纯输入。
+	 * 消费方：`src/shared/context-budget.ts` 的 `getContextBudget()`（扩展与 webview 共用）。
+	 */
+	contextWindowIncludesOutput?: boolean
 	inputPrice?: number // Keep for non-tiered input models
 	outputPrice?: number // Keep for non-tiered output models
 	thinkingConfig?: {
@@ -149,6 +157,9 @@ export const CLAUDE_OPUS_1M_TIERS = [
 
 // Anthropic
 // https://docs.anthropic.com/en/docs/about-claude/models // prices updated 2025-01-02
+// 注：Claude 的 contextWindow 是**输入**窗口、max_tokens 另计，与 #80 的缺省口径（不扣预留）
+// 一致，故无需逐条标注。本 fork 未接线该 provider（`core/api/index.ts` 只处理
+// free/openai/deepseek/mimo/bigmodel）。
 export type AnthropicModelId = keyof typeof anthropicModels
 export const anthropicDefaultModelId: AnthropicModelId = "claude-sonnet-4-5-20250929"
 export const ANTHROPIC_MIN_THINKING_BUDGET = 1_024
@@ -569,6 +580,7 @@ const deepSeekFlashInfo: ModelInfo = {
 	name: "DeepSeek V4.1 Flash",
 	maxTokens: 384_000,
 	contextWindow: 1_000_000,
+	// 官方只写「1M 上下文 / 384K 输出」，未明说互斥 → 按输入输出独立处理，不扣预留（#80）
 	supportsImages: true,
 	supportsPromptCache: true,
 	supportsReasoning: true,
@@ -653,6 +665,7 @@ const mimoBaseInfo: ModelInfo = {
 	maxTokens: 128_000,
 	// 官方：上下文窗口 1M
 	contextWindow: 1_000_000,
+	// 官方只写「1M / 128K」，未明说互斥 → 按输入输出独立处理，不扣预留（#80）
 	// 官方：全系支持全模态理解
 	supportsImages: true,
 	// 响应里带 usage.prompt_tokens_details.cached_tokens，且官方列了缓存命中单价
@@ -748,6 +761,7 @@ const glm53BaseInfo: ModelInfo = {
 	maxTokens: 128_000,
 	// 官方：上下文窗口 1M
 	contextWindow: 1_000_000,
+	// GLM-5.1 起官方标注的「上下文」为**纯输入**（用户 2026-10-30 实测）→ 不扣预留（#80）
 	supportsImages: false,
 	// 官方列了缓存命中单价，响应带 cached_tokens
 	supportsPromptCache: true,
@@ -835,6 +849,8 @@ export const bigmodelModels = {
 		name: "GLM-4.5-Flash · 免费",
 		contextWindow: 128_000,
 		maxTokens: 96_000,
+		// 唯一有实证的例外：满额 96K 输出把输入预算压到 32K，28.6k prompt 即 400 code=1261（D45）
+		contextWindowIncludesOutput: true,
 		inputPrice: 0,
 		cacheReadsPrice: 0,
 		cacheWritesPrice: 0,

@@ -22,7 +22,12 @@ import {
 	resolveBigmodelModelId,
 } from "../../src/shared/api"
 import * as bigmodelRequest from "../../src/shared/bigmodel-request"
-import { BIGMODEL_BASE_URL, bigmodelThinkingParam, buildBigmodelParams } from "../../src/shared/bigmodel-request"
+import {
+	BIGMODEL_BASE_URL,
+	bigmodelThinkingCapability,
+	bigmodelThinkingParam,
+	buildBigmodelParams,
+} from "../../src/shared/bigmodel-request"
 import { calculateBigmodelCost } from "../../src/shared/bigmodelPricing"
 import { ApiProvider as ProtoApiProvider } from "../../src/shared/proto/cline/models"
 import {
@@ -117,10 +122,49 @@ test("请求体：thinking 只走开关、输出上限发 max_tokens（两字段
 	assert.equal("max_completion_tokens" in defaultParams, false, "不发 MiMo 式字段")
 })
 
-test("思考参数映射：none → disabled，其余不发", () => {
-	assert.deepEqual(bigmodelThinkingParam("none"), { thinking: { type: "disabled" } })
+test("#81 能力位：5.3 系 forced / 5.2 toggle / 其余 unsupported", () => {
+	assert.equal(bigmodelThinkingCapability("glm-5.3-flash").kind, "forced")
+	assert.equal(bigmodelThinkingCapability("GLM-5.3").kind, "forced")
+	assert.equal(bigmodelThinkingCapability("glm-5.3-flashx").kind, "forced")
+	assert.equal(bigmodelThinkingCapability("glm-5.2").kind, "toggle")
+	assert.equal(bigmodelThinkingCapability("glm-5.1").kind, "unsupported")
+	assert.equal(bigmodelThinkingCapability("glm-4.5-flash").kind, "unsupported")
+	assert.equal(bigmodelThinkingCapability("").kind, "unsupported")
+})
+
+test("#81 思考参数：5.3 系强制思考，绝不发 disabled", () => {
+	// 跨 provider 残留的 none（比如在 MiMo 里选过「关闭」）不得变成 disabled——官方会请求失败
+	assert.deepEqual(bigmodelThinkingParam("none", "glm-5.3-flash"), {})
+	assert.deepEqual(bigmodelThinkingParam(undefined, "glm-5.3-flash"), {})
+	// 档位映射：xhigh → 官方 max；大小写与空白不敏感
+	assert.deepEqual(bigmodelThinkingParam("low", "glm-5.3-flash"), { reasoning_effort: "low" })
+	assert.deepEqual(bigmodelThinkingParam("high", "GLM-5.3"), { reasoning_effort: "high" })
+	assert.deepEqual(bigmodelThinkingParam("xhigh", "glm-5.3-flashx"), { reasoning_effort: "max" })
+	// 5.2 才有的 medium 在 5.3 上不合法 → 不发，交给官方默认 max
+	assert.deepEqual(bigmodelThinkingParam("medium", "glm-5.3"), {})
+})
+
+test("#81 思考参数：5.2 可关闭，其余档位走 reasoning_effort", () => {
+	assert.deepEqual(bigmodelThinkingParam("none", "glm-5.2"), { thinking: { type: "disabled" } })
+	assert.deepEqual(bigmodelThinkingParam("medium", "glm-5.2"), { reasoning_effort: "medium" })
+	assert.deepEqual(bigmodelThinkingParam("xhigh", "glm-5.2"), { reasoning_effort: "max" })
+})
+
+test("#81 思考参数：未知模型什么都不发（防新模型被发 disabled）", () => {
+	assert.deepEqual(bigmodelThinkingParam("none", "glm-9.9"), {})
 	assert.deepEqual(bigmodelThinkingParam("high"), {})
-	assert.deepEqual(bigmodelThinkingParam(undefined), {})
+})
+
+test("#81 请求体：reasoning_effort 落在顶层，且与 thinking 不冲突", () => {
+	const params = buildBigmodelParams({
+		model: "glm-5.3-flash",
+		messages: [{ role: "user", content: "hi" }] as never[],
+		thinkingParam: { reasoning_effort: "max" },
+		maxTokens: 128_000,
+	})
+	assert.equal(params.reasoning_effort, "max")
+	assert.equal("thinking" in params, false)
+	assert.equal(params.max_tokens, 128_000)
 })
 
 test("#57 输出预算夹紧：窗口含输出，max_tokens 不得吃掉全部输入预算", () => {

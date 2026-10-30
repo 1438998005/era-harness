@@ -1,4 +1,5 @@
 import type OpenAI from "openai"
+import type { OpenaiReasoningEffort } from "./storage/types"
 
 /**
  * 智谱 BigModel 请求侧纯函数（零依赖，扩展与 webview 共用）。
@@ -6,8 +7,12 @@ import type OpenAI from "openai"
  * 事实来源（官方文档，2026-10-28 逐页核对）：
  * - OpenAI 兼容入口 `https://open.bigmodel.cn/api/paas/v4/`，标准 `Authorization: Bearer`
  *   （/docs/zh-CN/guide/develop/openai/introduction）
- * - 思考开关与 MiMo 同构：`thinking: { type: "enabled" | "disabled" }`（extra_body），
- *   思考内容在 `delta.reasoning_content`；GLM-5.2 官方示例即此形态
+ * - 思考（2026-10-30 官方文档核实）：
+ *   · `glm-5.3` / `5.3-flash` / `5.3-flashx` **强制思考**，`thinking.type` 只接受 `enabled`
+ *     （传 `disabled` 会**请求失败**），档位走 `reasoning_effort: low | high | max`，默认 `max`；
+ *   · `glm-5.2` 可用 `thinking.type` 开关（enabled/disabled），`reasoning_effort` 支持
+ *     `max`/`xhigh`、`high`/`medium`/`low`、`minimal`/`none`（none 等同关闭）；
+ *   · 思考内容在 `delta.reasoning_content`。
  * - 输出上限字段名：官方参数表写 `max_tokens`（上游 Cline zai handler 实测发
  *   `max_completion_tokens` 亦被端点接受）——二选一，这里跟官方参数表走 `max_tokens`，
  *   两个字段绝不同发（若实测 `max_tokens` 被忽略，改这里一处即可）
@@ -19,9 +24,24 @@ export const BIGMODEL_CONSOLE_URL = "https://bigmodel.cn/usercenter/proj-mgmt/ap
 /** 文档站（OpenAI 兼容接入页）。 */
 export const BIGMODEL_DOCS_URL = "https://docs.bigmodel.cn/cn/guide/develop/openai/introduction"
 
-export type BigmodelThinkingFields = { thinking?: { type: "enabled" | "disabled" } }
+export type BigmodelThinkingFields = {
+	thinking?: { type: "enabled" | "disabled" }
+	/**
+	 * 官方档位：5.3 系 `low`/`high`/`max`，5.2 另支持 `medium`/`xhigh`/`minimal`/`none`。
+	 * 这里放开成 string：OpenAI SDK 的联合类型里没有 `max`，但官方接受
+	 * （同 DeepSeek 的 `xhigh → max` 先例）。落进请求体时在 `buildBigmodelParams` 单点放宽。
+	 */
+	reasoning_effort?: string
+}
 
-export type BigmodelChatParams = OpenAI.Chat.ChatCompletionCreateParamsStreaming & BigmodelThinkingFields
+/**
+ * 请求体 = SDK 类型 + 官方扩展字段。`reasoning_effort` 沿用 SDK 的联合类型，
+ * 否则整个 params 无法传给 `client.chat.completions.create`；`"max"` 的放宽只发生在
+ * `buildBigmodelParams` 的赋值处（一处 cast，其余字段仍受 SDK 检查）。
+ */
+export type BigmodelChatParams = OpenAI.Chat.ChatCompletionCreateParamsStreaming & {
+	thinking?: { type: "enabled" | "disabled" }
+}
 
 export interface BigmodelRequestInput {
 	model: string
@@ -32,12 +52,60 @@ export interface BigmodelRequestInput {
 	toolParams?: Pick<OpenAI.Chat.ChatCompletionCreateParamsStreaming, "tools" | "tool_choice" | "parallel_tool_calls">
 }
 
+/** 思考能力的三种形态：强制开启（5.3 系）/ 可开关（5.2）/ 不支持（其余 GLM 与未知 id）。 */
+export type BigmodelThinkingKind = "forced" | "toggle" | "unsupported"
+
+export interface BigmodelThinkingCapability {
+	kind: BigmodelThinkingKind
+	/** 界面可选档位（复用共用的 reasoningEffort 存储位） */
+	efforts: readonly OpenaiReasoningEffort[]
+	defaultEffort: OpenaiReasoningEffort
+}
+
+const GLM53_THINKING: BigmodelThinkingCapability = {
+	kind: "forced",
+	efforts: ["low", "high", "xhigh"],
+	defaultEffort: "xhigh",
+}
+const GLM52_THINKING: BigmodelThinkingCapability = {
+	kind: "toggle",
+	efforts: ["low", "medium", "high", "xhigh", "none"],
+	defaultEffort: "xhigh",
+}
+const NO_THINKING: BigmodelThinkingCapability = { kind: "unsupported", efforts: [], defaultEffort: "high" }
+
 /**
- * 界面开关 → GLM 思考参数（与 MiMo 的 mimoThinkingParam 同构）：
- * `"none"` → 显式关闭（disabled）；其它值或未设置 → **不发该参数**，交给官方默认。
+ * 按 modelId 判定思考能力（大小写不敏感）。
+ *
+ * 为什么不用 `ModelInfo.supportsReasoning` 布尔位：5.3 系**不能关闭**、5.2 能关闭，
+ * 「支不支持思考」这一维表达不了两者差异；且布尔位要过 proto 往返（未知模型会丢）。
+ * 未知 id 一律 unsupported（不发参数），避免新模型收到 `thinking: disabled` 直接失败。
  */
-export function bigmodelThinkingParam(effort?: string): { thinking: { type: "disabled" } } | Record<string, never> {
-	return effort === "none" ? { thinking: { type: "disabled" } } : {}
+export function bigmodelThinkingCapability(modelId: string): BigmodelThinkingCapability {
+	const id = (modelId ?? "").trim().toLowerCase()
+	if (id === "glm-5.3" || id.startsWith("glm-5.3-")) return GLM53_THINKING
+	if (id === "glm-5.2") return GLM52_THINKING
+	return NO_THINKING
+}
+
+/**
+ * 界面档位 → GLM 请求参数。
+ *
+ * - `forced`（5.3 系）：`low`/`high` 原样发，`xhigh` 映射官方 `max`；`none`/未设置/非法值
+ *   **一律不发**——5.3 传 `disabled` 会请求失败，不发即官方默认 `max`。
+ * - `toggle`（5.2）：`none` → `thinking: disabled`；其余合法档位 → `reasoning_effort`。
+ * - `unsupported`：什么都不发。
+ */
+export function bigmodelThinkingParam(effort: string | undefined, modelId?: string): BigmodelThinkingFields {
+	const capability = bigmodelThinkingCapability(modelId ?? "")
+	if (capability.kind === "unsupported") return {}
+	if (capability.kind === "toggle" && effort === "none") {
+		return { thinking: { type: "disabled" } }
+	}
+	const normalized = (effort ?? "").trim().toLowerCase()
+	const matched = capability.efforts.find((option) => option === normalized)
+	if (!matched || matched === "none") return {}
+	return { reasoning_effort: matched === "xhigh" ? "max" : matched }
 }
 
 /**
@@ -168,6 +236,11 @@ export function buildBigmodelParams(input: BigmodelRequestInput): BigmodelChatPa
 	}
 	if (input.thinkingParam?.thinking) {
 		params.thinking = input.thinkingParam.thinking
+	}
+	if (input.thinkingParam?.reasoning_effort) {
+		// 官方接受 "max"，SDK 联合类型只到 xhigh：只放宽这一个字段的赋值，不做整体断言
+		params.reasoning_effort = input.thinkingParam
+			.reasoning_effort as OpenAI.Chat.ChatCompletionCreateParamsStreaming["reasoning_effort"]
 	}
 	return params
 }

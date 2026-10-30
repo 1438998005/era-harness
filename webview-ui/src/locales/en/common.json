@@ -365,7 +365,7 @@
 		"no": "No, keep the task as is",
 		"yes": "Yes, compact the task",
 		"currentTokens": "Current tokens used in this request",
-		"maxContextWindow": "Maximum context window size for this model",
+		"maxContextWindow": "Usable input limit for this model (reserved output already deducted when the window includes output)",
 		"contextWindowUsage": "Context window usage progress",
 		"currentBranch": "Current:",
 		"detachedHead": "detached HEAD",
@@ -390,6 +390,9 @@
 		"contextWindow": "Context Window",
 		"used": "Used:",
 		"total": "Total:",
+		"windowSize": "Window:",
+		"reservedOutput": "Reserved output:",
+		"availableInput": "Usable input:",
 		"remaining": "Remaining:",
 		"tokenUsage": "Token Usage"
 	},
