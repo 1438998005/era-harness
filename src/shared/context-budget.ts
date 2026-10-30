@@ -5,15 +5,15 @@
  * - 扩展侧用它算压缩阈值（`context-window-utils.ts`），webview 用它算进度条分母
  *   （`ContextWindow.tsx`）与设置页括注（`ModelInfoView.tsx`）。三处各写一遍必然漂移，
  *   用户就会看到「设置页 1M、侧栏 872K」这种自相矛盾的数字。
- * - 口径本身来自 D45：窗口**含输出**的供应商（实测 BigModel glm-4.5-flash）满额
- *   `max_tokens` 会把实际输入预算压到窗口−输出，按满窗算会撞 400 code=1261。
+ * - 口径来自 D45 的实证，但**不做全供应商推广**：`glm-4.5-flash` 满额 `max_tokens` 会把
+ *   实际输入预算压到窗口−输出，按满窗算会撞 400 code=1261；其余模型是纯输入窗口。
  *
  * 能力位 `contextWindowIncludesOutput`（`ModelInfo` 同名字段）：
  * - 缺省 **false**（不扣）：官方没注明互斥时，按「输入窗口与输出独立」处理，
  *   否则会凭空没收 128K～384K 的可用上下文（用户 2026-10-30 纠正）；
- * - 只有**实测证明共享**的供应商才标 true——目前仅 GLM：glm-4.5-flash 128K 窗配
- *   96K `max_tokens` 时，28.6k prompt 即 400 code=1261（D45）。
- *   GLM 另有请求侧 `clampBigmodelOutputTokens` 兜底，这里的扣减只影响显示与压缩阈值。
+ * - 只有**实测证明共享**的模型才标 true——目前仅 `glm-4.5-flash`（128K 窗配 96K
+ *   `max_tokens` 时 28.6k prompt 即 400，D45）。同一能力位也决定请求侧是否夹紧
+ *   （`clampBigmodelOutputTokens`，08 #82 放开），显示与请求两侧口径一致。
  */
 
 /** 拿不到窗口时的兜底（与历史行为一致）。 */

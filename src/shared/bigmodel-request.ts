@@ -109,17 +109,17 @@ export function bigmodelThinkingParam(effort: string | undefined, modelId?: stri
 }
 
 /**
- * 请求侧输出夹紧——**保守上限**，不是「窗口口径」的声明（口径见 D47 / `context-budget.ts`）。
+ * 请求侧输出夹紧——**只在实测证明「窗口含输出」的模型上生效**（能力位
+ * `contextWindowIncludesOutput`，口径见 D47 / `context-budget.ts`）。
  *
- * 实证只有 `glm-4.5-flash` 一例：窗口含输入+回复+思考，带 96K 满额 max_tokens 时实际输入
+ * 唯一实证款是 `glm-4.5-flash`：128K 窗含输入+回复+思考，带 96K 满额 max_tokens 时实际输入
  * 预算只剩 128K−96K=32K，28.6k prompt 即 400 code=1261「Prompt exceeds max length」。
- * 其余模型（GLM-5.1 起）标注的窗口按纯输入理解，但共享与否未逐款核实，故这里**一律**夹到
- * `min(目录值, 窗口 − 预估输入 − 余量)`，下限取 `min(4K, 目录值)`：夹紧只会少给输出，
- * 不会制造 400；放宽则可能把未核实的模型重新推回 1261。再小就注定失败，交给错误层
- * （#60 的人话）说清楚，不在这里静默扭曲。
+ * 对这类模型把输出夹到 `min(目录值, 窗口 − 预估输入 − 余量)`，下限 `min(4K, 目录值)`——
+ * 再小就注定失败，交给错误层（#60 的人话）说清楚，不在这里静默扭曲。
  *
- * 代价：对 1M 纯输入窗口的模型（glm-5.3 系），预估输入超过约 868K 时输出会被压到 128K 以下。
- * 该窄带已知并登记为 08 #82（是否按 `contextWindowIncludesOutput` 分支，待裁定）。
+ * 缺省 false 的模型**不夹**（08 #82 裁定，2026-10-30）：官方标注的上下文按纯输入理解，
+ * 输出额度另计，夹了等于凭空砍输出。代价是「未核实但实际共享窗口」的款会撞 1261——这是
+ * 刻意的试错策略：先按标注跑，撞了再把能力位补上（1261 文案已提示反馈模型名）。
  */
 export const BIGMODEL_PROMPT_ESTIMATE_HEADROOM = 4096
 const BIGMODEL_MIN_OUTPUT_TOKENS = 4096
@@ -128,10 +128,15 @@ export function clampBigmodelOutputTokens(input: {
 	maxTokens?: number
 	contextWindow?: number
 	estimatedPromptTokens?: number
+	/** 与 `ModelInfo` 同名字段，可直接透传：只有 true（实测共享窗口）才夹 */
+	contextWindowIncludesOutput?: boolean
 }): number | undefined {
 	const { maxTokens, contextWindow, estimatedPromptTokens } = input
 	if (!maxTokens || maxTokens <= 0) {
 		return undefined // 保持「不发送」语义
+	}
+	if (input.contextWindowIncludesOutput !== true) {
+		return maxTokens // 输入输出独立：不夹，按目录值发
 	}
 	if (!contextWindow || contextWindow <= 0 || estimatedPromptTokens === undefined) {
 		return maxTokens // 拿不到窗口或预估：按目录值发（旧行为）
@@ -172,7 +177,8 @@ export interface BigmodelErrorInfo {
  * - ClineError._error：`{ status, code, message, details: { code, message } }`
  *
  * 1261（Prompt exceeds max length）是「窗口含输出」的直接后果（#57），必须指出路：
- * 压缩对话或换长窗口/低输出占用的模型；429/401 也一并翻成人话。
+ * 压缩对话或换长窗口/低输出占用的模型；若输入远未到标注的上下文却报 1261，说明该模型其实
+ * 共享窗口（能力位未标），提示用户把模型名反馈回来补标（#82 的试错闭环）。429/401 也一并翻成人话。
  */
 export function extractBigmodelError(raw: unknown): BigmodelErrorInfo | undefined {
 	if (!raw || typeof raw !== "object") {
@@ -209,7 +215,7 @@ export function extractBigmodelError(raw: unknown): BigmodelErrorInfo | undefine
 	let humanMessage: string
 	if (code === "1261") {
 		humanMessage =
-			"输入+输出合计超出模型窗口（BigModel 的窗口包含输出与思考占用）。建议压缩对话后重试，或换长窗口 / 输出占用更低的模型。"
+			"输入+输出合计超出模型窗口。请先压缩对话再试，或换长窗口 / 输出占用更低的模型；若输入远未达到标注的上下文，说明这个模型的窗口实际包含输出，请把模型名反馈给开发者补标口径。"
 	} else if (status === 401) {
 		humanMessage = "API Key 无效或未授权（401）。请到设置 → API 配置里检查 BigModel 密钥。"
 	} else if (status === 429) {

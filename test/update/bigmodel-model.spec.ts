@@ -167,29 +167,82 @@ test("#81 请求体：reasoning_effort 落在顶层，且与 thinking 不冲突"
 	assert.equal(params.max_tokens, 128_000)
 })
 
-test("#57 输出预算夹紧：窗口含输出，max_tokens 不得吃掉全部输入预算", () => {
+test("#57/#82 输出预算夹紧：只有「窗口含输出」的模型才夹，纯输入窗口一律放开", () => {
 	const { clampBigmodelOutputTokens, estimateBigmodelPromptTokens } = bigmodelRequest
 
-	// 4.5-flash（128K 窗 / 96K 目录输出）在 30k 输入时：实际可用输出 = 128K−30K−4096余量
-	assert.equal(clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: 128_000, estimatedPromptTokens: 30_000 }), 93_904)
-	// 输入未超限时保持目录值（200K 窗 / 128K 输出 / 10K 输入 → 夹不住，原样）
+	// —— 共享窗口款（能力位 true；唯一实证 glm-4.5-flash，128K 窗 / 96K 目录输出）——
+	// 30k 输入时实际可用输出 = 128K − 30K − 4096 余量
 	assert.equal(
-		clampBigmodelOutputTokens({ maxTokens: 128_000, contextWindow: 200_000, estimatedPromptTokens: 10_000 }),
-		128_000,
+		clampBigmodelOutputTokens({
+			maxTokens: 96_000,
+			contextWindow: 128_000,
+			estimatedPromptTokens: 30_000,
+			contextWindowIncludesOutput: true,
+		}),
+		93_904,
 	)
 	// 输入逼近窗口：夹到下限（4K 与目录值取小，不虚构输出预算）
-	assert.equal(clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: 128_000, estimatedPromptTokens: 125_000 }), 4_096)
+	assert.equal(
+		clampBigmodelOutputTokens({
+			maxTokens: 96_000,
+			contextWindow: 128_000,
+			estimatedPromptTokens: 125_000,
+			contextWindowIncludesOutput: true,
+		}),
+		4_096,
+	)
 	// 小输出模型（4v-flash 16K 窗 / 1K 输出）：下限不超过目录值
-	assert.equal(clampBigmodelOutputTokens({ maxTokens: 1_000, contextWindow: 16_000, estimatedPromptTokens: 14_000 }), 1_000)
-	// 拿不到窗口/预估/目录值：保持旧行为
 	assert.equal(
-		clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: undefined, estimatedPromptTokens: 30_000 }),
+		clampBigmodelOutputTokens({
+			maxTokens: 1_000,
+			contextWindow: 16_000,
+			estimatedPromptTokens: 14_000,
+			contextWindowIncludesOutput: true,
+		}),
+		1_000,
+	)
+	// 共享款但拿不到窗口/预估：按目录值发（旧行为）
+	assert.equal(
+		clampBigmodelOutputTokens({
+			maxTokens: 96_000,
+			contextWindow: undefined,
+			estimatedPromptTokens: 30_000,
+			contextWindowIncludesOutput: true,
+		}),
 		96_000,
 	)
 	assert.equal(
-		clampBigmodelOutputTokens({ maxTokens: 96_000, contextWindow: 128_000, estimatedPromptTokens: undefined }),
+		clampBigmodelOutputTokens({
+			maxTokens: 96_000,
+			contextWindow: 128_000,
+			estimatedPromptTokens: undefined,
+			contextWindowIncludesOutput: true,
+		}),
 		96_000,
 	)
+
+	// —— 纯输入窗口款（缺省 false / 显式 false）：不夹，按目录值发 ——
+	// glm-5.3：1M 纯输入 / 128K 输出，900K 输入仍该拿满 128K（旧口径会压到 96K）
+	assert.equal(
+		clampBigmodelOutputTokens({ maxTokens: 128_000, contextWindow: 1_000_000, estimatedPromptTokens: 900_000 }),
+		128_000,
+	)
+	assert.equal(
+		clampBigmodelOutputTokens({
+			maxTokens: 128_000,
+			contextWindow: 1_000_000,
+			estimatedPromptTokens: 900_000,
+			contextWindowIncludesOutput: false,
+		}),
+		128_000,
+	)
+	// 未核实款（glm-4.7-flash 200K/128K）同样放开——实测撞 1261 再补能力位（#82 试错策略）
+	assert.equal(
+		clampBigmodelOutputTokens({ maxTokens: 128_000, contextWindow: 200_000, estimatedPromptTokens: 190_000 }),
+		128_000,
+	)
+
+	// —— 通用边界 ——
 	assert.equal(
 		clampBigmodelOutputTokens({ maxTokens: undefined, contextWindow: 128_000, estimatedPromptTokens: 30_000 }),
 		undefined,

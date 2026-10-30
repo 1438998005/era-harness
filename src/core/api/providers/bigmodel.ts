@@ -82,8 +82,8 @@ export class BigmodelHandler implements ApiHandler {
 			...convertToOpenAiMessages(messages),
 		]
 
-		// #57：BigModel 窗口含输出，满额 max_tokens 会把实际输入预算压到窗口−输出
-		// （glm-4.5-flash 仅 32K，实测 28.6k prompt 即 400×3）。输出上限按预估输入夹紧。
+		// #57/#82：只有标了「窗口含输出」的模型才夹输出（glm-4.5-flash 实测 28.6k prompt 即 400）；
+		// 纯输入窗口的模型（glm-5.3 等）按目录值发——夹了等于凭空砍输出，实测撞 1261 再补能力位。
 		const estimatedPromptTokens = Math.max(estimateBigmodelPromptTokens(openAiMessages), this.lastRoundTokens ?? 0)
 		const stream = await client.chat.completions.create(
 			buildBigmodelParams({
@@ -93,6 +93,7 @@ export class BigmodelHandler implements ApiHandler {
 					maxTokens: model.info.maxTokens,
 					contextWindow: model.info.contextWindow,
 					estimatedPromptTokens,
+					contextWindowIncludesOutput: model.info.contextWindowIncludesOutput,
 				}),
 				thinkingParam,
 				toolParams: getOpenAIToolParams(tools),
