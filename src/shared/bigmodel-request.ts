@@ -109,11 +109,17 @@ export function bigmodelThinkingParam(effort: string | undefined, modelId?: stri
 }
 
 /**
- * BigModel 的窗口**含输出**（官方文档明说输入+回复+思考都算在窗口内）。#57 实测：
- * glm-4.5-flash 带 96K 满额 max_tokens 时实际输入预算只剩 128K−96K=32K，对话涨过即
- * 400 code=1261「Prompt exceeds max length」。这里把输出上限夹到
- * `min(目录值, 窗口 − 预估输入 − 余量)`；下限取 `min(4K, 目录值)`——
- * 再小就注定失败，交给错误层（#60 的人话）说清楚，不在这里静默扭曲。
+ * 请求侧输出夹紧——**保守上限**，不是「窗口口径」的声明（口径见 D47 / `context-budget.ts`）。
+ *
+ * 实证只有 `glm-4.5-flash` 一例：窗口含输入+回复+思考，带 96K 满额 max_tokens 时实际输入
+ * 预算只剩 128K−96K=32K，28.6k prompt 即 400 code=1261「Prompt exceeds max length」。
+ * 其余模型（GLM-5.1 起）标注的窗口按纯输入理解，但共享与否未逐款核实，故这里**一律**夹到
+ * `min(目录值, 窗口 − 预估输入 − 余量)`，下限取 `min(4K, 目录值)`：夹紧只会少给输出，
+ * 不会制造 400；放宽则可能把未核实的模型重新推回 1261。再小就注定失败，交给错误层
+ * （#60 的人话）说清楚，不在这里静默扭曲。
+ *
+ * 代价：对 1M 纯输入窗口的模型（glm-5.3 系），预估输入超过约 868K 时输出会被压到 128K 以下。
+ * 该窄带已知并登记为 08 #82（是否按 `contextWindowIncludesOutput` 分支，待裁定）。
  */
 export const BIGMODEL_PROMPT_ESTIMATE_HEADROOM = 4096
 const BIGMODEL_MIN_OUTPUT_TOKENS = 4096
