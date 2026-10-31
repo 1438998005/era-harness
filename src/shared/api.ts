@@ -19,6 +19,7 @@ export type ApiProvider =
 	| "deepseek"
 	| "mimo"
 	| "bigmodel"
+	| "bigmodel-plan"
 	| "qwen"
 	| "qwen-code"
 	| "doubao"
@@ -894,6 +895,9 @@ export const bigmodelModels = {
 		contextWindow: 16_000,
 		maxTokens: 1_000,
 		supportsImages: true,
+		// 08 #84：官方 1210 错误原文把 inputs 与 max_new_tokens 相加（`must be <= 16384`），
+		// 证明这 16K 是**输入+输出合计**。不标就会按纯输入算，进度条与压缩阈值全部报错。
+		contextWindowIncludesOutput: true,
 		inputPrice: 0,
 		cacheReadsPrice: 0,
 		cacheWritesPrice: 0,
@@ -916,6 +920,38 @@ export function getBigmodelModelInfo(modelId: string, modelInfo?: ModelInfo): Mo
 	}
 	// 未知但非空的 id：保留用户填写的元数据，缺失时用默认模型的保守值
 	return { ...bigmodelModels[bigmodelDefaultModelId], ...modelInfo }
+}
+
+// ── 智谱 GLM 套餐（Coding Plan）──────────────────────────────────────────────
+// 与按量入口 `bigmodel` 是**两套 Key、两套额度**（官方：个人套餐 / 团队套餐 / 标准
+// API 三种 Key 互不通用），所以做成独立 provider，而不是同一个条目里加"入口"下拉——
+// 用户必须能一眼看出"我现在花的是套餐还是余额"。
+//
+// 模型清单直接复用：套餐覆盖范围官方没给完整清单（只写"由 GLM-5.3 驱动"），多列不报错、
+// 少列会挡住用户；上下文/输出上限、思考能力判定也与按量完全一致。
+// 唯一差别是**计费**：套餐不按 token 扣费，价格一律归零，否则用量页会显示一笔没花的钱。
+
+export type BigmodelPlanModelId = BigmodelModelId
+export const bigmodelPlanDefaultModelId: BigmodelPlanModelId = "glm-5.3"
+
+export const bigmodelPlanModels = Object.fromEntries(
+	Object.entries(bigmodelModels).map(([id, info]) => [
+		id,
+		{ ...info, inputPrice: 0, cacheReadsPrice: 0, cacheWritesPrice: 0, outputPrice: 0 },
+	]),
+) as Record<BigmodelPlanModelId, ModelInfo>
+
+/** 与按量同一套 id（共用归一表，避免两处 toLowerCase 规则漂移） */
+export function resolveBigmodelPlanModelId(modelId: string): BigmodelPlanModelId | undefined {
+	return resolveBigmodelModelId(modelId)
+}
+
+export function getBigmodelPlanModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
+	const known = resolveBigmodelPlanModelId(modelId)
+	if (known) {
+		return { ...bigmodelPlanModels[known] }
+	}
+	return { ...bigmodelPlanModels[bigmodelPlanDefaultModelId], ...modelInfo }
 }
 
 /**
@@ -946,6 +982,8 @@ export function apiProviderDefaultModelId(provider: string | undefined): string 
 			return mimoDefaultModelId
 		case "bigmodel":
 			return bigmodelDefaultModelId
+		case "bigmodel-plan":
+			return bigmodelPlanDefaultModelId
 		default:
 			return undefined
 	}
@@ -963,6 +1001,8 @@ export function isBuiltinModelId(provider: string | undefined, modelId: string |
 			return resolveMimoModelId(modelId) !== undefined
 		case "bigmodel":
 			return resolveBigmodelModelId(modelId) !== undefined
+		case "bigmodel-plan":
+			return resolveBigmodelPlanModelId(modelId) !== undefined
 		default:
 			return true
 	}

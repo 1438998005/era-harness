@@ -58,6 +58,13 @@ export async function updateApiConfigurationProto(
 			planModeMimoModelInfo: protoApiConfiguration.planModeMimoModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeMimoModelInfo)
 				: undefined,
+			// #52 遗留缺口：bigmodel 一直漏转（切走再切回会丢模型元数据），随套餐入口一并补齐
+			planModeBigmodelModelInfo: protoApiConfiguration.planModeBigmodelModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.planModeBigmodelModelInfo)
+				: undefined,
+			planModeBigmodelPlanModelInfo: protoApiConfiguration.planModeBigmodelPlanModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.planModeBigmodelPlanModelInfo)
+				: undefined,
 			planModeHuggingFaceModelInfo: protoApiConfiguration.planModeHuggingFaceModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeHuggingFaceModelInfo)
 				: undefined,
@@ -98,6 +105,12 @@ export async function updateApiConfigurationProto(
 				: undefined,
 			actModeMimoModelInfo: protoApiConfiguration.actModeMimoModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeMimoModelInfo)
+				: undefined,
+			actModeBigmodelModelInfo: protoApiConfiguration.actModeBigmodelModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.actModeBigmodelModelInfo)
+				: undefined,
+			actModeBigmodelPlanModelInfo: protoApiConfiguration.actModeBigmodelPlanModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.actModeBigmodelPlanModelInfo)
 				: undefined,
 			actModeRequestyModelInfo: protoApiConfiguration.actModeRequestyModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeRequestyModelInfo)

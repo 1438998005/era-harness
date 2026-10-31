@@ -259,6 +259,21 @@ export function commitRangeRead(counts: Map<string, number>, cacheKey: string, r
 }
 
 /**
+ * 同轮去重（08 #88）：声称一次区间读取。首次返回 true（放行），同轮已读过返回 false。
+ *
+ * 与 `commitRangeRead` 的梯度降级（第 3 次才断正文）是两件事：后者防「跨轮死循环」，
+ * 代价是第 2 次仍要整份重发；前者只针对「同一条 assistant 消息里重复读」，
+ * 此时正文必在上下文里，第 2 次就没有任何信息增量。
+ */
+export function claimSameTurnRead(keys: Set<string>, rangeKey: string): boolean {
+	if (keys.has(rangeKey)) {
+		return false
+	}
+	keys.add(rangeKey)
+	return true
+}
+
+/**
  * Forget repetition history that targeted a file the agent just modified.
  * Without this, an "edit → re-read" sequence looks like a read loop and the
  * third read would be suppressed even though the content really did change.
@@ -284,6 +299,15 @@ export function invalidateRepeatWindowForPath(state: TaskState, filePath: string
 		}
 	}
 
+	// 08 #88：写入后同轮重读必须放行，否则「改完立刻读回验证」会被误拦。
+	// sameTurnReadKeys 与 fileReadCounts 同键型，用同一套路径边界判据。
+	for (const key of Array.from(state.sameTurnReadKeys)) {
+		const keyPath = normalizeRepeatPath(key.split("|")[0] ?? "")
+		if (keyPath === needle || keyPath.endsWith(`/${needle}`)) {
+			state.sameTurnReadKeys.delete(key)
+		}
+	}
+
 	// 只丢掉与该文件相关的警告记录（旧实现全局清空，会让其它工具白白多警告一次）。
 	for (const key of Array.from(state.warnedRepeatSignatures)) {
 		const entryPath = signaturePath(key.split("\u0000").slice(1).join("\u0000"))
@@ -296,6 +320,45 @@ export function invalidateRepeatWindowForPath(state: TaskState, filePath: string
 /** Whether a same-range read has happened often enough to stop re-sending the body. */
 export function shouldSuppressRepeatRead(readCount: number): boolean {
 	return Number.isFinite(readCount) && readCount >= REPEAT_READ_SUPPRESS_THRESHOLD
+}
+
+/**
+ * 08 #87：单轮 task_progress 被剥离的字符阈值。
+ *
+ * 模型把整段「进度清单」当正文吐出来时，解析器会把标签连同内容剥掉（不展示），
+ * 结果是本回合没推进任务也没输出工具，UI 上看不出发生过什么，模型下一轮继续复读。
+ * 200 字：正常顺手带一句进度不会超；整段清单（带 KPI/条目）必超。
+ * 只计 mistake，不直接判死——给模型下一轮换输出的机会（单轮最多记一次）。
+ */
+export const TASK_PROGRESS_MISTAKE_CHARS = 200
+
+export function shouldCountTaskProgressAsMistake(strippedChars: number): boolean {
+	return Number.isFinite(strippedChars) && strippedChars > TASK_PROGRESS_MISTAKE_CHARS
+}
+
+/**
+ * 08 #86：请求体指纹刹车。
+ *
+ * 抓的是「零工具空转」：模型连续多轮不调工具，每轮都对着同一段提示重新开大会，
+ * 而正文（reasoning/task_progress）每轮都在变——所以指纹**只取系统提示 + 最后一条
+ * user 消息**（零工具回合的 user 消息恒为 noToolsUsed 文案），不掺 assistant 文本。
+ *
+ * 阈值 5 高于 mistake 默认阀值 3：先让既有 mistake 计数处理，指纹只在「连提示都
+ * 一字未变」时才补刀，避免合法重试被误判。
+ */
+export const REQUEST_FINGERPRINT_REPEAT_LIMIT = 5
+
+export function advanceRequestFingerprint(
+	state: { fingerprint?: string; count: number },
+	fingerprint: string,
+	limit = REQUEST_FINGERPRINT_REPEAT_LIMIT,
+): { count: number; tripped: boolean } {
+	// 空指纹（拿不到系统提示/历史）不参与判定，也不把旧计数误归为 1。
+	if (!fingerprint) {
+		return { count: 0, tripped: false }
+	}
+	const count = state.fingerprint === fingerprint ? state.count + 1 : 1
+	return { count, tripped: count >= Math.max(2, limit) }
 }
 
 /**

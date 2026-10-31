@@ -19,6 +19,26 @@ import { getToolUseNames } from "@shared/tools"
 
 const KNOWN_TOOL_NAMES = new Set(getToolUseNames())
 
+/**
+ * 清理 `<reasoning>` 段（08 #83）。
+ *
+ * 背景：GLM / hermes 变体的提示词明确要求模型「在 <reasoning> 里思考」，而这两家
+ * （实测 GLM-4.6V-Flash）不返回 `reasoning_content`，思考全落在正文里，标签与内容一起
+ * 渲染到聊天区——用户看到的是一大段「自己跟自己说话」，还会把模型幻觉当成事实读。
+ *
+ * 只要不是行首的 `<reasoning>` 都不动：`<thinking>` 那套「只去标签」在这里不够——
+ * 内容留在正文才是问题；但反过来把代码里讨论标签的文字整段删掉同样是事故。
+ */
+export function stripReasoningSegments(text: string): string {
+	// 1) 行首开始的完整段：连内容一起删（顺带吃掉段尾换行，避免留空行）
+	let out = text.replace(/(^|\n)[ \t]*<reasoning>[\s\S]*?<\/reasoning>[ \t]*\r?\n?/g, "$1")
+	// 2) 行首开始但没闭合（流式截断 / 模型漏闭）：连同前导换行一起删到正文末尾
+	out = out.replace(/(^|\n)[ \t]*<reasoning>[\s\S]*$/g, "")
+	// 3) 单独成行的孤立闭标签（块已在上一步被删时它常单独残留）
+	out = out.replace(/^[ \t]*<\/reasoning>[ \t]*\r?\n?/gm, "")
+	return out
+}
+
 export function cleanAssistantTextForDisplay(rawContent: string, isPartial: boolean): string {
 	let content = rawContent
 	if (!content) {
@@ -42,6 +62,9 @@ export function cleanAssistantTextForDisplay(rawContent: string, isPartial: bool
 	// (have to do this for partial and complete since sending content in thinking tags to markdown renderer will automatically be removed)
 	content = content.replace(/<thinking>\s?/g, "")
 	content = content.replace(/\s?<\/thinking>/g, "")
+
+	// 08 #83：GLM / hermes 的 `<reasoning>` 段（内容不能留，见 stripReasoningSegments）
+	content = stripReasoningSegments(content)
 
 	// Remove all instances of <think> tags (alternative to <thinking>, some models are trained to use this tag instead)
 	content = content.replace(/<think>\s?/g, "")

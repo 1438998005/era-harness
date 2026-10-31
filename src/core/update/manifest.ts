@@ -13,6 +13,7 @@ import { createHash } from "node:crypto"
 import type { Dirent } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { HARNESS_DIR } from "@core/identity/scope"
 import { CanonicalHasher, looksTextPath } from "./canonical"
 import { decodeLikeEngine } from "./decode"
 import { buildLabelIndex, type LabelIndex } from "./labels"
@@ -57,7 +58,7 @@ function isLocalOnlyDir(name: string): boolean {
 }
 
 /** 即使扫描到了也绝不写/绝不删的路径前缀（双保险，防手滑） */
-const PROTECTED_PREFIXES = [".era-harness/", "_备份/", "sav/", "debug/"]
+const PROTECTED_PREFIXES = [`${HARNESS_DIR}/`, "_备份/", "sav/", "debug/"]
 
 export function isProtectedPath(rel: RelPath): boolean {
 	const lower = rel.toLowerCase()

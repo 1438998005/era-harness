@@ -2,9 +2,11 @@ import {
 	ApiConfiguration,
 	ApiProvider,
 	bigmodelDefaultModelId,
+	bigmodelPlanDefaultModelId,
 	deepSeekDefaultModelId,
 	deepSeekModels,
 	getBigmodelModelInfo,
+	getBigmodelPlanModelInfo,
 	getDeepSeekModelInfo,
 	getMimoModelInfo,
 	ModelInfo,
@@ -12,6 +14,7 @@ import {
 	modelIdToWriteOnProviderSwitch,
 	openAiModelInfoSaneDefaults,
 	resolveBigmodelModelId,
+	resolveBigmodelPlanModelId,
 	resolveCatalogModelId,
 	resolveMimoModelId,
 } from "@shared/api"
@@ -100,6 +103,22 @@ export function normalizeApiConfiguration(
 				selectedModelInfo: getBigmodelModelInfo(resolvedModelId, bigmodelModelInfo),
 			}
 		}
+		case "bigmodel-plan": {
+			// 与 bigmodel 同构（共用一套 id 归一表），差别只在元数据来自套餐清单（价格全 0）
+			const requestedModelId = modelId?.trim()
+			const resolvedModelId = requestedModelId
+				? (resolveBigmodelPlanModelId(requestedModelId) ?? requestedModelId)
+				: bigmodelPlanDefaultModelId
+			const planModelInfo =
+				currentMode === "plan"
+					? apiConfiguration?.planModeBigmodelPlanModelInfo
+					: apiConfiguration?.actModeBigmodelPlanModelInfo
+			return {
+				selectedProvider: provider,
+				selectedModelId: resolvedModelId,
+				selectedModelInfo: getBigmodelPlanModelInfo(resolvedModelId, planModelInfo),
+			}
+		}
 		case "openai":
 			const openAiModelId =
 				currentMode === "plan" ? apiConfiguration?.planModeOpenAiModelId : apiConfiguration?.actModeOpenAiModelId
@@ -144,6 +163,7 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			deepSeekModelInfo: undefined,
 			mimoModelInfo: undefined,
 			bigmodelModelInfo: undefined,
+			bigmodelPlanModelInfo: undefined,
 
 			// Other mode-specific fields
 			thinkingBudgetTokens: undefined,
@@ -166,6 +186,8 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 		mimoModelInfo: mode === "plan" ? apiConfiguration.planModeMimoModelInfo : apiConfiguration.actModeMimoModelInfo,
 		bigmodelModelInfo:
 			mode === "plan" ? apiConfiguration.planModeBigmodelModelInfo : apiConfiguration.actModeBigmodelModelInfo,
+		bigmodelPlanModelInfo:
+			mode === "plan" ? apiConfiguration.planModeBigmodelPlanModelInfo : apiConfiguration.actModeBigmodelPlanModelInfo,
 
 		// Other mode-specific fields (thinking budget 随非目标 provider 已剥离)
 		thinkingBudgetTokens: undefined,
@@ -223,6 +245,13 @@ export async function syncModeConfigurations(
 			updates.actModeApiModelId = sourceFields.apiModelId
 			updates.planModeBigmodelModelInfo = sourceFields.bigmodelModelInfo
 			updates.actModeBigmodelModelInfo = sourceFields.bigmodelModelInfo
+			break
+
+		case "bigmodel-plan":
+			updates.planModeApiModelId = sourceFields.apiModelId
+			updates.actModeApiModelId = sourceFields.apiModelId
+			updates.planModeBigmodelPlanModelInfo = sourceFields.bigmodelPlanModelInfo
+			updates.actModeBigmodelPlanModelInfo = sourceFields.bigmodelPlanModelInfo
 			break
 
 		default:

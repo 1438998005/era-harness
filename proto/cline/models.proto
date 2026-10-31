@@ -153,6 +153,8 @@ message ModelsApiSecrets {
   optional string aihubmix_api_key = 39;
   optional string mimo_api_key = 40;
   optional string bigmodel_api_key = 41;
+  // 套餐 Key 与按量 Key 互不通用，必须分开存
+  optional string bigmodel_plan_api_key = 42;
 }
 
 // API configuration options (non-secret settings)
@@ -218,6 +220,7 @@ message ModelsApiOptions {
   optional OpenRouterModelInfo plan_mode_deep_seek_model_info = 139;
   optional OpenRouterModelInfo plan_mode_mimo_model_info = 240;
   optional OpenRouterModelInfo plan_mode_bigmodel_model_info = 242;
+  optional OpenRouterModelInfo plan_mode_bigmodel_plan_model_info = 244;
   optional string plan_mode_ollama_model_id = 111;
   optional string plan_mode_lm_studio_model_id = 112;
   optional string plan_mode_lite_llm_model_id = 113;
@@ -260,6 +263,7 @@ message ModelsApiOptions {
   optional OpenRouterModelInfo act_mode_deep_seek_model_info = 239;
   optional OpenRouterModelInfo act_mode_mimo_model_info = 241;
   optional OpenRouterModelInfo act_mode_bigmodel_model_info = 243;
+  optional OpenRouterModelInfo act_mode_bigmodel_plan_model_info = 245;
   optional string act_mode_ollama_model_id = 211;
   optional string act_mode_lm_studio_model_id = 212;
   optional string act_mode_lite_llm_model_id = 213;
@@ -423,6 +427,8 @@ enum ApiProvider {
   FREE = 43;
   MIMO = 44;
   BIGMODEL = 45;
+  // 智谱 GLM 套餐（Coding Plan）：与 BIGMODEL 是两套 Key / 两套额度
+  BIGMODEL_PLAN = 46;
 }
 
 enum ApiFormat {
@@ -508,6 +514,7 @@ message ModelsApiConfiguration {
   optional string deep_seek_api_key = 31;
   optional string mimo_api_key = 245;
   optional string bigmodel_api_key = 248;
+  optional string bigmodel_plan_api_key = 253;
   optional string requesty_api_key = 32;
   optional string requesty_base_url = 33;
   optional string together_api_key = 34;
@@ -582,6 +589,7 @@ message ModelsApiConfiguration {
   optional OpenRouterModelInfo plan_mode_deep_seek_model_info = 144;
   optional OpenRouterModelInfo plan_mode_mimo_model_info = 246;
   optional OpenRouterModelInfo plan_mode_bigmodel_model_info = 249;
+  optional OpenRouterModelInfo plan_mode_bigmodel_plan_model_info = 254;
   optional string plan_mode_ollama_model_id = 111;
   optional string plan_mode_lm_studio_model_id = 112;
   optional string plan_mode_lite_llm_model_id = 113;
@@ -627,6 +635,7 @@ message ModelsApiConfiguration {
   optional OpenRouterModelInfo act_mode_deep_seek_model_info = 244;
   optional OpenRouterModelInfo act_mode_mimo_model_info = 247;
   optional OpenRouterModelInfo act_mode_bigmodel_model_info = 250;
+  optional OpenRouterModelInfo act_mode_bigmodel_plan_model_info = 255;
   optional string act_mode_ollama_model_id = 211;
   optional string act_mode_lm_studio_model_id = 212;
   optional string act_mode_lite_llm_model_id = 213;

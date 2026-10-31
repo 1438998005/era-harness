@@ -290,4 +290,10 @@ service UiService {
 
   // 写入/清空全局记忆（JSON 文档；entries 为空即清空）
   rpc updateGlobalMemory(StringRequest) returns (Empty);
+
+  // 专属知识库：列出工作区里的全部知识库（响应为 JSON 数组，契约见 src/shared/knowledgeBase.ts）
+  rpc getKnowledgeBases(EmptyRequest) returns (String);
+
+  // 专属知识库：新建 / 更新（两者都会开一场对话）/ 开关载入 / 删除（请求体为 JSON）
+  rpc knowledgeBaseAction(StringRequest) returns (String);
 }

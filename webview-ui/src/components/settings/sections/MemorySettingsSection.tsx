@@ -104,9 +104,31 @@ const MemorySettingsSection = ({ renderSectionHeader }: MemorySettingsSectionPro
 		[load],
 	)
 
-	const handleToggleEnabled = useCallback(() => {
-		void mutate((current) => ({ ...current, enabled: !current.enabled })).catch(() => {})
-	}, [mutate])
+	/**
+	 * 写入在途标记。
+	 *
+	 * 为什么不能只靠 `disabled`：VSCodeCheckbox 是 FAST 元素，React 包装器在**每次更新**都会
+	 * 把 `checked` 无条件写回元素；FAST 的 `checkedChanged` 一旦发现值与 DOM 不同就 $emit("change")，
+	 * 而 DOM 的 disabled **拦不住属性回写触发的 change**。于是「保存中回写旧值 → 又来一个 change
+	 * → 再取反 → 再写盘」会来回抽搐（用户在 3.93.0 实测：点「关闭」整页反复跳）。
+	 * 凡是写入在途时到达的 change 一律忽略；处理器本身也改成以事件值为准 + 幂等（见下）。
+	 */
+	const inFlightRef = useRef(false)
+
+	const handleSetEnabled = useCallback(
+		(next: boolean) => {
+			if (loading || inFlightRef.current) {
+				return
+			}
+			inFlightRef.current = true
+			void mutate((current) => (current.enabled === next ? current : { ...current, enabled: next }))
+				.catch(() => {})
+				.finally(() => {
+					inFlightRef.current = false
+				})
+		},
+		[loading, mutate],
+	)
 
 	const handleAdd = useCallback(() => {
 		const text = draft.trim()
@@ -167,7 +189,12 @@ const MemorySettingsSection = ({ renderSectionHeader }: MemorySettingsSectionPro
 						AGENTS.md / 代码注释。AI 每次写入都会在聊天里留一条可审计的记录。
 					</div>
 
-					<VSCodeCheckbox checked={document.enabled} disabled={loading || saving} onChange={handleToggleEnabled}>
+					<VSCodeCheckbox
+						checked={document.enabled}
+						disabled={loading || saving}
+						onChange={(event) =>
+							handleSetEnabled(Boolean((event.target as unknown as { checked?: boolean })?.checked))
+						}>
 						启用全局记忆
 					</VSCodeCheckbox>
 

@@ -38,6 +38,7 @@ function createState(): TaskState {
 		recentToolSignatures: [],
 		warnedRepeatSignatures: new Set<string>(),
 		fileReadCounts: new Map<string, number>(),
+		sameTurnReadKeys: new Set<string>(),
 	} as unknown as TaskState
 }
 

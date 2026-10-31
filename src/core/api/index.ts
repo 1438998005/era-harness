@@ -1,4 +1,5 @@
 import { ApiConfiguration, ModelInfo, modelIdToWriteOnProviderSwitch } from "@shared/api"
+import { BIGMODEL_PLAN_BASE_URL } from "@shared/bigmodel-request"
 import { Mode } from "@shared/storage/types"
 import { ClineStorageMessage } from "@/shared/messages/content"
 import { Logger } from "@/shared/services/Logger"
@@ -103,6 +104,18 @@ function createHandlerForProvider(
 				apiModelId,
 				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelModelInfo : options.actModeBigmodelModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+			})
+		case "bigmodel-plan":
+			// 智谱 GLM 套餐（Coding Plan）：同一个 handler，换基址 + 换计费口径。
+			// Key 与按量不通用，但用户若只填了按量那把，回落到它也算给个机会（服务端会明确报 Key 类型不符）。
+			return new BigmodelHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				bigmodelApiKey: (options.bigmodelPlanApiKey ?? options.bigmodelApiKey)?.trim(),
+				apiModelId,
+				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelPlanModelInfo : options.actModeBigmodelPlanModelInfo,
+				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				baseUrlOverride: BIGMODEL_PLAN_BASE_URL,
+				billingMode: "plan",
 			})
 		default:
 			// 未配置或历史配置里的未知 provider：回落 DeepSeek（产品默认预设）

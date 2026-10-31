@@ -28,7 +28,7 @@ interface ModelQuickSwitchMenuProps {
 }
 
 interface QuickSwitchEntry {
-	provider: "free" | "deepseek" | "mimo" | "bigmodel" | "openai"
+	provider: "free" | "deepseek" | "mimo" | "bigmodel" | "bigmodel-plan" | "openai"
 	label: string
 	icon: React.ReactNode
 	iconColor: string
@@ -125,6 +125,19 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			badgeFg: "inherit",
 			priceText: bigmodelPrice,
 			priceColor: "var(--vscode-foreground, #E7E7E7)",
+		},
+		{
+			// 套餐不按 token 计费：价格行写「套餐内不计费」而不是一排 ¥0（¥0 会被读成"免费"）
+			provider: "bigmodel-plan",
+			label: "智谱 GLM 套餐",
+			icon: <Sparkles size={13} />,
+			iconColor: "var(--vscode-charts-blue, #3B82F6)",
+			badge: "套餐",
+			badgeBg: "var(--vscode-charts-blue, #3B82F6)",
+			badgeFg: "#FFFFFF",
+			priceText: "套餐内不计费",
+			priceColor: "var(--vscode-descriptionForeground, #9D9D9D)",
+			hint: "GLM Coding Plan 订阅额度，与按量 Key 不通用",
 		},
 		{
 			provider: "openai",

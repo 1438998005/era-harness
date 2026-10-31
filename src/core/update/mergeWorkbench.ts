@@ -25,6 +25,7 @@
 
 import fs from "node:fs/promises"
 import path from "node:path"
+import { withUnrestrictedIdentity } from "@shared/identity"
 import { extractMergeOutput, type MergeIssue, validateMerge } from "./merge"
 import type { RelPath } from "./types"
 
@@ -148,6 +149,11 @@ export const WORKBENCH_RULES = [
  * 刻意把「边界」写得非常死：只读 items/、只写 out/、不要跑命令、不要读别的
  * 文件。`write_to_file` 在这套代码里**没有**工作区校验（实测只有
  * ApplyPatchHandler 有），所以约束只能靠提示词 + 事后比对两道防线。
+ *
+ * **身份固定为「不限」**：这场对话由更新器自动发起，用户头部选的「口上作者 /
+ * 本体作者」不该决定合并能不能写工作台——否则 persona 身份下每次写 out/ 都要
+ * 人工确认，合并直接卡死。身份随任务消息下发（`Controller.initTask` 会解析），
+ * resume 时也能从首条消息重建，所以在这里拼前缀就够了。
  */
 export function buildWorkbenchPrompt(layout: WorkbenchLayout, items: MergeWorkItem[], gameRoot: string): string {
 	const count = items.length
@@ -172,7 +178,7 @@ export function buildWorkbenchPrompt(layout: WorkbenchLayout, items: MergeWorkIt
 		"- 不需要运行游戏、不需要执行命令、不需要读别的文件来「理解上下文」——每个窗口自带全部所需信息。",
 		"- 这是 eratw（Emuera / ERB 脚本）的更新合并，不是普通软件项目，不要改构建配置、不要跑 lint。",
 	]
-	return lines.join("\n")
+	return withUnrestrictedIdentity(lines.join("\n"))
 }
 
 /** 只写 items/*.md 与 TASK.md，**不动 out/**。重试轮次也要用它刷新带 feedback 的工单。 */

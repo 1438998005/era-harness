@@ -456,7 +456,7 @@ function push(name, detail, status, problems) {
 			return name.startsWith(before) && name.endsWith(after)
 		})
 
-	for (const mustIgnore of ["AGENTS.md"]) {
+	for (const mustIgnore of ["AGENTS.md", "HANDOFF.md"]) {
 		if (!isIgnored(mustIgnore)) {
 			problems.push(`${mustIgnore} 没被 .vscodeignore 排除：会随 vsix 发给用户`)
 		}
@@ -469,7 +469,7 @@ function push(name, detail, status, problems) {
 
 	push(
 		"分发边界",
-		problems.length === 0 ? "AGENTS.md 与本地日志不随包分发" : `${problems.length} 个文件会混进 vsix`,
+		problems.length === 0 ? "协作文档（AGENTS/HANDOFF）与本地日志不随包分发" : `${problems.length} 个文件会混进 vsix`,
 		problems.length === 0 ? "green" : "red",
 		problems,
 	)

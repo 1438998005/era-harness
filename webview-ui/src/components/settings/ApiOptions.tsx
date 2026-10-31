@@ -10,6 +10,7 @@ import { normalizeApiConfiguration } from "@/components/settings/utils/providerU
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PLATFORM_CONFIG, PlatformType } from "@/config/platform.config"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { BigmodelPlanProvider } from "./providers/BigmodelPlanProvider"
 import { BigmodelProvider } from "./providers/BigmodelProvider"
 import { DeepSeekProvider } from "./providers/DeepSeekProvider"
 import { FreeModelProvider } from "./providers/FreeModelProvider"
@@ -330,6 +331,10 @@ const ApiOptions = ({
 
 			{apiConfiguration && selectedProvider === "bigmodel" && (
 				<BigmodelProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
+
+			{apiConfiguration && selectedProvider === "bigmodel-plan" && (
+				<BigmodelPlanProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
 			)}
 
 			{apiConfiguration && selectedProvider === "openai" && (

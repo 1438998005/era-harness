@@ -9,7 +9,14 @@
  * - v1 不回传历史 reasoning_content：GLM 多轮是否硬性要求待验证；若实测 400，
  *   启用 r1-format 的 addReasoningContent(attachToAllToolCalls)（MiMo 同款机械）
  */
-import { type BigmodelModelId, bigmodelDefaultModelId, getBigmodelModelInfo, type ModelInfo } from "@shared/api"
+import {
+	type BigmodelModelId,
+	bigmodelDefaultModelId,
+	bigmodelPlanDefaultModelId,
+	getBigmodelModelInfo,
+	getBigmodelPlanModelInfo,
+	type ModelInfo,
+} from "@shared/api"
 import { calculateBigmodelCost } from "@shared/bigmodelPricing"
 import OpenAI from "openai"
 import type { ChatCompletionTool } from "openai/resources/chat/completions"
@@ -36,6 +43,14 @@ interface BigmodelHandlerOptions extends CommonApiHandlerOptions {
 	apiModelId?: string
 	bigmodelModelInfo?: ModelInfo
 	reasoningEffort?: string
+	/**
+	 * 覆盖基址。目前只有一个用途：`bigmodel-plan`（GLM 套餐）走
+	 * `BIGMODEL_PLAN_BASE_URL`，按量入口留空走 `BIGMODEL_BASE_URL`。
+	 * 照 MiMo「一个 handler 两个端点」的先例，不复制第二份 handler。
+	 */
+	baseUrlOverride?: string
+	/** 计费口径：plan = 套餐额度，不按 token 计费（totalCost 恒 0） */
+	billingMode?: "metered" | "plan"
 }
 
 export class BigmodelHandler implements ApiHandler {
@@ -58,7 +73,7 @@ export class BigmodelHandler implements ApiHandler {
 			}
 			try {
 				this.client = createOpenAIClient({
-					baseURL: BIGMODEL_BASE_URL,
+					baseURL: this.options.baseUrlOverride ?? BIGMODEL_BASE_URL,
 					apiKey: this.options.bigmodelApiKey,
 				})
 			} catch (error) {
@@ -146,25 +161,37 @@ export class BigmodelHandler implements ApiHandler {
 				cacheReadTokens: cacheHitTokens,
 				cacheWriteTokens: cacheMissTokens,
 				// 阶梯款按实际 promptTokens 选档精算（免费款恒 0），不依赖 task 层兜底公式
-				totalCost: calculateBigmodelCost(
-					model.id,
-					model.info,
-					promptTokens,
-					cacheHitTokens,
-					cacheMissTokens,
-					outputTokens,
-				),
+				// 套餐入口不按 token 计费：照实记 token（上下文进度条要用），但金额恒 0，
+				// 否则用量页会显示一笔实际没花的钱。
+				totalCost:
+					this.options.billingMode === "plan"
+						? 0
+						: calculateBigmodelCost(
+								model.id,
+								model.info,
+								promptTokens,
+								cacheHitTokens,
+								cacheMissTokens,
+								outputTokens,
+							),
 			}
 		}
 	}
 
 	getModel(): { id: BigmodelModelId | string; info: ModelInfo } {
+		const plan = this.options.billingMode === "plan"
+		const fallback = plan ? bigmodelPlanDefaultModelId : bigmodelDefaultModelId
+		const infoOf = (id: string) =>
+			plan
+				? getBigmodelPlanModelInfo(id, this.options.bigmodelModelInfo)
+				: getBigmodelModelInfo(id, this.options.bigmodelModelInfo)
+
 		const modelId = this.options.apiModelId
 		if (modelId) {
 			// 未知但非空的 id：保留用户选的 id（官方可能新增模型，静默改回默认等于替用户改配置），
 			// 元数据缺失时用默认模型的保守值。
-			return { id: modelId, info: getBigmodelModelInfo(modelId, this.options.bigmodelModelInfo) }
+			return { id: modelId, info: infoOf(modelId) }
 		}
-		return { id: bigmodelDefaultModelId, info: getBigmodelModelInfo(bigmodelDefaultModelId, this.options.bigmodelModelInfo) }
+		return { id: fallback, info: infoOf(fallback) }
 	}
 }

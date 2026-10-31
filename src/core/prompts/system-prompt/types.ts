@@ -129,6 +129,11 @@ export interface SystemPromptContext {
 	readonly globalMemory?: string
 	/** 全局记忆开关：false 时不注入段落，也不向模型暴露 global_memory 工具 */
 	readonly globalMemoryEnabled?: boolean
+	/**
+	 * 专属知识库索引段落（已格式化）；没有启用的库时为 undefined。
+	 * 只放索引不放分片，细节由模型用 read_file 读——全量进提示词会吃掉上下文。
+	 */
+	readonly knowledgeBaseSection?: string
 }
 
 /**

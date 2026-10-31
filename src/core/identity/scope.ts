@@ -37,6 +37,27 @@ function normalize(p: string): string {
 	return p.replace(/\\/g, "/")
 }
 
+/**
+ * harness 自己的目录名（工作区根或工程根下）。
+ *
+ * 里面放的是 harness 的私有数据：更新合并工作台 `.era-harness/merge-work/`、
+ * 专属知识库 `.era-harness/knowledge/`。它已经被更新器的 `PROTECTED_PREFIXES`
+ * 与「隐藏目录不扫描」双重排除，永远不会被游戏更新覆盖。
+ */
+export const HARNESS_DIR = ".era-harness"
+
+/** 目标路径是否落在工作区内的 `.era-harness/` 里（路径段级判定，不做字符串前缀匹配） */
+export function isHarnessOwnedPath(targetPath: string, cwd?: string): boolean {
+	if (!cwd) {
+		return false
+	}
+	const rel = normalize(path.relative(path.resolve(cwd), path.resolve(targetPath)))
+	if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+		return false
+	}
+	return rel.split("/").includes(HARNESS_DIR)
+}
+
 /** 段级包含判定：`D:/proj-evil` 不算在 `D:/proj` 里面 */
 function isInsideRoot(root: string, target: string): boolean {
 	const rel = path.relative(path.resolve(root), path.resolve(target))
@@ -52,6 +73,10 @@ function isInsideRoot(root: string, target: string): boolean {
  * - persona：仅探测到的口上目录
  * - self：口上目录以外的路径（工作区外的路径同样需要确认）
  *
+ * `.era-harness/` 是例外：那是 harness 自己的目录（合并工作台、专属知识库），
+ * 身份要保护的是**用户源码**，不是这里。少了这条，用户在「口上作者」身份下
+ * 跑更新合并，AI 每写一个 `out/*.md` 都要人工确认，合并会直接卡死。
+ *
  * 「口上目录」由 getEraProjectProfile 的探测结果决定，探测不到就退到通用关键字与
  * 文件名约定；两者都不命中时按「不是口上文件」处理，而不是假设某个固定路径。
  */
@@ -66,6 +91,11 @@ export function isWriteAllowedByScope(targetPath: string, cwd?: string): boolean
 	// 工作区外一律要求确认（本体/口上两侧都不该默默往外写）
 	if (root && !isInsideRoot(root, abs)) {
 		return false
+	}
+
+	// harness 自有目录：与身份无关，始终放行
+	if (isHarnessOwnedPath(abs, cwd)) {
+		return true
 	}
 
 	const profile = getEraProjectProfile(cwd)

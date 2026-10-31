@@ -38,6 +38,16 @@ test("能力位只标在例外上：其余模型不带该字段（缺省不扣�
 	assert.equal(bigmodelModels["glm-4.5-flash"].contextWindowIncludesOutput, true)
 })
 
+// 08 #84：官方 1210 原文 `inputs tokens + max_new_tokens must be <= 16384`，
+// 证明 4v-flash 的 16K 是**输入+输出合计**；不标就会把分母当 16K 纯输入。
+test("glm-4v-flash：16K 含输出 → 输入预算 15K（1210 原文实证）", () => {
+	const model = bigmodelModels["glm-4v-flash"]
+	assert.equal(model.contextWindowIncludesOutput, true)
+	const budget = getContextBudget(model)
+	assert.equal(budget.reservedOutput, 1_000)
+	assert.equal(budget.effectiveInputBudget, 15_000)
+})
+
 test("显式 contextWindowIncludesOutput:false 时不扣（Claude 一类输入输出分开的模型）", () => {
 	const sonnet = anthropicModels["claude-sonnet-4-5-20250929"]
 	const budget = getContextBudget({ ...sonnet, contextWindowIncludesOutput: false })

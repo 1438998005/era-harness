@@ -23,6 +23,20 @@ test("1261（窗口含输出撞上限）：说清成因并指出路", () => {
 	assert.ok(info.humanMessage.includes("压缩对话") || info.humanMessage.includes("长窗口"), "要给出路")
 })
 
+// 08 #84：4v-flash 的系统提示词本身就超过 16K，压缩对话救不了，必须指向换模型。
+test("1210（输入+输出合计超窗口）：说清是窗口太小、只能换模型", () => {
+	const info = extractBigmodelError({
+		status: 400,
+		message: "400 输入参数不合法",
+		error: { code: "1210", message: "inputs tokens + max_new_tokens must be <= 16384" },
+	})
+	assert.ok(info)
+	assert.equal(info.code, "1210")
+	assert.ok(info.humanMessage.includes("1210"), "保留错误码便于回查")
+	assert.ok(info.humanMessage.includes("16K"), "点明窗口量级")
+	assert.ok(info.humanMessage.includes("换窗口更大的模型"), "出路是换模型而不是压缩")
+})
+
 test("401 / 429 / 其它 HTTP 状态：各有人话，不再裸拼", () => {
 	const unauthorized = extractBigmodelError({
 		status: 401,

@@ -32,6 +32,7 @@ import * as NotificationHook from "@core/hooks/notification-hook"
 import { executePreCompactHookWithCleanup, HookCancellationError, HookExecution } from "@core/hooks/precompact-executor"
 import { parseIdentityFromText, setCurrentIdentityMode } from "@core/identity/scope"
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
+import { loadKnowledgeBaseSection } from "@core/knowledge/knowledgeBaseSection"
 import { recordAudit } from "@core/logging/auditLog"
 import { parseMentions } from "@core/mentions"
 import { CommandPermissionController } from "@core/permissions"
@@ -130,7 +131,7 @@ import {
 	isRemoteWorkspaceEnvironment,
 	type TaskLatencyTrigger,
 } from "./latency"
-import { dialectLoopSignature } from "./loop-detection"
+import { advanceRequestFingerprint, dialectLoopSignature, shouldCountTaskProgressAsMistake } from "./loop-detection"
 import { MessageStateHandler } from "./message-state"
 import type { PresentationPriority } from "./presentation-types"
 import { StreamChunkCoordinator } from "./StreamChunkCoordinator"
@@ -2067,6 +2068,10 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			displayName: this.stateManager.getGlobalStateKey("userInfo")?.displayName,
 		})
 
+		// 专属知识库：任务创建时读一次索引快照（用户可逐个开关；没建库时是空串）。
+		// 只读索引、不读分片——分片由模型按需 read_file。
+		const knowledgeBaseSection = await loadKnowledgeBaseSection(this.cwd)
+
 		const promptContext: SystemPromptContext = {
 			cwd: this.cwd,
 			ide,
@@ -2085,6 +2090,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			preferredLanguageInstructions,
 			globalMemory: formatGlobalMemoryForPrompt(globalMemoryDocument),
 			globalMemoryEnabled: globalMemoryDocument.enabled,
+			knowledgeBaseSection,
 			yoloModeToggled: this.stateManager.getGlobalSettingsKey("yoloModeToggled"),
 			subagentsEnabled: this.stateManager.getGlobalSettingsKey("subagentsEnabled"),
 			clineWebToolsEnabled:
@@ -2129,6 +2135,55 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			// saves task history item which we use to keep track of conversation history deleted range
 		}
 
+		// 08 #86：请求体指纹刹车。
+		// 只取「系统提示 + 最后一条 user 消息」的纯文本：零工具空转时，模型每轮都在变着法
+		// 复写 reasoning/task_progress，掺入 assistant 正文会让指纹永不重复；而零工具回合
+		// 的 user 消息恒为 noToolsUsed 文案，正是要抓的特征。
+		const lastUserMessageText = (() => {
+			const history = contextManagementMetadata.truncatedConversationHistory
+			for (let index = history.length - 1; index >= 0; index--) {
+				const message = history[index]
+				if (message.role !== "user") continue
+				if (typeof message.content === "string") return message.content
+				if (Array.isArray(message.content)) {
+					return message.content
+						.map((block) =>
+							block && typeof block === "object" && typeof (block as { text?: unknown }).text === "string"
+								? (block as { text: string }).text
+								: "",
+						)
+						.join("")
+				}
+				return ""
+			}
+			return ""
+		})()
+		const requestFingerprint = `${systemPrompt}\u0000${lastUserMessageText}`
+		const fingerprintStep = advanceRequestFingerprint(
+			{ fingerprint: this.taskState.requestFingerprint, count: this.taskState.identicalRequestCount },
+			requestFingerprint,
+		)
+		this.taskState.requestFingerprint = requestFingerprint
+		this.taskState.identicalRequestCount = fingerprintStep.count
+		if (fingerprintStep.tripped) {
+			// 把计数拉到阀值：下一轮顶部的 mistake 检查（recursivelyMakeClineRequests 入口）
+			// 会弹 mistake_limit_reached 打断——复用既有熔断，不再新开一套。
+			this.taskState.requestFingerprint = undefined
+			this.taskState.identicalRequestCount = 0
+			this.taskState.consecutiveMistakeCount = Math.max(
+				this.taskState.consecutiveMistakeCount,
+				this.stateManager.getGlobalSettingsKey("maxConsecutiveMistakes"),
+			)
+			recordAudit({
+				event: "api",
+				action: "fingerprint_loop",
+				taskId: this.taskId,
+				turn: this.taskState.apiRequestCount,
+				...this.auditTaskMeta(),
+				message: `连续 ${fingerprintStep.count} 轮请求体一字未变（均未调用工具）`,
+			})
+		}
+
 		// Response API requires native tool calls to be enabled
 		const stream = this.api.createMessage(systemPrompt, contextManagementMetadata.truncatedConversationHistory, tools)
 
@@ -2144,7 +2199,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			const isContextWindowExceededError = checkContextWindowExceededError(error)
 			const { model, providerId } = this.getCurrentProviderInfo()
 			const clineError = ErrorService.get().toClineError(error, model.id, providerId)
-			if (providerId === "bigmodel") {
+			if (providerId === "bigmodel" || providerId === "bigmodel-plan") {
 				// #60：BigModel 错误翻成人话（1261 指出路），审计与展示链同源受益
 				const bigmodelError = extractBigmodelError(error)
 				if (bigmodelError) {
@@ -2234,6 +2289,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				const isDeterministic4xx =
 					typeof errorStatus === "number" && errorStatus >= 400 && errorStatus < 500 && errorStatus !== 429
 
+				// 08 #84：卡片正文别再发 `clineError.serialize()`（裸 JSON）。
+				// 结构化字段仍留在 api_req_started（ErrorRow 靠它还原 provider 专属展示），
+				// 而重试提示 / api_req_failed 的正文一律用人话（BigModel 的 1261/1210 已在上面改写 message）。
+				const humanErrorMessage = clineError.message || streamingFailedMessage
+
 				let response: ClineAskResponse
 				// Skip auto-retry for Cline provider insufficient credits, auth errors, or spend limit errors
 				const shouldRetry =
@@ -2287,7 +2347,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 							attempt: this.taskState.autoRetryAttempts,
 							maxAttempts: 3,
 							delaySeconds: delay / 1000,
-							errorMessage: streamingFailedMessage,
+							errorMessage: humanErrorMessage,
 						}),
 					)
 
@@ -2308,8 +2368,15 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 
 					await setTimeoutPromise(delay)
 				} else {
+					// 08 #84：确定性 4xx 是「策略不重试」，不是「重试耗尽」——
+					// 弹一个「自动重试在 3 次尝试后失败」的卡片等于告诉用户发生了没发生的事。
 					// Show error_retry with failed flag to indicate all retries exhausted (but not for insufficient credits or spend limit)
-					const showRetry = !isClineProviderInsufficientCredits && !isAuthError && !isSpendLimitError && !quotaExceeded
+					const showRetry =
+						!isDeterministic4xx &&
+						!isClineProviderInsufficientCredits &&
+						!isAuthError &&
+						!isSpendLimitError &&
+						!quotaExceeded
 					if (showRetry) {
 						await this.say(
 							"error_retry",
@@ -2318,14 +2385,17 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								maxAttempts: 3,
 								delaySeconds: 0,
 								failed: true, // Special flag to indicate retries exhausted
-								errorMessage: streamingFailedMessage,
+								errorMessage: humanErrorMessage,
 							}),
 						)
 					}
-					const askResult = await this.ask("api_req_failed", streamingFailedMessage)
+					const askResult = await this.ask("api_req_failed", humanErrorMessage)
 					response = askResult.response
 					if (response === "yesButtonClicked") {
 						this.taskState.autoRetryAttempts = 0
+						// 08 #86：手动重试视为重新开始，指纹计数不能接着上一次攒。
+						this.taskState.requestFingerprint = undefined
+						this.taskState.identicalRequestCount = 0
 					}
 				}
 
@@ -2469,6 +2539,10 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			throw new Error("Task instance aborted")
 		}
 
+		// 08 #88：一次调用 = 一个 assistant 回合。同轮重复读的「轮」就是这里——
+		// 上一轮读过的区间已经在上下文里，本轮再读仍按常规流程回正文（跨轮不拦）。
+		this.taskState.sameTurnReadKeys.clear()
+
 		// Ensure remote workspace detection completes before streaming begins so
 		// the presentation scheduler uses the correct cadence from the first flush.
 		await this.remoteWorkspaceDetectionPromise
@@ -2554,6 +2628,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			this.taskState.consecutiveMistakeCount = 0
 			this.taskState.fuseArmedByLoopEscalation = false
 			this.taskState.autoRetryAttempts = 0 // need to reset this if the user chooses to manually retry after the mistake limit is reached
+			// 08 #86：用户已介入（补充指引或点继续），指纹刹车重新计数。
+			this.taskState.requestFingerprint = undefined
+			this.taskState.identicalRequestCount = 0
 			// Reset loop detection state so it can re-arm if the model continues looping
 			this.taskState.consecutiveIdenticalToolCount = 0
 			this.taskState.lastToolName = ""
@@ -3137,7 +3214,10 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				// abandoned happens when extension is no longer waiting for the cline instance to finish aborting (error is thrown here when any function in the for loop throws due to this.abort)
 				if (!this.taskState.abandoned) {
 					const clineError = ErrorService.get().toClineError(error, this.api.getModel().id)
+					// 结构化 JSON 仍写进 api_req_started（ErrorRow 靠字段还原 provider 专属展示），
+					// 但重试卡片正文用人话（08 #84：裸 JSON 直显）。
 					const errorMessage = clineError.serialize()
+					const humanErrorMessage = clineError.message || errorMessage
 					// era harness（D1 请求层审计）：中流失败此前同样零痕迹；action=stream_error
 					// 与首 chunk 阶段（action=error）区分。
 					recordAudit({
@@ -3149,8 +3229,15 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						message: clineError.message,
 					})
 					const isStreamingSpendLimitError = clineError.isErrorType(ClineErrorType.SpendLimit)
+					// 08 #84：确定性 4xx 不重试（与首 chunk 路径同口径），也不该弹「3 次耗尽」卡片
+					const streamingStatus = (clineError as unknown as { _error?: { status?: number } })._error?.status
+					const isStreamingDeterministic4xx =
+						typeof streamingStatus === "number" &&
+						streamingStatus >= 400 &&
+						streamingStatus < 500 &&
+						streamingStatus !== 429
 					// Auto-retry for streaming failures (skip for spend limit errors)
-					if (!isStreamingSpendLimitError && this.taskState.autoRetryAttempts < 3) {
+					if (!isStreamingSpendLimitError && !isStreamingDeterministic4xx && this.taskState.autoRetryAttempts < 3) {
 						this.taskState.autoRetryAttempts++
 
 						// Calculate exponential backoff for streaming failures: 2s, 4s, 8s
@@ -3163,7 +3250,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								attempt: this.taskState.autoRetryAttempts,
 								maxAttempts: 3,
 								delaySeconds: delay / 1000,
-								errorMessage,
+								errorMessage: humanErrorMessage,
 							}),
 						)
 
@@ -3176,7 +3263,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								await this.controller.task.handleWebviewAskResponse("yesButtonClicked", "", [])
 							}
 						})
-					} else if (!isStreamingSpendLimitError && this.taskState.autoRetryAttempts >= 3) {
+					} else if (
+						!isStreamingSpendLimitError &&
+						!isStreamingDeterministic4xx &&
+						this.taskState.autoRetryAttempts >= 3
+					) {
 						// Show error_retry with failed flag to indicate all retries exhausted
 						await this.say(
 							"error_retry",
@@ -3185,7 +3276,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								maxAttempts: 3,
 								delaySeconds: 0,
 								failed: true, // Special flag to indicate retries exhausted
-								errorMessage,
+								errorMessage: humanErrorMessage,
 							}),
 						)
 					}
@@ -3249,6 +3340,17 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						.filter(Boolean)
 						.join(","),
 				})
+			}
+
+			// 08 #87：模型把整段「进度清单」当正文吐出来（已被剥离，用户看不到），
+			// 本回合等于零推进；不记错的话下一轮它会原样再吐一遍。单轮最多记一次，
+			// 且只计 mistake 不直接判死（阈值与纯函数在 loop-detection）。
+			if (shouldCountTaskProgressAsMistake(parseStats.taskProgressStrippedChars)) {
+				this.taskState.consecutiveMistakeCount++
+				await this.say(
+					"info",
+					`模型本轮输出了 ${parseStats.taskProgressStrippedChars} 字的进度清单（已剥离），未推进任务。`,
+				)
 			}
 
 			// era harness（D1 请求层审计，2026-10-25）：每请求一条用量事件——token/费用此前
@@ -3439,6 +3541,8 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				}
 
 				// Reset auto-retry counter for each new API request
+				// 08 #86：这里**不能**清 requestFingerprint——每轮都清等于把指纹刹车废掉；
+				// 指纹只在手动重试 / 用户介入（上面两处）与 fingerprint 自身变化时归 1。
 				this.taskState.autoRetryAttempts = 0
 
 				const recDidEndLoop = await this.recursivelyMakeClineRequests(this.taskState.userMessageContent)
@@ -3522,6 +3626,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 					// Reset retry counter if user chooses to manually retry
 					if (response === "yesButtonClicked") {
 						this.taskState.autoRetryAttempts = 0
+						// 08 #86：同上，手动重试重新计数
+						this.taskState.requestFingerprint = undefined
+						this.taskState.identicalRequestCount = 0
 					}
 				}
 

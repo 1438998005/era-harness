@@ -1,6 +1,16 @@
 import type { ExtensionMessage } from "@shared/ExtensionMessage"
 import { ResetStateRequest } from "@shared/proto/cline/state"
-import { Brain, CheckCheck, FlaskConical, Info, type LucideIcon, SlidersHorizontal, SquareTerminal, Wrench } from "lucide-react"
+import {
+	Brain,
+	CheckCheck,
+	FlaskConical,
+	Info,
+	Library,
+	type LucideIcon,
+	SlidersHorizontal,
+	SquareTerminal,
+	Wrench,
+} from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useEvent } from "react-use"
@@ -16,13 +26,14 @@ import ApiConfigurationSection from "./sections/ApiConfigurationSection"
 import DebugSection from "./sections/DebugSection"
 import FeatureSettingsSection from "./sections/FeatureSettingsSection"
 import GeneralSettingsSection from "./sections/GeneralSettingsSection"
+import KnowledgeBaseSection from "./sections/KnowledgeBaseSection"
 import MemorySettingsSection from "./sections/MemorySettingsSection"
 import TerminalSettingsSection from "./sections/TerminalSettingsSection"
 
 const IS_DEV = process.env.IS_DEV
 
 // Tab definitions
-type SettingsTabID = "api-config" | "features" | "terminal" | "general" | "memory" | "about" | "debug"
+type SettingsTabID = "api-config" | "features" | "knowledge" | "terminal" | "general" | "memory" | "about" | "debug"
 interface SettingsTab {
 	id: SettingsTabID
 	name: string
@@ -46,6 +57,13 @@ export const SETTINGS_TABS: SettingsTab[] = [
 		tooltipText: "Feature Settings",
 		headerText: "Feature Settings",
 		icon: CheckCheck,
+	},
+	{
+		id: "knowledge",
+		name: "专属知识库",
+		tooltipText: "专属知识库",
+		headerText: "专属知识库",
+		icon: Library,
 	},
 	{
 		id: "terminal",
@@ -120,6 +138,7 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 			"api-config": ApiConfigurationSection,
 			general: GeneralSettingsSection,
 			features: FeatureSettingsSection,
+			knowledge: KnowledgeBaseSection,
 			terminal: TerminalSettingsSection,
 			memory: MemorySettingsSection,
 			about: AboutSection,

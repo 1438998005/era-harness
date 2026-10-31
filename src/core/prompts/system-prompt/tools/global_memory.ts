@@ -9,12 +9,14 @@ const id = ClineDefaultTool.GLOBAL_MEMORY
 const DESCRIPTION_EN = `Read or write the user's GLOBAL memory: long-lived preferences that apply across every project (how they want to be addressed, answer language, working style, general conventions).
 This is NOT project knowledge. Never store project paths, file names, variable names, task details or one-off decisions here - those belong in the project itself. NEVER store secrets, passwords, tokens, emails, phone numbers or any personal identifier.
 mode=list shows every entry; mode=add appends a new entry; mode=update rewrites an existing entry (needs entry_id); mode=remove deletes one entry (needs entry_id). There is no clear-all: only the user can wipe everything from Settings.
-Always list before adding: if a similar entry already exists, update it instead of adding a duplicate.`
+Always list before adding: if a similar entry already exists, update it instead of adding a duplicate.
+Proactively record, do not wait to be asked: when the user clearly states a durable preference (answer language, how to address them, working habits, general conventions), call mode=add right away and tell them what you saved. One-off task details, project specifics and anything private stay out.`
 
 const DESCRIPTION_ZH_CN = `读写用户的「全局记忆」：跨所有项目长期有效的偏好（称呼、回答语言、工作习惯、通用约定）。
 ⛔ 这不是项目知识：不要记项目路径、文件名、变量名、任务细节或一次性决定，那些属于项目自身。⛔ 绝不记密钥、密码、token、邮箱、电话等任何个人信息。
 mode=list 列出全部条目；mode=add 新增一条；mode=update 改写已有条目（需要 entry_id）；mode=remove 删除一条（需要 entry_id）。没有「清空」：只有用户能在设置页清空全部。
-新增前先 list：已有相近条目就用 update，不要重复添加。`
+新增前先 list：已有相近条目就用 update，不要重复添加。
+主动记，不要等用户开口：当用户在对话里明确表达长期偏好（回答语言、称呼、工作习惯、通用约定）时，直接 add 并告知已记下。一次性任务细节、项目内事实与隐私信息一律不写。`
 
 const INSTRUCTION_MODE_EN = "One of: list, add, update, remove."
 const INSTRUCTION_MODE_ZH_CN = "取值：list、add、update、remove。"

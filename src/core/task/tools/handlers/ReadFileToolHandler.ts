@@ -10,6 +10,7 @@ import { ClineSayTool } from "@/shared/ExtensionMessage"
 import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
 import {
+	claimSameTurnRead,
 	commitRangeRead,
 	invalidateRepeatWindowForPath,
 	readRangeKey,
@@ -341,6 +342,14 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 		// 缺省 start 与 start_line=1（以及 0）展示的是同一段内容，必须落在同一个计数键上；
 		// 否则模型在两种写法间来回切就能绕开区间计数。归一逻辑只在 readRangeKey 里写一份。
 		const rangeKey = readRangeKey(cacheKey, requestedRange.startLine, requestedRange.endLine)
+
+		// 08 #88：同一条 assistant 消息里重复读同一区间，第 2 次起不再发正文。
+		// 放在缓存判断之前——此时首读的正文就在上下文里，连盘都不用读。
+		// 标记与第 3 次降级同源（read=2），UI 可合并成 ×2，也不会触发第 8 次判死。
+		if (!claimSameTurnRead(config.taskState.sameTurnReadKeys, rangeKey)) {
+			return repeatReadSuppressedMessage(displayPath, 2)
+		}
+
 		const cached = config.taskState.fileReadCache.get(cacheKey)
 
 		if (cached) {
@@ -402,6 +411,8 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			try {
 				fileContent = await extractFileContent(absolutePath, supportsImages, { truncate: false })
 			} catch (error) {
+				// 读盘失败 = 本轮并未服过这段内容，释放同轮名额，允许同一回合重试而不是回「内容未变」。
+				config.taskState.sameTurnReadKeys.delete(rangeKey)
 				config.taskState.consecutiveMistakeCount++
 				const errorMessage = error instanceof Error ? error.message : String(error)
 				const normalizedMessage = errorMessage.startsWith("Error reading file:")
@@ -431,6 +442,8 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			// Return a graceful tool error instead of crashing. This allows the
 			// model to see the error (e.g. "File not found") and recover by
 			// trying a different path, rather than terminating the entire task.
+			// 08 #88：同上，未真正读到内容时不占用同轮名额。
+			config.taskState.sameTurnReadKeys.delete(rangeKey)
 			config.taskState.consecutiveMistakeCount++
 			const errorMessage = error instanceof Error ? error.message : String(error)
 			const normalizedMessage = errorMessage.startsWith("Error reading file:")

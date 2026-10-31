@@ -32,6 +32,16 @@ export function getConfiguredProviders(
 		configured.push("mimo")
 	}
 
+	// 智谱 BigModel（按量）- requires API key（此前漏判：填了 Key 也不被认作"已配置"）
+	if (apiConfiguration.bigmodelApiKey) {
+		configured.push("bigmodel")
+	}
+
+	// 智谱 GLM 套餐（Coding Plan）- 独立的套餐 Key，与按量互不通用
+	if (apiConfiguration.bigmodelPlanApiKey) {
+		configured.push("bigmodel-plan")
+	}
+
 	// OpenAI Compatible - requires base URL and API key, OR has model configured
 	if (
 		(apiConfiguration.openAiBaseUrl && apiConfiguration.openAiApiKey) ||

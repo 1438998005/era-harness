@@ -126,8 +126,12 @@ export function isGLMModelFamily(id: string): boolean {
 		modelId.includes("glm-4.7") ||
 		modelId.includes("glm-4.6") ||
 		modelId.includes("glm-4.5") ||
-		// Space-separated variants like "GLM 4.6V" used with openai-compatible local servers
+		// 08 #85：老款 GLM-4 系（4 / 4.1 / 4v / 4-long …）此前漏判，吃到通用提示词与全量工具集。
+		// 放在上面四个分支之后不影响既有专项分支（顺序无关，后加只为可读）。
+		modelId.includes("glm-4") ||
+		// Space-separated variants like "GLM 4.6V"/"GLM 4" used with openai-compatible local servers
 		modelId.includes("glm 4.") ||
+		modelId.includes("glm 4") ||
 		modelId.includes("z-ai/glm") ||
 		modelId.includes("zai-org/glm")
 	)

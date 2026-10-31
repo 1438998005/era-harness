@@ -19,6 +19,20 @@ import type { OpenaiReasoningEffort } from "./storage/types"
  */
 export const BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 
+/**
+ * GLM 套餐（Coding Plan）专属端点。
+ *
+ * 官方原文：「使用 GLM Coding Plan 时，需要配置专属的 Coding API 端点 … 而不是通用 API 端点」。
+ * 套餐 Key 与按量 Key **互不通用**（个人套餐 / 团队套餐 / 标准 API 三种 Key 分开管理），
+ * 所以不能靠端点自动分流，必须由用户在提供商下拉里显式选择。
+ */
+export const BIGMODEL_PLAN_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
+
+/** 套餐购买/管理页（个人套餐的 Key 在「个人编程套餐 > 套餐概览」里建）。 */
+export const BIGMODEL_PLAN_CONSOLE_URL = "https://bigmodel.cn/apikey/coding-plan-per"
+/** 套餐快速开始（含端点表与工具清单）。 */
+export const BIGMODEL_PLAN_DOCS_URL = "https://docs.bigmodel.cn/cn/coding-plan/quick-start"
+
 /** 控制台（API Key 管理）。 */
 export const BIGMODEL_CONSOLE_URL = "https://bigmodel.cn/usercenter/proj-mgmt/apikeys"
 /** 文档站（OpenAI 兼容接入页）。 */
@@ -216,6 +230,11 @@ export function extractBigmodelError(raw: unknown): BigmodelErrorInfo | undefine
 	if (code === "1261") {
 		humanMessage =
 			"输入+输出合计超出模型窗口。请先压缩对话再试，或换长窗口 / 输出占用更低的模型；若输入远未达到标注的上下文，说明这个模型的窗口实际包含输出，请把模型名反馈给开发者补标口径。"
+	} else if (code === "1210") {
+		// 08 #84：4v-flash 实测原文 `inputs tokens + max_new_tokens must be <= 16384`。
+		// 它不只是「超出」，而是「系统提示词本身就装不下」——压缩历史救不了，只能换模型。
+		humanMessage =
+			"输入与输出合计超出该模型窗口（1210）。这一款窗口只有 16K，装不下系统提示词与工具本身，压缩对话也救不了——请换窗口更大的模型。"
 	} else if (status === 401) {
 		humanMessage = "API Key 无效或未授权（401）。请到设置 → API 配置里检查 BigModel 密钥。"
 	} else if (status === 429) {

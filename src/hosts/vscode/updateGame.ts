@@ -538,7 +538,9 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 	}
 	const mergeModel = pick.kind === "picked" ? pick.option : undefined
 
-	const ask = await mergeAsk(controller, mergeModel ?? undefined)
+	// 没冲突就不构造 handler：构造本身不发请求，但 provider 配置异常时会打一条
+	// 「AI 合并不可用」的 warn，容易被误读成「这次更新要 AI 但失败了」。
+	const ask = needsMerge ? await mergeAsk(controller, mergeModel ?? undefined) : null
 	// 会话级冲突策略：两条合并路径共用同一个实例，行为不可能分裂
 	const shouldMerge = createConflictPolicy({
 		groupCount: planned.result.plan.groups.length,

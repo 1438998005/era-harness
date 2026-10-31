@@ -68,6 +68,7 @@ message Secrets {
   optional string ovh_ai_endpoints_api_key = 45;
   optional string mimo_api_key = 46;
   optional string bigmodel_api_key = 47;
+  optional string bigmodel_plan_api_key = 48;
 }
 
 // NOTE: Add new fields under API_HANDLER_SETTINGS_FIELDS or USER_SETTINGS_FIELDS
@@ -138,6 +139,8 @@ message Settings {
   optional OpenRouterModelInfo act_mode_bigmodel_model_info = 194;
   map<string, string> plan_mode_provider_model_ids = 195;
   map<string, string> act_mode_provider_model_ids = 196;
+  optional OpenRouterModelInfo plan_mode_bigmodel_plan_model_info = 197;
+  optional OpenRouterModelInfo act_mode_bigmodel_plan_model_info = 198;
 }
 
 message State {

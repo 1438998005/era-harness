@@ -57,6 +57,11 @@ export class TaskState {
 	// path whenever its fileReadCache entry is evicted (file edited / mtime changed).
 	fileReadCounts: Map<string, number> = new Map()
 
+	// 08 #88：本轮已服过的区间（键同 fileReadCounts）。每个 assistant 回合开头清空。
+	// 跨轮重读不拦（模型可能真需要对照上一轮结果）；同轮第二次直接回短标记，
+	// 因为首读的正文还在同一条上下文里，再发一遍纯属重复付费。
+	sameTurnReadKeys: Set<string> = new Set()
+
 	// File read deduplication cache - prevents the model from endlessly reading the same files
 	// Maps absolute file path → { readCount: times read in this task, mtime: last modified timestamp, imageBlock: optional image data for multimodal models, lastRange: last displayed line range (so a suppressed repeat can still be grouped in the UI) }
 	fileReadCache: Map<
@@ -81,6 +86,11 @@ export class TaskState {
 
 	// Retry tracking for auto-retry feature
 	autoRetryAttempts = 0
+
+	// 08 #86：请求体指纹（系统提示 + 最后一条 user 消息）。连续多轮一字未变时
+	// 说明模型在「零工具空转」，由 advanceRequestFingerprint 判顶到熔断阈值。
+	requestFingerprint?: string
+	identicalRequestCount = 0
 
 	// Task Initialization
 	isInitialized = false

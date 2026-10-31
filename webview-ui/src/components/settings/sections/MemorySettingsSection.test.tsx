@@ -12,25 +12,50 @@ const mocks = vi.hoisted(() => ({
 
 const state = vi.hoisted(() => ({ document: undefined as unknown as GlobalMemoryDocument }))
 
-vi.mock("@vscode/webview-ui-toolkit/react", () => ({
-	VSCodeButton: ({ onClick, children, ...rest }: any) => (
-		<button {...rest} onClick={onClick} type="button">
-			{children}
-		</button>
-	),
-	VSCodeCheckbox: ({ checked, onChange, children }: any) => (
-		<label>
-			<input checked={checked} onChange={onChange} type="checkbox" />
-			{children}
-		</label>
-	),
-	VSCodeTextField: ({ onInput, value, placeholder, children }: any) => (
-		<div>
-			{children}
-			<input aria-label={placeholder} onInput={onInput} placeholder={placeholder} value={value} />
-		</div>
-	),
-}))
+vi.mock("@vscode/webview-ui-toolkit/react", async () => {
+	const React = await import("react")
+	return {
+		VSCodeButton: ({ onClick, children, ...rest }: any) => (
+			<button {...rest} onClick={onClick} type="button">
+				{children}
+			</button>
+		),
+		// 复刻真实 FAST 元素的语义（这是 3.93.0「关闭开关反复抽搐」的根因）：
+		// React 包装器每次更新都把 checked 属性写回元素，值一变就 $emit("change")，
+		// 且 DOM 的 disabled **拦不住**属性回写触发的事件。
+		VSCodeCheckbox: ({ checked, onChange, disabled, children }: any) => {
+			const last = React.useRef(checked)
+			const handler = React.useRef(onChange)
+			handler.current = onChange
+			React.useEffect(() => {
+				if (last.current !== checked) {
+					last.current = checked
+					handler.current?.({ target: { checked } })
+				}
+			}, [checked])
+			return (
+				<label>
+					<input
+						checked={checked}
+						disabled={disabled}
+						onChange={(event) => {
+							last.current = event.target.checked
+							handler.current?.(event)
+						}}
+						type="checkbox"
+					/>
+					{children}
+				</label>
+			)
+		},
+		VSCodeTextField: ({ onInput, value, placeholder, children }: any) => (
+			<div>
+				{children}
+				<input aria-label={placeholder} onInput={onInput} placeholder={placeholder} value={value} />
+			</div>
+		),
+	}
+})
 
 vi.mock("@/services/grpc-client", () => ({
 	UiServiceClient: {
@@ -66,8 +91,12 @@ describe("全局记忆设置页", () => {
 		mocks.getGlobalMemory.mockReset()
 		mocks.updateGlobalMemory.mockReset()
 		state.document = makeDocument()
-		mocks.getGlobalMemory.mockResolvedValue({ value: JSON.stringify(state.document) })
-		mocks.updateGlobalMemory.mockResolvedValue({})
+		mocks.getGlobalMemory.mockImplementation(async () => ({ value: JSON.stringify(state.document) }))
+		// 写盘回写到内存（模拟真实 globalStorage）：否则读-改-写会拿到旧快照
+		mocks.updateGlobalMemory.mockImplementation(async (request: { value: string }) => {
+			state.document = JSON.parse(request.value) as GlobalMemoryDocument
+			return {}
+		})
 	})
 
 	it("挂载时读取并渲染条目（含来源与标签）", async () => {
@@ -114,5 +143,20 @@ describe("全局记忆设置页", () => {
 		expect(payload.enabled).toBe(false)
 		expect(payload.entries).toHaveLength(2)
 		expect(screen.getByText(/AI 不会读取或写入/)).toBeTruthy()
+	})
+
+	// 回归：3.93.0 实测「关闭全局记忆时界面反复抽搐」。
+	// 根因是受控 FAST 复选框的属性回写会再发 change，而旧处理器不看事件值、只取反 → 来回翻转。
+	it("关闭开关只写一次，不会因受控回写来回翻转", async () => {
+		await renderSection()
+
+		fireEvent.click(screen.getByRole("checkbox"))
+
+		await waitFor(() => expect(mocks.updateGlobalMemory).toHaveBeenCalledTimes(1))
+		// 留出多个宏任务：旧实现会在这段时间里继续收到回写触发的 change 并再次写盘
+		await new Promise((resolve) => setTimeout(resolve, 30))
+
+		expect(mocks.updateGlobalMemory).toHaveBeenCalledTimes(1)
+		expect((state.document as GlobalMemoryDocument).enabled).toBe(false)
 	})
 })

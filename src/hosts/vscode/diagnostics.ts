@@ -12,6 +12,7 @@ import { exportDiagnostics, getDiagnosticsDir } from "@/core/logging/auditLog"
 import { StateManager } from "@/core/storage/StateManager"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
+import { BIGMODEL_BASE_URL, BIGMODEL_PLAN_BASE_URL } from "@/shared/bigmodel-request"
 import { mimoBaseUrlForKey } from "@/shared/mimo-request"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
@@ -90,7 +91,19 @@ function collectSettingsSummary(): Record<string, string> {
 			// 忽略单个基址读取失败
 		}
 
-		const secretKeys = ["openAiApiKey", "deepSeekApiKey", "ovhAiEndpointsApiKey", "apiKey"] as const
+		// 智谱两个入口的 baseUrl 是写死的常量，出问题时先确认「走的是哪条线」
+		summary.bigmodelBaseUrl = `${BIGMODEL_BASE_URL}（按量，内置）`
+		summary.bigmodelPlanBaseUrl = `${BIGMODEL_PLAN_BASE_URL}（GLM 套餐，内置）`
+
+		const secretKeys = [
+			"openAiApiKey",
+			"deepSeekApiKey",
+			"mimoApiKey",
+			"bigmodelApiKey",
+			"bigmodelPlanApiKey",
+			"ovhAiEndpointsApiKey",
+			"apiKey",
+		] as const
 		for (const key of secretKeys) {
 			try {
 				summary[`${key}(是否有值)`] = stateManager.getSecretKey(key) ? "已设置" : "未设置"

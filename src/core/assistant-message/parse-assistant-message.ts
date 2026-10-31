@@ -50,6 +50,10 @@ function stripTaskProgressMarkup(text: string, stats?: ParseRepairStats): string
 	const stripped = text.replace(/<task_progress>[\s\S]*?<\/task_progress>/g, "").replace(/<task_progress>[\s\S]*$/, "")
 	if (stats && stripped !== text) {
 		stats.taskProgressStrip++
+		// 08 #87：流式期间每个 chunk 都拿「已累积的全文」重解析一次，同一段清单会被反复计到，
+		// 累加会按 chunk 数倍增（一段 300 字能记成几万）。取**单次最大值**——它约等于本轮
+		// 输出过的清单体积，正是熔断要判的量。
+		stats.taskProgressStrippedChars = Math.max(stats.taskProgressStrippedChars, text.length - stripped.length)
 	}
 	return stripped
 }
@@ -93,10 +97,12 @@ export interface ParseRepairStats {
 	strayQuote: number
 	/** 独立 task_progress 段剥离次数 */
 	taskProgressStrip: number
+	/** 单次被剥掉的**最大字数**（流式重解析下累加会倍增，见 stripTaskProgressMarkup） */
+	taskProgressStrippedChars: number
 }
 
 export function createParseRepairStats(): ParseRepairStats {
-	return { dsml: 0, dots: 0, orphanRepair: 0, strayQuote: 0, taskProgressStrip: 0 }
+	return { dsml: 0, dots: 0, orphanRepair: 0, strayQuote: 0, taskProgressStrip: 0, taskProgressStrippedChars: 0 }
 }
 
 function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {

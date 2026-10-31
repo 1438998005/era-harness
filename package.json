@@ -2,7 +2,7 @@
 	"name": "era-harness",
 	"displayName": "era harness",
 	"description": "eraTW / Emuera 脚本工程的 AI 开发助手：CP932/UTF-8 安全读写、引擎日志诊断、404 条指令与语法手册（含 Emuera 规格页，可在线同步、可发现新页）、真实启动引擎验证加载。改动先出 diff，审批后才落盘；无账号、无遥测，仅本地安装。",
-	"version": "3.92.3",
+	"version": "3.94.0",
 	"icon": "assets/icons/icon.png",
 	"workspaces": [
 		"."
@@ -410,7 +410,7 @@
 		"clean:build": "rimraf dist webview-ui/build src/generated out/",
 		"clean:deps": "rimraf node_modules webview-ui/node_modules",
 		"clean:all": "npm run clean:build && npm run clean:deps",
-		"check-types": "npm run protos && npx tsc --noEmit && cd webview-ui && npx tsc --noEmit",
+		"check-types": "npm run protos && npx tsc --noEmit && cd webview-ui && npx tsc -b",
 		"lint": "biome lint --no-errors-on-unmatched --files-ignore-unknown=true --diagnostic-level=error && npm run lint:proto",
 		"lint:proto": "bash ./scripts/proto-lint.sh",
 		"format": "biome format --changed --no-errors-on-unmatched --files-ignore-unknown=true --diagnostic-level=error",

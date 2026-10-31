@@ -107,6 +107,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	planModeDeepSeekModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
+	planModeBigmodelPlanModelInfo: { default: undefined as ModelInfo | undefined },
 	// #52（2026-10-28）：per-provider 模型记忆。deepseek/mimo/bigmodel 共用 planModeApiModelId
 	// 一个槽位，快速切换切走再切回就被覆盖成默认档——按 provider 各记一份，读侧仍过归属校验
 	//（记忆 id 不属本家清单 → 兑底默认档，KB 18 §18.11 教训不得绕过）。
@@ -120,6 +121,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	actModeDeepSeekModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
+	actModeBigmodelPlanModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeProviderModelIds: { default: {} as Record<string, string> },
 
 	// Model-specific settings
@@ -194,6 +196,8 @@ const SECRETS_KEYS = [
 	"deepSeekApiKey",
 	"mimoApiKey",
 	"bigmodelApiKey",
+	// 智谱 GLM 套餐（Coding Plan）：与按量 Key 互不通用，必须单独存
+	"bigmodelPlanApiKey",
 	"ovhAiEndpointsApiKey", // OVHcloud AI Endpoints 可选 Key（免费模型第三渠道；留空走匿名 2rpm）
 	"openai-codex-oauth-credentials", // integrations/openai-codex 仍在（批次 3 才删），需其 OAuth 密钥位
 	"mcpOAuthSecrets",

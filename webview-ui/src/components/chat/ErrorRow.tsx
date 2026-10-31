@@ -32,7 +32,10 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 					const errorCode = clineError?._error?.code
 					// #60：BigModel 错误翻人话（1261 指出路）。宿主在产生错误时已改写过 message，
 					// 这里再兜一层——旧任务历史里存的还是原始消息，按结构化字段现场重翻。
-					const bigmodelError = providerId === "bigmodel" ? extractBigmodelError(clineError?._error) : undefined
+					const bigmodelError =
+						providerId === "bigmodel" || providerId === "bigmodel-plan"
+							? extractBigmodelError(clineError?._error)
+							: undefined
 					const errorMessage =
 						bigmodelError?.humanMessage || clineError?._error?.message || clineError?.message || rawApiError
 					// code 常常就是 status 的字符串形式（服务端回 "401"），而 message 自己也以
