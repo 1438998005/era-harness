@@ -16,14 +16,32 @@
  */
 
 import type { Controller } from "@core/controller"
-import { buildCreatePrompt, buildUpdatePrompt, type GameKbManifest } from "@eraharness/gamekb/index"
+import { registerKnowledgeBaseBuild } from "@core/knowledge/knowledgeBaseBuildTracker"
+import {
+	buildCreatePrompt,
+	buildIncrementPrompt,
+	buildUpdatePrompt,
+	type GameKbManifest,
+	type GameKbTaskKind,
+	type KnowledgeBaseIncrementScope,
+	updateKnowledgeBaseBuild,
+} from "@eraharness/gamekb/index"
 import { UNRESTRICTED_IDENTITY_BLOCK } from "@shared/identity"
 import { Logger } from "@shared/services/Logger"
 
-/** 有对话正在跑时不能开工——开了会把用户那个对话中止掉 */
+/**
+ * 有对话在跑 / 在等用户确认时不能开工。
+ *
+ * 只看 `isStreaming` 不够：等待批准/提问时流已经暂停，`isStreaming` 为 false，
+ * 但 `initTask()` 仍会 `clearTask()` 把那个对话中止掉（#93）。
+ */
 export function isConversationBusy(controller?: Controller): boolean {
 	const task = controller?.task
-	return Boolean(task && task.taskState.isStreaming)
+	if (!task) {
+		return false
+	}
+	const state = task.taskState
+	return Boolean(state.isStreaming || state.isWaitingForFirstChunk || state.pendingAsk)
 }
 
 /** 控制器与 initTask 都在才算能开对话；用类型谓词让调用处直接收窄 */
@@ -33,9 +51,24 @@ function canStartTask(controller?: Controller): controller is Controller {
 
 export interface OpenKnowledgeBaseTaskParams {
 	/** 建库：库目录与名称 */
-	create?: { dir: string; name: string; workspaceRoot: string; gameRoot?: string; gameVersion?: string }
+	create?: {
+		dir: string
+		name: string
+		workspaceRoot: string
+		gameRoot?: string
+		gameVersion?: string
+	}
 	/** 更新库：已有 manifest */
 	update?: { dir: string; manifest: GameKbManifest; workspaceRoot: string; gameRoot?: string; gameVersion?: string }
+	/** 续写：按范围补库（完整库与空白库都适用，产物与完整建库相同） */
+	increment?: {
+		dir: string
+		manifest: GameKbManifest
+		workspaceRoot: string
+		gameRoot?: string
+		gameVersion?: string
+		scope: KnowledgeBaseIncrementScope
+	}
 }
 
 /**
@@ -54,8 +87,13 @@ export async function openKnowledgeBaseTask(
 	}
 
 	let prompt: string
+	let dir: string
+	let taskKind: GameKbTaskKind
 	if (params.create) {
-		const { dir, name, workspaceRoot, gameRoot, gameVersion } = params.create
+		const { name, workspaceRoot, gameRoot, gameVersion } = params.create
+		dir = params.create.dir
+		// 建库形态只决定「第一场任务怎么跑」：空白建库不会走到这里（它不开对话）
+		taskKind = "full"
 		prompt = buildCreatePrompt({
 			name,
 			dir,
@@ -65,13 +103,28 @@ export async function openKnowledgeBaseTask(
 			identityBlock: UNRESTRICTED_IDENTITY_BLOCK,
 		})
 	} else if (params.update) {
-		const { dir, manifest, workspaceRoot, gameRoot, gameVersion } = params.update
+		const { workspaceRoot, gameRoot, gameVersion, manifest } = params.update
+		dir = params.update.dir
+		taskKind = "update"
 		prompt = buildUpdatePrompt({
 			dir,
 			workspaceRoot,
 			gameRoot: gameRoot ?? manifest.gameRoot,
 			gameVersion: gameVersion ?? manifest.gameVersion,
 			manifest,
+			identityBlock: UNRESTRICTED_IDENTITY_BLOCK,
+		})
+	} else if (params.increment) {
+		const { workspaceRoot, gameRoot, gameVersion, manifest, scope } = params.increment
+		dir = params.increment.dir
+		taskKind = "incremental"
+		prompt = buildIncrementPrompt({
+			dir,
+			workspaceRoot,
+			gameRoot: gameRoot ?? manifest.gameRoot,
+			gameVersion: gameVersion ?? manifest.gameVersion,
+			manifest,
+			scope,
 			identityBlock: UNRESTRICTED_IDENTITY_BLOCK,
 		})
 	} else {
@@ -83,10 +136,22 @@ export async function openKnowledgeBaseTask(
 		if (typeof taskId !== "string" || taskId.length === 0) {
 			return { ok: false, message: "开对话没成功（没有拿到任务号）。" }
 		}
-		Logger.log(`[knowledge-base] 已开启对话：${taskId}`)
+		// 先落盘再登记：哪怕后续回调丢失，设置页也能看到「构建中」而不是一片空白。
+		// ⛔ 只写 taskKind，不写 mode：建库形态是用户的选项，不能被任务覆盖。
+		await updateKnowledgeBaseBuild(dir, {
+			status: "building",
+			taskKind,
+			taskId,
+			startedAt: new Date().toISOString(),
+			error: undefined,
+		})
+		registerKnowledgeBaseBuild(taskId, dir)
+		Logger.log(`[knowledge-base] 已开启对话：${taskId}（${taskKind}）`)
 		return { ok: true }
 	} catch (error) {
 		Logger.warn(`[knowledge-base] 开对话失败：${error}`)
-		return { ok: false, message: `开对话没成功：${error instanceof Error ? error.message : String(error)}` }
+		const message = `开对话没成功：${error instanceof Error ? error.message : String(error)}`
+		await updateKnowledgeBaseBuild(dir, { status: "failed", error: message }).catch(() => false)
+		return { ok: false, message }
 	}
 }

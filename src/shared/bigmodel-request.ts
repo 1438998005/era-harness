@@ -28,10 +28,27 @@ export const BIGMODEL_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
  */
 export const BIGMODEL_PLAN_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
 
-/** 套餐购买/管理页（个人套餐的 Key 在「个人编程套餐 > 套餐概览」里建）。 */
-export const BIGMODEL_PLAN_CONSOLE_URL = "https://bigmodel.cn/apikey/coding-plan-per"
+/**
+ * 套餐 Key 落地页（#91，2026-10-31 实测）：
+ *
+ * 官方文档当前仍写 `/apikey/coding-plan-per`，但实测点进去会落到**标准 API Key 页**，
+ * 出来的 Key 不能用于套餐端点（鉴权失败）。改为直接指向套餐概览页：
+ * - 个人编程套餐 → 「套餐概览」（个人套餐 Key 在这里新建）
+ * - 团队编程套餐 → 「我的套餐」（团队套餐 Key 在这里新建）
+ *
+ * 个人 / 团队 / 按量三种 Key **互不通用**，所以必须分开两个入口，不能只给一个。
+ * 若将来官方又改版而这两个 URL 失效，退回「套餐文档」按钮并在知识库 23 记录实测日期。
+ */
+export const BIGMODEL_PLAN_PERSONAL_URL = "https://bigmodel.cn/coding-plan/personal/overview"
+export const BIGMODEL_PLAN_TEAM_URL = "https://bigmodel.cn/coding-plan/team/overview"
 /** 套餐快速开始（含端点表与工具清单）。 */
 export const BIGMODEL_PLAN_DOCS_URL = "https://docs.bigmodel.cn/cn/coding-plan/quick-start"
+
+/**
+ * @deprecated #91：实测会落到标准 API Key 页（不是套餐页），已拆成
+ * `BIGMODEL_PLAN_PERSONAL_URL` / `BIGMODEL_PLAN_TEAM_URL`。保留导出仅为兼容外部引用，新代码不要再用。
+ */
+export const BIGMODEL_PLAN_CONSOLE_URL = BIGMODEL_PLAN_PERSONAL_URL
 
 /** 控制台（API Key 管理）。 */
 export const BIGMODEL_CONSOLE_URL = "https://bigmodel.cn/usercenter/proj-mgmt/apikeys"

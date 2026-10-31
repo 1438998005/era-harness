@@ -2,7 +2,7 @@ import { ModelInfo } from "@shared/api"
 import { VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
 import { useTranslation } from "react-i18next"
 import styled from "styled-components"
-import { modelOptionLabel } from "../utils/providerUtils"
+import { type ModelOptionBillingHint, modelOptionLabel } from "../utils/providerUtils"
 
 /**
  * Container for dropdowns that ensures proper z-index handling
@@ -32,6 +32,8 @@ interface ModelSelectorProps {
 	onChange: (e: any) => void
 	zIndex?: number
 	label?: string
+	/** #90：计费上下文。套餐页传 "plan"，价格全 0 时显示「套餐内」而不是「免费」 */
+	billingHint?: ModelOptionBillingHint
 }
 
 /*
@@ -48,7 +50,14 @@ OG Saoud Note:
 /**
  * A reusable component for selecting models from a dropdown
  */
-export const ModelSelector = ({ models, selectedModelId, onChange, zIndex, label = "Model" }: ModelSelectorProps) => {
+export const ModelSelector = ({
+	models,
+	selectedModelId,
+	onChange,
+	zIndex,
+	label = "Model",
+	billingHint,
+}: ModelSelectorProps) => {
 	const { t } = useTranslation("settings")
 	return (
 		<DropdownContainer className="dropdown-container" zIndex={zIndex}>
@@ -59,7 +68,7 @@ export const ModelSelector = ({ models, selectedModelId, onChange, zIndex, label
 				<VSCodeOption value="">{t("settings.selectModel")}</VSCodeOption>
 				{Object.keys(models).map((modelId) => (
 					<VSCodeOption className="break-words whitespace-normal max-w-full" key={modelId} value={modelId}>
-						{modelOptionLabel(models, modelId)}
+						{modelOptionLabel(models, modelId, billingHint)}
 					</VSCodeOption>
 				))}
 			</VSCodeDropdown>

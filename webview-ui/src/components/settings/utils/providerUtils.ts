@@ -315,16 +315,35 @@ export function mergeLiveModelIds(
 }
 
 /**
+ * 下拉选项的计费上下文（#90）。
+ *
+ * 默认 `price` = 按量计费，按价格派生后缀；`plan` = 套餐内，价格字段恒为 0 但**不代表免费**，
+ * 尾缀改写成「套餐内」。两者共用同一函数而不是在套餐页另写一份，避免「同一规则写两遍必然漂移」。
+ */
+export type ModelOptionBillingHint = "price" | "plan"
+
+/**
  * 下拉选项文案：免费款尾缀「· 免费」（#55，2026-10-28 用户建议「扫描定价，全 0 就打免费标记」）。
  *
  * 目录里 `name` 虽带「免费」，但下拉渲染的是模型 id，name 进不来——所以按**定价派生**：
  * 至少两档价已知且全部为 0 即视为免费。静态目录与 #50 在线同步回来的 id 走同一份判断，
  * 不依赖 name 字符串；DeepSeek 这类「输入 0 但缓存价非 0」的模型不会被误标。
+ *
+ * #90：套餐页的模型价格全是 0（用量页依赖这个 0，不能改数据），但套餐**本身是付费套餐**，
+ * 标成「免费」就是错的。所以计费上下文由调用方显式传入（`billingHint="plan"`），
+ * 只改文案不改价格派生规则。
  */
-export function modelOptionLabel(models: Record<string, ModelInfo>, modelId: string): string {
+export function modelOptionLabel(
+	models: Record<string, ModelInfo>,
+	modelId: string,
+	billingHint: ModelOptionBillingHint = "price",
+): string {
 	const info = models[modelId]
 	if (!info) {
 		return modelId
+	}
+	if (billingHint === "plan") {
+		return `${modelId} · 套餐内`
 	}
 	const knownPrices = [info.inputPrice, info.outputPrice, info.cacheReadsPrice, info.cacheWritesPrice].filter(
 		(price) => price !== undefined,

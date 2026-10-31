@@ -1,4 +1,5 @@
 import { UpdateSettingsRequest } from "@shared/proto/cline/state"
+import { providerSupportsSubagents, resolveSubagentsEnabled } from "@shared/subagents"
 import { memo, type ReactNode, useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -284,7 +285,16 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 		doubleCheckCompletionEnabled,
 		lazyTeammateModeEnabled,
 		showFeatureTips,
+		apiConfiguration,
+		mode,
 	} = useExtensionState()
+
+	// #94：免费模型下子代理不可用——只**置灰并注明**，不改存储值，
+	// 否则在免费模型下打开一次设置页就会把用户开关写回 false，切回付费模型也恢复不了。
+	const currentProvider = (mode === "plan" ? apiConfiguration?.planModeApiProvider : apiConfiguration?.actModeApiProvider) as
+		| string
+		| undefined
+	const subagentsAvailable = providerSupportsSubagents(currentProvider)
 
 	const handleFocusChainIntervalChange = useCallback(
 		(value: number) => {
@@ -330,7 +340,8 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 		nativeToolCallSetting,
 		focusChainEnabled: focusChainSettings?.enabled,
 		useAutoCondense,
-		subagentsEnabled,
+		// 显示的是「生效值」：免费模型下即使存的是 true，开关也显示关闭且不可点
+		subagentsEnabled: resolveSubagentsEnabled(subagentsEnabled, currentProvider),
 		clineWebToolsEnabled: clineWebToolsEnabled?.user,
 		worktreesEnabled: worktreesEnabled?.user,
 		enableParallelToolCalling,
@@ -376,33 +387,47 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 						<div
 							className="relative p-3 pt-0 my-3 rounded-md border border-editor-widget-border/50"
 							id="agent-features">
-							{visibleAgentFeatures.map((feature) => (
-								<div key={feature.id}>
-									<FeatureRow
-										checked={featureState[feature.stateKey]}
-										description={featureTranslations[feature.id]?.description || feature.description}
-										isVisible={featureVisibility[feature.stateKey] ?? true}
-										key={feature.id}
-										label={featureTranslations[feature.id]?.label || feature.label}
-										onChange={(checked) =>
-											feature.nestedKey === "enabled"
-												? handleFeatureChange(feature, checked)
-												: updateSetting(feature.settingKey, checked)
-										}
-									/>
-									{feature.id === "focus-chain" && featureState[feature.stateKey] && (
-										<SettingsSlider
-											label={t("settings.reminderInterval")}
-											max={10}
-											min={1}
-											onChange={handleFocusChainIntervalChange}
-											step={1}
-											value={focusChainSettings?.remindClineInterval || 6}
-											valueWidth="w-6"
+							{visibleAgentFeatures.map((feature) => {
+								const subagentsLocked = feature.id === "subagents" && !subagentsAvailable
+								const baseDescription = featureTranslations[feature.id]?.description || feature.description
+								return (
+									<div key={feature.id}>
+										<FeatureRow
+											checked={featureState[feature.stateKey]}
+											description={
+												subagentsLocked ? (
+													<>
+														{baseDescription}
+														<div>当前免费模型下不可用；切回其它模型后自动恢复。</div>
+													</>
+												) : (
+													baseDescription
+												)
+											}
+											disabled={subagentsLocked}
+											isVisible={featureVisibility[feature.stateKey] ?? true}
+											key={feature.id}
+											label={featureTranslations[feature.id]?.label || feature.label}
+											onChange={(checked) =>
+												feature.nestedKey === "enabled"
+													? handleFeatureChange(feature, checked)
+													: updateSetting(feature.settingKey, checked)
+											}
 										/>
-									)}
-								</div>
-							))}
+										{feature.id === "focus-chain" && featureState[feature.stateKey] && (
+											<SettingsSlider
+												label={t("settings.reminderInterval")}
+												max={10}
+												min={1}
+												onChange={handleFocusChainIntervalChange}
+												step={1}
+												value={focusChainSettings?.remindClineInterval || 6}
+												valueWidth="w-6"
+											/>
+										)}
+									</div>
+								)
+							})}
 						</div>
 					</div>
 

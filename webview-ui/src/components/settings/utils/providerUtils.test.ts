@@ -10,7 +10,7 @@ import {
 	resolveDeepSeekModelId,
 } from "@shared/api"
 import { describe, expect, it } from "vitest"
-import { mergeLiveModelIds } from "./providerUtils"
+import { mergeLiveModelIds, modelOptionLabel } from "./providerUtils"
 
 const BUILTIN = deepSeekModels as Record<string, ModelInfo>
 const BIGMODEL_BUILTIN = bigmodelModels as Record<string, ModelInfo>
@@ -102,5 +102,45 @@ describe("mergeLiveModelIds", () => {
 			bigmodelInfoFor,
 		)
 		expect(Object.keys(models).slice(0, Object.keys(BIGMODEL_BUILTIN).length)).toEqual(Object.keys(BIGMODEL_BUILTIN))
+	})
+})
+
+/**
+ * #90：套餐页的下拉框曾把 14 款全部标成「· 免费」。
+ *
+ * 根因不是价格错（套餐的 price 就是 0，用量页靠这个 0 不累加金额），而是**计费上下文丢了**：
+ * 「全 0 → 免费」是按量计费下的正确推导，搬到套餐页就变成「付费套餐免费」。
+ * 修法是调用方显式传 `billingHint`，默认行为一个字节不改（否则按量页的免费六款就丢了标）。
+ */
+describe("modelOptionLabel（#90 计费上下文）", () => {
+	const zeroPriced: Record<string, ModelInfo> = {
+		"glm-5.3": {
+			contextWindow: 1_000_000,
+			maxTokens: 128_000,
+			inputPrice: 0,
+			outputPrice: 0,
+			cacheReadsPrice: 0,
+			cacheWritesPrice: 0,
+		},
+	}
+
+	it("全 0 价 + plan → 「套餐内」（不再是「免费」）", () => {
+		expect(modelOptionLabel(zeroPriced, "glm-5.3", "plan")).toBe("glm-5.3 · 套餐内")
+	})
+
+	it("全 0 价 + 默认（按量） → 仍是「免费」（回归 #55，按量页的免费六款不能丢标）", () => {
+		expect(modelOptionLabel(zeroPriced, "glm-5.3")).toBe("glm-5.3 · 免费")
+	})
+
+	it("有价模型 + 默认 → 无尾缀", () => {
+		const paid: Record<string, ModelInfo> = {
+			"glm-5.3-flash": { contextWindow: 1_000_000, maxTokens: 128_000, inputPrice: 0.5, outputPrice: 2.8 },
+		}
+		expect(modelOptionLabel(paid, "glm-5.3-flash")).toBe("glm-5.3-flash")
+	})
+
+	it("清单外的 id 原样返回（两种上下文都不报错）", () => {
+		expect(modelOptionLabel({}, "brand-new-model")).toBe("brand-new-model")
+		expect(modelOptionLabel({}, "brand-new-model", "plan")).toBe("brand-new-model")
 	})
 })

@@ -12,6 +12,16 @@
 /** 条目统计（函数/常量/表/其他） */
 export type KnowledgeBaseCounts = Partial<Record<string, number>>
 
+/**
+ * 构建状态（与 `@eraharness/gamekb` 的 GameKbBuildStatus 同形）。
+ * 本文件不能 import 核心库（会把 node:fs 带进 webview），两边手动保持同步。
+ */
+export type KnowledgeBaseBuildStatus = "draft" | "building" | "ready" | "failed"
+/** 建库形态：full = 构建完整知识库；blank = 构建空白知识库（只建骨架） */
+export type KnowledgeBaseBuildMode = "full" | "blank"
+/** 任务形态：与建库形态正交（两种库都能续写） */
+export type KnowledgeBaseTaskKind = "full" | "update" | "incremental"
+
 /** 设置页一张卡片需要的全部信息 */
 export interface KnowledgeBaseListItem {
 	slug: string
@@ -33,12 +43,27 @@ export interface KnowledgeBaseListItem {
 	/** 版本对不上 → 卡片标「可能过期」 */
 	stale: boolean
 	counts?: KnowledgeBaseCounts
+	/** 构建状态：只有 ready 会注入对话 */
+	buildStatus: KnowledgeBaseBuildStatus
+	/** 建库形态（完整 / 空白）——建库后不再变化 */
+	buildMode?: KnowledgeBaseBuildMode
+	/** 最近一次任务的形态 */
+	buildTaskKind?: KnowledgeBaseTaskKind
+	buildStartedAt?: string
+	/** 上次构建失败/中断的原因（人话） */
+	buildError?: string
 }
 
 /** 设置页发出的动作（`knowledgeBaseAction` 的请求体） */
 export type KnowledgeBaseAction =
-	| { action: "create"; name: string }
+	| { action: "create"; name: string; mode?: KnowledgeBaseBuildMode }
 	| { action: "update"; slug: string }
+	/** 续写：按范围补库（完整库与空白库都适用，产物与完整建库相同） */
+	| {
+			action: "increment"
+			slug: string
+			scope: { kind: "recent" } | { kind: "topic"; topic: string } | { kind: "paths"; paths: string[] }
+	  }
 	| { action: "enable"; slug: string; enabled: boolean }
 	| { action: "delete"; slug: string }
 	/** 在系统文件管理器里打开库目录（不改内容，只是省得用户自己去翻路径） */

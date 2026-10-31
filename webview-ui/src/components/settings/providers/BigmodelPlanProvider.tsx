@@ -1,8 +1,9 @@
 import { bigmodelPlanModels, type ModelInfo, resolveBigmodelPlanModelId } from "@shared/api"
 import {
 	BIGMODEL_PLAN_BASE_URL,
-	BIGMODEL_PLAN_CONSOLE_URL,
 	BIGMODEL_PLAN_DOCS_URL,
+	BIGMODEL_PLAN_PERSONAL_URL,
+	BIGMODEL_PLAN_TEAM_URL,
 	bigmodelThinkingCapability,
 } from "@shared/bigmodel-request"
 import { Mode } from "@shared/storage/types"
@@ -77,18 +78,21 @@ export const BigmodelPlanProvider = ({ showModelOptions, isPopup, currentMode }:
 				initialValue={apiConfiguration?.bigmodelPlanApiKey || ""}
 				onChange={(value) => handleFieldChange("bigmodelPlanApiKey", value)}
 				providerName="智谱 GLM 套餐（Coding Plan）"
-				signupUrl={BIGMODEL_PLAN_CONSOLE_URL}
+				signupUrl={BIGMODEL_PLAN_PERSONAL_URL}
 			/>
 
 			<p className="text-xs m-0 mt-2" style={{ color: "var(--vscode-descriptionForeground)" }}>
-				这里要填<b>套餐 Key</b>（在「个人编程套餐 / 团队编程套餐」页里新建），不是按量付费的 API Key——官方明确两种 Key
-				互不通用，填错会直接报鉴权失败。端点固定为
+				这里要填<b>套餐 Key</b>（在「个人编程套餐 / 团队编程套餐」页里新建），不是按量付费的 API Key——官方明确
+				<b>个人 / 团队 / 按量三种 Key 互不通用</b>，填错会直接报鉴权失败。端点固定为
 				<code className="mx-1">{BIGMODEL_PLAN_BASE_URL}</code>。
 			</p>
 
 			<div className="flex flex-wrap items-center gap-2 mt-2">
-				<Button onClick={() => open(BIGMODEL_PLAN_CONSOLE_URL)} size="sm" variant="outline-primary">
-					管理套餐 Key
+				<Button onClick={() => open(BIGMODEL_PLAN_PERSONAL_URL)} size="sm" variant="outline-primary">
+					个人套餐 Key
+				</Button>
+				<Button onClick={() => open(BIGMODEL_PLAN_TEAM_URL)} size="sm" variant="outline-primary">
+					团队套餐 Key
 				</Button>
 				<Button onClick={() => open(BIGMODEL_PLAN_DOCS_URL)} size="sm" variant="outline-primary">
 					套餐文档
@@ -98,6 +102,7 @@ export const BigmodelPlanProvider = ({ showModelOptions, isPopup, currentMode }:
 			{showModelOptions && (
 				<>
 					<ModelSelector
+						billingHint="plan"
 						label={t("settings.model")}
 						models={models}
 						onChange={(e: any) => {

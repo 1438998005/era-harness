@@ -65,8 +65,10 @@ export interface AuditEntry {
 	delayMs?: number
 	/** parse 事件：归一化/修复命中摘要（如 `dsml=3,dots=1`），仅非零时携带 */
 	repairs?: string
-	/** error 事件：错误来自哪一侧 */
-	source?: "host" | "webview"
+	/** error 事件：错误来自哪一侧；subagent 用于子代理的独立费用行 */
+	source?: "host" | "webview" | "subagent"
+	/** api 事件：第几个子代理（1 起），仅 source=subagent */
+	subagentIndex?: number
 	/** error 事件：错误种类，如 grpc / unhandledRejection / uncaughtException / ui_error */
 	errorKind?: string
 }
@@ -299,8 +301,11 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 	if (repairs) record.repairs = repairs
 
 	// error 事件的来源侧与种类（message/snapshot 复用上面的通用清洗：先剥正文块再脱敏截断）
-	const source = entry.source === "host" || entry.source === "webview" ? entry.source : undefined
+	const source = entry.source === "host" || entry.source === "webview" || entry.source === "subagent" ? entry.source : undefined
 	if (source) record.source = source
+	// #95：子代理序号是「第几个」，小数无意义（`cleanNumber` 只管 NaN/非数）：取整并夹到 0 以上
+	const subagentIndexRaw = cleanNumber(entry.subagentIndex)
+	if (subagentIndexRaw !== undefined) record.subagentIndex = Math.max(0, Math.round(subagentIndexRaw))
 	const errorKind = cleanAuditText(entry.errorKind, 32)
 	if (errorKind) record.errorKind = errorKind
 

@@ -77,6 +77,8 @@ const SPECS = [
 	"gamekb-manifest.spec.ts",
 	"gamekb-index.spec.ts",
 	"erabasic-owner.spec.ts",
+	"subagent-budget.spec.ts",
+	"subagents-availability.spec.ts",
 ]
 
 const aliasResolverPlugin = {

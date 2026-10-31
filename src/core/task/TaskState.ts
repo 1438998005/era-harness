@@ -1,5 +1,6 @@
 import { Anthropic } from "@anthropic-ai/sdk"
 import { AssistantMessageContent } from "@core/assistant-message"
+import type { ClineAsk } from "@shared/ExtensionMessage"
 import { ClineAskResponse } from "@shared/WebviewMessage"
 import type { HookExecution } from "./types/HookExecution"
 
@@ -31,6 +32,13 @@ export class TaskState {
 	askResponseImages?: string[]
 	askResponseFiles?: string[]
 	lastMessageTs?: number
+	/**
+	 * 正在等待用户回答的 ask 类型（含批准/提问）。
+	 *
+	 * `isStreaming` 在「等待批准」时是 false，所以建库守卫只看 isStreaming 会把
+	 * 「对话正等你点确认」误判成空闲，然后开新任务把原对话静默中止（#93）。
+	 */
+	pendingAsk?: ClineAsk
 
 	// Plan mode specific state
 	isAwaitingPlanResponse = false

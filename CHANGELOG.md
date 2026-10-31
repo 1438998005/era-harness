@@ -3,6 +3,92 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.95.1 — 2026-10-31
+
+> 本版是 **3.95.0 的命名与模型修正**，不新增能力：
+> 新建知识库只有两个并列选项——「构建完整知识库」与「构建空白知识库」；
+> 以及一个结构性保证：**无论建哪一种，之后都能续写添砖加瓦**。
+
+### 修正 · 两种建库形态 + 续写不分形态
+
+- **去掉「有生记忆」这个词**：它是 3.95.0 自造的叫法，不是用户的选项。界面上现在只有「构建完整知识库」（开对话通读全工程）与「构建空白知识库」（只建空骨架、不开对话、不花钱）。
+- **数据模型拆分**（根因）：3.95.0 把「建库形态」与「任务形态」塞进同一个 `build.mode`，开一次续写就把用户的建库选项覆盖掉了，界面上“续写”也只能挂在空白建库那一栏。现在拆成两个正交字段：
+  - `build.mode`：`full` / `blank`，**只由 `createKnowledgeBase` 写**；
+  - `build.taskKind`：`full` / `update` / `incremental`，开对话时写。
+- **续写对两种库都开放**：`buildIncrementPrompt` 不接收建库形态参数，完整库与空白库走同一套提示词、同一套产物标准；空白库第一次续写成功后即变 `ready` 可注入。
+- **旧数据降级**（只读时归一、不主动重写盘）：旧 `mode:"incremental"` + `status:"draft"` → `mode:"blank"`；旧 `mode:"update"` → `mode:"full"` + `taskKind:"update"`；已有任务过的 `mode:"incremental"` 按完整建库兼容（字面值无法区分空白建库与续写任务，宁可猜完整）。
+
+### 文案与界面术语变更
+
+- 新建面板：两张并列卡片（无「推荐」字样）+ 完整建库的四项确认（第 4 条改为「不想一次跑完就改用构建空白知识库」）+ 勾选门禁；按钮文案「开始构建（可能数十元）」/「创建空白知识库」。
+- 库卡片：「增量整理」→「续写」，「开始增量整理」→「开始续写」；`draft` 徽标「待补充（有生记忆）」→「空白（仅骨架）」。
+- 续写面板补一句「完整建库的库同样可以续写」；创建空白库后的提示改为「在卡片上点「续写」按范围补内容」。
+- 任务结束提示改为「可在设置页点「续写」把新语义补进库」；提示词里的「留给下一次增量」→「留给下一次续写」，`EXPECTATION_NOTES` 第四条改为「这次没跑完？之后可以点「续写」继续补」。
+
+### 测试
+
+- 新增：空白建库 → 续写 → `ready`（证明两种形态都能续写）；任务只写 `taskKind`、不覆盖 `mode`；3.95.0 旧 `build` 降级（含 `incremental` + `draft` 的 status 判据）。
+- 同步：`gamekb-manifest` / `gamekb-build` / `gamekb-prompt` 的标题与枚举断言。
+
+## 3.95.0 — 2026-10-31
+
+> 本版三件事：给子代理加上预算与超时（一次建库烧掉 102 元的 P0 事故）；
+> 给专属知识库加构建状态机与分次建库（同一产物、分多次写，3.95.1 起改称「构建空白知识库」+「续写」）；
+> 修完 #90–#94（套餐文案/链接、建库预期管理、免费模型禁用子代理）。
+> 根因与取证见知识库 `12-插件工具调用链路.md` §12.30/§12.31、`25-专属知识库.md` §25.11–§25.13、`23-智谱BigModel接口事实.md` §23.9、`08-待修复清单.md` #90–#95。
+
+### 修复 · 子代理无预算导致 102 元建库事故（#95，P0）
+
+- **现场**：任务 `1793429640849`（`bigmodel / glm-5.3-flash`）一次 `use_subagents` 起 5 个子代理，合计 **¥102.43**，其中 #2 单条 **¥96.86 / 1936 次工具调用 / 上下文 383,343**，工具卡 **92.9 分钟**后才 abort，知识库**零分片**产出；主任务审计只记了 ¥0.09。
+- **四条根因**：① `SubagentRunner.run()` 只限空回复重试，无轮次/工具数/费用/墙钟/空闲上限；② 子代理直接 `handler.execute()`，绕过主循环的 `checkRepeatedToolCall`；③ 无空闲超时，卡死的流不会自己结束；④ `subagent_usage` 只在 `Promise.allSettled` 之后发，挂起即彻底失联。
+- **修法**：新增 `src/core/task/tools/subagent/subagentBudget.ts` 作**唯一阈值源**（单子代理 30 轮 / 150 次工具 / ¥3 / 10 分钟墙钟 / 90 秒空闲；单次调用总费用 ¥10）；`SubagentRunner` 每轮与每次工具后判预算、5 秒轮询空闲看门狗、请求用 `withIdleTimeout` 包裹，命中即返回可读中止原因；工具调用前接入与主循环同源的循环检测（`hardEscalation` 直接失败、`softWarning` 拼进工具结果）；`SubagentToolHandler` 把费用汇总放进最外层 `finally`（中断/超预算也会发 `subagent_usage`），逐项写 `source:"subagent"` + `subagentIndex` 审计，调用级总费用超 ¥10 时 abort 剩余子代理。
+- **提示词**：建库/更新/续写三种提示词都明写「不要调用 use_subagents」（建库是写盘任务，子代理只回文本，只会成倍放大开销）。
+- **界面**：子代理状态行增加「N 个子代理 · M 次工具 · ¥总费用」汇总与「已中止（超预算/超时）」徽标。
+
+### 新增 · 专属知识库分次建库（同一产物，分多次写）
+
+- 用户澄清：分次建库**只是任务形式**，内容与一键完整整理完全一致。所以它不另立格式：新增 `buildIncrementPrompt`，直接拼接同一份 `SHARD_RULES` + `HARD_RULES` + `KB_JSON_SCHEMA`，只额外加「本次范围」段与三条禁令（不重读整个工程 / 不重写范围外分片 / 不合并分片）。（3.95.1 起：这两个选项改称「构建完整知识库」/「构建空白知识库」，“增量整理”改称“续写”，且续写对两种库都开放）
+- 新建流程分两种模式：**空白建库（默认）** 只建骨架（`build.status="draft"`，不开对话、不花钱）；**完整建库** 才开建库对话。
+- 设置页每个库新增「续写」入口：可选「本次对话涉及的文件」（取 `files_in_context`，倒序、去重、≤ 60 条、只留游戏根内）或「指定目录或主题」，点击后开一场**范围限定**的对话。
+- 任务结束时提示（每任务最多一次、不产生模型调用）：本任务读过工程文件 ≥ 3 个且工作区里有 `draft`/`ready` 库时，提一句「可去设置页点续写」。
+- 范围外分片的字节级不变（可 `git diff` 验证）。
+
+### 新增 · 构建状态机与中断恢复（#93）
+
+- `kb.json.build`（`status`/`mode`/`taskKind`/`taskId`/`startedAt`/`finishedAt`/`error`）成为**唯一事实源**：`draft → building → ready/failed`。（3.95.1 起 `mode` 只放建库形态，任务形态另记 `taskKind`）
+- **注入门禁**：`buildKnowledgeBaseSection` 只渲染 `ready`；旧库（无 `build` 字段）按「有分片 或 索引非骨架」兼容为 `ready`，升级不会把已有库判成不可用。
+- **状态写入**：开对话后置 `building` + 记 `taskId`；`attempt_completion` 置 `ready`；`abortTask` 置 `failed`（错误文案「已中断（可继续构建）」）。所有落盘失败只记日志，绝不影响任务完成流程。
+- **设置页**：「空白（仅骨架）/ 构建中 / 上次未完成」徽标；`building` 时禁用更新/续写/删除，只留「打开目录」；`failed` 时「继续构建」复用 update 流程从断点续建。
+- **忙判据修正**：`isConversationBusy` 增加 `isWaitingForFirstChunk` 与 `pendingAsk`——正在等待你批准/回答的对话不会再被「新建知识库」静默中止。
+- **残留兜底**：`building` 超过 6 小时在列表里展示为「上次未完成（窗口已重载或任务被替换）」，只影响展示、不写盘。
+
+### 改进 · 建库/更新预期管理（#92）
+
+- 设置页新建改为三步：输入库名 → 选建库方式 → 完整建库需四项确认 + 勾选（未勾选时「开始」禁用）：⏱ 30–120 分钟且别切模型/开新对话、💰 实测一次失控 102 元（本版已加预算上限）、🧠 建议用高智能模型、🧩 想逐步补就改用空白建库（3.95.1 起为两个并列选项）。
+- 「更新」改为内联简化确认（耗时、别切模型、可中断留半成品）。
+- 同一套文案进提示词（`EXPECTATION_NOTES`），模型自己也看得到。
+
+### 修复 · 套餐模型全标「免费」（#90）
+
+- 根因是**计费上下文丢了**：套餐模型价格恒 0（用量页靠这个 0 不累加金额），而「全 0 → · 免费」是按量口径的正确推导。
+- `modelOptionLabel` 增加第三参 `billingHint`（默认 `"price"` 行为不变）；`ModelSelector` 透传；套餐页传 `"plan"` → 显示「· 套餐内」。按量页的免费六款仍带「· 免费」。
+
+### 修复 · 套餐 Key 链接跳到标准 API 页（#91）
+
+- 官方文档写的 `/apikey/coding-plan-per` 实测落到**标准 API Key 页**（建出来的 Key 填进套餐 provider 直接 401）。
+- 改为 `BIGMODEL_PLAN_PERSONAL_URL`（`/coding-plan/personal/overview`）与 `BIGMODEL_PLAN_TEAM_URL`（`/coding-plan/team/overview`），设置页给「个人套餐 Key」/「团队套餐 Key」两个按钮，并强调三种 Key 互不通用；旧常量标 `@deprecated` 并指向个人页。
+
+### 修复 · 免费模型下仍可用子代理（#94）
+
+- 新增 `src/shared/subagents.ts` 单源派生：`resolveSubagentsEnabled(enabled, provider) = enabled && provider !== "free"`。
+- 三处调用点统一：`Task` 注入派生值（工具不出现）→ `SubagentToolHandler` 再拦一次并返回可读提示（同时写 `outcome:"denied"` 审计）→ 设置页开关置灰并注明「切回其它模型后自动恢复」。
+- **只派生、不改存储值**：免费模型下打开设置页不会把开关写回 false，切回付费模型自动恢复。
+
+### 工程
+
+- 新增测试：`test/update/subagent-budget.spec.ts`、`subagents-availability.spec.ts`、`packages/era-harness-core/test/gamekb-build.test.ts`；扩展 `audit-redaction`（子代理审计字段）、`gamekb-prompt`（禁子代理 + 有生记忆同构）、`gamekb-manifest`（build 状态归一/兼容）、`gamekb-index`（注入门禁）、`providerUtils.test.ts`（plan 提示）、`BigmodelPlanProvider.test.tsx`（无「免费」+ URL）。
+- `test/update/run.mjs` 的 `SPECS` 与核心库 `npm test` 已登记两个新 spec。
+
 ## 3.94.0 — 2026-10-31
 
 > 本版四件事：修好全局记忆开关的「反复抽搐」并补上「何时该写」的指引；

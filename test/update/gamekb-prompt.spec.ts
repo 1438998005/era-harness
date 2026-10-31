@@ -17,7 +17,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import type { GameKbManifest } from "@eraharness/gamekb/index"
-import { buildCreatePrompt, buildUpdatePrompt } from "@eraharness/gamekb/index"
+import { buildCreatePrompt, buildIncrementPrompt, buildUpdatePrompt } from "@eraharness/gamekb/index"
 import { UNRESTRICTED_IDENTITY_BLOCK } from "../../src/shared/identity"
 
 const BASE = {
@@ -158,4 +158,132 @@ test("更新提示词：没有工程根时让 AI 自己确认，不硬编一个�
 	const prompt = buildUpdatePrompt({ ...BASE, gameRoot: undefined, manifest: manifest() })
 	assert.ok(prompt.includes("游戏工程根：请按工作区探测结果自行确认"))
 	assert.ok(!prompt.includes("/w/game"), "调用方没给工程根时不许把 manifest 里的路径悄悄当成当前工程")
+})
+
+// —— #95（2026-10-31）：102 元建库事故 ——
+// 事故现场：5 个子代理并行，其中一个循环 1936 次工具调用、单条 ¥96.86，
+// 整批 ¥102.43，卡 93 分钟且零分片产出。根因之一是模型在写盘任务里调了 use_subagents。
+// 提示词必须**三种任务形态都禁止**它；预算硬上限是第二道防线，不能只靠这一句。
+
+test("#95 建库 / 更新 / 续写三种提示词都禁止 use_subagents", () => {
+	const cases: Array<[string, string]> = [
+		["建库", buildCreatePrompt({ ...BASE, name: "x" })] as [string, string],
+		["更新", buildUpdatePrompt({ ...BASE, manifest: manifest() })],
+		[
+			"续写",
+			buildIncrementPrompt({
+				...BASE,
+				manifest: manifest(),
+				scope: { label: "本次对话涉及的文件", paths: ["ERB/A.ERB"] },
+			}),
+		],
+	]
+
+	for (const [label, prompt] of cases) {
+		assert.ok(
+			prompt.includes("不要调用 use_subagents") || prompt.includes("不要使用 use_subagents"),
+			`${label}：必须禁子代理`,
+		)
+	}
+	// 建库提示词里要把事故量级说出来（模型靠这句话判断“值得不值得”）
+	assert.ok(buildCreatePrompt({ ...BASE, name: "x" }).includes("102"))
+})
+
+// —— #92：预期管理同源 ——
+// 设置页的确认面板与提示词里的四句警示必须同源，否则用户在界面看到的和模型看到的不一致。
+
+test("#92 建库/更新提示词第一屏含四条预期（时长、费用、模型、可续写）", () => {
+	for (const prompt of [buildCreatePrompt({ ...BASE, name: "x" }), buildUpdatePrompt({ ...BASE, manifest: manifest() })]) {
+		assert.ok(prompt.includes("这是一次长任务"), "先读段必须存在")
+		assert.ok(prompt.includes("30–120 分钟"))
+		assert.ok(prompt.includes("不要切换模型"))
+		assert.ok(prompt.includes("102 元"), "必须用实测数字，不能写模糊的“可能较贵”")
+		assert.ok(prompt.includes("智能程度高的模型"))
+		// 两种库（完整/空白）都能续写，所以建库提示词里也要告诉模型可以续写
+		assert.ok(prompt.includes("续写"), "要告诉模型/用户：没跑完可以续写")
+	}
+})
+
+// —— 续写是动作，不是某种库的专属能力（3.95.1） ——
+// 用户 2026-10-31 澄清：新建只有「构建完整知识库」与「构建空白知识库」两个选项，
+// 而无论建哪一种，之后都能续写添砖加瓦。
+// 所以这里锁的是“同构 + 不分形态”：同一套分片规则/硬约束/kb.json 契约，
+// 且 `buildIncrementPrompt` 根本不接收建库形态参数。
+
+test("续写：与完整建库共用同一套产物规则（不是另一种格式）", () => {
+	const create = buildCreatePrompt({ ...BASE, name: "x" })
+	const increment = buildIncrementPrompt({
+		...BASE,
+		manifest: manifest({ files: [{ path: "functions/combat.md", title: "战斗", count: 12 }] }),
+		scope: { label: "本次对话涉及的文件", paths: ["ERB/A.ERB", "ERB/B.ERB"] },
+	})
+
+	// ① 分片结构相同（一字不差地复用 SHARD_RULES）
+	for (const marker of ["总索引 + 分片", "`functions/<主题>.md`", "`constants/<主题>.md`", "`tables/<主题>.md`"]) {
+		assert.ok(increment.includes(marker), `续写缺少分片规则：${marker}`)
+		assert.ok(create.includes(marker))
+	}
+	assert.ok(increment.includes("## 函数") && increment.includes("## 机制与坑"))
+
+	// ② 硬约束相同（只写库目录、不抄正文、必带出处、行数上限）
+	for (const marker of [
+		"只写知识库目录下的文件",
+		"不复制函数正文",
+		"相对路径:行号",
+		"单个分片 ≤ 300 行",
+		"`index.md` ≤ 200 行",
+	]) {
+		assert.ok(increment.includes(marker), `续写缺少硬约束：${marker}`)
+	}
+
+	// ③ kb.json 契约相同
+	assert.ok(increment.includes('"schemaVersion": 1'))
+	assert.ok(increment.includes('"files": [{ "path": "functions/xxx.md"'))
+
+	// ④ 不另起格式
+	assert.equal(increment.includes("notes.md"), false, "不许另立轻量记忆格式")
+})
+
+test("续写：只处理给定范围，并明确不重读全工程", () => {
+	const prompt = buildIncrementPrompt({
+		...BASE,
+		manifest: manifest({ files: [{ path: "functions/combat.md", title: "战斗", count: 12 }] }),
+		scope: { label: "本次对话涉及的文件", paths: ["ERB/A.ERB", "ERB/B.ERB"] },
+	})
+
+	assert.ok(prompt.includes("# 任务：给知识库「eratw 画蛇添足版」续写本次范围的内容"))
+	assert.ok(prompt.includes("**完整建库的库同样可以续写**"), "要明说续写不分建库形态")
+	assert.ok(prompt.includes("`ERB/A.ERB`") && prompt.includes("`ERB/B.ERB`"), "范围文件要逐条列出")
+	assert.ok(prompt.includes("不要重读整个工程") || prompt.includes("重读整个工程"), "必须禁止重读全工程")
+	assert.ok(prompt.includes("不要重写/重排范围外的分片"))
+	assert.ok(prompt.includes("不要重命名分片"))
+	// 已有分片清单直接给出来，避免模型自己 ls 一遍
+	assert.ok(prompt.includes("`functions/combat.md`（战斗）"))
+	// 完成汇报要能对账
+	assert.ok(prompt.includes("新增 N / 修改 M"))
+})
+
+test("续写：按主题指定范围时不列 paths，也不要求读文件清单", () => {
+	const prompt = buildIncrementPrompt({
+		...BASE,
+		manifest: manifest({ files: [] }),
+		scope: { label: "主题：战斗系统", topic: "战斗系统" },
+	})
+
+	assert.ok(prompt.includes("本次只处理主题：**战斗系统**"))
+	assert.ok(prompt.includes("没有登记分片，请先自己 `ls` 一遍目录"), "没分片时给兜底而不是留空")
+	// 身份块自带尾换行（与建库/更新同形），所以这里用空身份块验「模板本身不留连续空行」
+	assert.ok(
+		!/\n\n\n/.test(
+			buildIncrementPrompt({ ...BASE, identityBlock: "", manifest: manifest(), scope: { label: "x", topic: "y" } }),
+		),
+	)
+})
+
+test("续写：范围文件最多列 60 条（防止一次续写又退回完整建库规模）", () => {
+	const paths = Array.from({ length: 80 }, (_, i) => `ERB/dir${i}/file.ERB`)
+	const prompt = buildIncrementPrompt({ ...BASE, manifest: manifest(), scope: { label: "x", paths } })
+
+	assert.ok(prompt.includes("`ERB/dir59/file.ERB`"), "第 60 条要保留")
+	assert.ok(!prompt.includes("`ERB/dir60/file.ERB`"), "第 61 条开始必须丢弃")
 })

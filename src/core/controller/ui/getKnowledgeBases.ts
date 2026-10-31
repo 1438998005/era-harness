@@ -46,6 +46,18 @@ export async function getKnowledgeBases(_controller: Controller, _request: Empty
 	const items: KnowledgeBaseListItem[] = entries.map((entry) => {
 		const manifest = entry.manifest
 		const gameVersion = manifest?.gameVersion
+		const build = manifest?.build
+		let buildStatus = entry.buildStatus
+		let buildError = build?.error
+		// 窗口重载 / 任务被替换时，不会有任何回调来收尾；超过 6 小时的 building
+		// 一律按「上次未完成」展示。只影响展示，不写盘。
+		if (buildStatus === "building" && build?.startedAt) {
+			const started = Date.parse(build.startedAt)
+			if (Number.isFinite(started) && Date.now() - started > 6 * 60 * 60 * 1000) {
+				buildStatus = "failed"
+				buildError = "上次构建未完成（窗口已重载或任务被替换）"
+			}
+		}
 		return {
 			slug: entry.slug,
 			name: manifest?.name ?? entry.slug,
@@ -60,6 +72,11 @@ export async function getKnowledgeBases(_controller: Controller, _request: Empty
 			currentGameVersion,
 			stale: Boolean(gameVersion && currentGameVersion && gameVersion !== currentGameVersion),
 			counts: manifest?.counts,
+			buildStatus,
+			buildMode: build?.mode,
+			buildTaskKind: build?.taskKind,
+			buildStartedAt: build?.startedAt,
+			buildError,
 		}
 	})
 

@@ -32,6 +32,7 @@ import * as NotificationHook from "@core/hooks/notification-hook"
 import { executePreCompactHookWithCleanup, HookCancellationError, HookExecution } from "@core/hooks/precompact-executor"
 import { parseIdentityFromText, setCurrentIdentityMode } from "@core/identity/scope"
 import { ClineIgnoreController } from "@core/ignore/ClineIgnoreController"
+import { notifyKnowledgeBaseBuildInterrupted } from "@core/knowledge/knowledgeBaseBuildTracker"
 import { loadKnowledgeBaseSection } from "@core/knowledge/knowledgeBaseSection"
 import { recordAudit } from "@core/logging/auditLog"
 import { parseMentions } from "@core/mentions"
@@ -72,6 +73,7 @@ import { HistoryItem } from "@shared/HistoryItem"
 import { getLanguageDisplayName, getLanguageKey, LanguageDisplay } from "@shared/Languages"
 import { USER_CONTENT_TAGS } from "@shared/messages/constants"
 import { convertClineMessageToProto } from "@shared/proto-conversions/cline-message"
+import { resolveSubagentsEnabled } from "@shared/subagents"
 import { ClineDefaultTool, READ_ONLY_TOOLS } from "@shared/tools"
 import { ClineAskResponse } from "@shared/WebviewMessage"
 import {
@@ -687,6 +689,10 @@ export class Task {
 		if (this.taskState.abort && type !== "resume_task" && type !== "resume_completed_task") {
 			throw new Error("Cline instance aborted")
 		}
+		// partial 只是流式中间态，不表示真的在等用户回答；只记完整 ask
+		if (partial !== true) {
+			this.taskState.pendingAsk = type
+		}
 		let askTs: number
 		if (partial !== undefined) {
 			const clineMessages = this.messageStateHandler.getClineMessages()
@@ -836,6 +842,7 @@ export class Task {
 		if (identityFromText) {
 			setCurrentIdentityMode(identityFromText)
 		}
+		this.taskState.pendingAsk = undefined
 		this.taskState.askResponse = askResponse
 		this.taskState.askResponseText = text
 		this.taskState.askResponseImages = images
@@ -1631,6 +1638,15 @@ export class Task {
 			// This must happen before canceling hooks so that hook catch blocks
 			// can properly detect the abort state
 			this.taskState.abort = true
+			this.taskState.pendingAsk = undefined
+
+			// 建库任务被中断：落盘 failed，半成品不再注入（#93）。
+			// 放在 abort 置位之后：即使后面清理失败，状态也已经不会被当成「构建中」。
+			try {
+				await notifyKnowledgeBaseBuildInterrupted(this.taskId)
+			} catch (error) {
+				Logger.warn(`[knowledge-base] 中断状态写入失败（已忽略）：${error}`)
+			}
 
 			// PHASE 3: Cancel any running hook execution
 			const activeHook = await this.getActiveHookExecution()
@@ -2092,7 +2108,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			globalMemoryEnabled: globalMemoryDocument.enabled,
 			knowledgeBaseSection,
 			yoloModeToggled: this.stateManager.getGlobalSettingsKey("yoloModeToggled"),
-			subagentsEnabled: this.stateManager.getGlobalSettingsKey("subagentsEnabled"),
+			// #94：免费 provider 下子代理一律关（只派生、不改用户设置，切回其它模型自动恢复）
+			subagentsEnabled: resolveSubagentsEnabled(
+				this.stateManager.getGlobalSettingsKey("subagentsEnabled"),
+				providerInfo.providerId,
+			),
 			clineWebToolsEnabled:
 				this.stateManager.getGlobalSettingsKey("clineWebToolsEnabled") && featureFlagsService.getWebtoolsEnabled(),
 			isMultiRootEnabled: multiRootEnabled,

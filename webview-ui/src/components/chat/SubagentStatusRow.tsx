@@ -203,6 +203,11 @@ export default function SubagentStatusRow({ message, isLast, lastModifiedMessage
 
 	const singular = data.items.length === 1
 	const title = singular ? t("subagent.wantsSubagentSingular") : t("subagent.wantsSubagentPlural")
+	const totalToolCalls = data.items.reduce((acc, entry) => acc + (entry.toolCalls || 0), 0)
+	const totalCost = data.items.reduce((acc, entry) => acc + (entry.totalCost || 0), 0)
+	const budgetAborted = data.items.some(
+		(entry) => entry.error?.includes("子代理已中止") || entry.error?.includes("总费用已超过"),
+	)
 	const isPromptConstructionRow = message.ask === "use_subagents" || message.say === "use_subagents"
 	const toggleItem = (index: number) => {
 		setExpandedItems((prev) => ({
@@ -222,6 +227,19 @@ export default function SubagentStatusRow({ message, isLast, lastModifiedMessage
 			<div className="flex items-center gap-2.5 mb-3">
 				<NetworkIcon className="size-2 text-foreground" />
 				<span className="font-bold text-foreground">{title}</span>
+				{budgetAborted && (
+					<span
+						className="text-[10px] px-1 rounded"
+						style={{
+							color: "var(--vscode-editorWarning-foreground, #CCA700)",
+							border: "1px solid var(--vscode-editorWarning-foreground, #CCA700)",
+						}}>
+						已中止（超预算/超时）
+					</span>
+				)}
+				<span className="ml-auto text-[11px] opacity-70">
+					{data.items.length} 个子代理 · {formatCount(totalToolCalls)} 次工具 · {formatCost(totalCost)}
+				</span>
 			</div>
 			<div className="space-y-2">
 				{data.items.map((entry, index) => {

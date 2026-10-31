@@ -29,6 +29,8 @@ export interface KnowledgeBaseSectionItem {
   currentGameVersion?: string;
   /** 条目统计，如 { function: 12, constant: 8 } */
   counts?: Record<string, number>;
+  /** 构建状态；只有 ready 才会被渲染（旧调用不传则按可用处理） */
+  buildStatus?: 'draft' | 'building' | 'ready' | 'failed';
 }
 
 function formatCounts(counts: Record<string, number> | undefined): string {
@@ -53,7 +55,10 @@ function truncate(text: string, limit: number): { text: string; truncated: boole
  * 生成小节。没有可用条目时返回空串（调用方据此不追加任何内容，普通项目零影响）。
  */
 export function buildKnowledgeBaseSection(items: readonly KnowledgeBaseSectionItem[]): string {
-  if (items.length === 0) {
+  // 防御性门禁：骨架/构建中/失败的库不能进提示词（#93）。
+  // 旧调用方不传 buildStatus 时保持原行为，避免破坏已有测试/宿主。
+  const usable = items.filter((item) => item.buildStatus === undefined || item.buildStatus === 'ready');
+  if (usable.length === 0) {
     return '';
   }
 
@@ -70,7 +75,7 @@ export function buildKnowledgeBaseSection(items: readonly KnowledgeBaseSectionIt
   const blocks: string[] = [];
   let used = 0;
 
-  for (const item of items) {
+  for (const item of usable) {
     const counts = formatCounts(item.counts);
     const meta = [
       `### ${item.name}（\`${item.slug}\`）`,

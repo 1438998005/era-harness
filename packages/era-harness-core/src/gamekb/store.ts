@@ -14,7 +14,14 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { GameKbEntry, GameKbManifest } from './types.js';
+import type {
+  GameKbBuildMode,
+  GameKbBuildState,
+  GameKbBuildStatus,
+  GameKbEntry,
+  GameKbManifest,
+  GameKbTaskKind,
+} from './types.js';
 
 /** 相对工作区根的固定前缀 */
 export const KB_DIR_PARTS = ['.era-harness', 'knowledge'] as const;
@@ -25,6 +32,8 @@ export const DEFAULT_INDEX_FILE = 'index.md';
 
 const SLUG_RE = /^kb-\d{12}-[a-z0-9]{4}$/;
 const MAX_NAME_CHARS = 60;
+const BUILD_STATUSES: readonly GameKbBuildStatus[] = ['draft', 'building', 'ready', 'failed'];
+// 枚举取值以 types.ts 为准；这里不再重复一份数组（两份必然漂移）
 
 /** `<workspaceRoot>/.era-harness/knowledge` */
 export function knowledgeRoot(workspaceRoot: string): string {
@@ -82,6 +91,100 @@ export function buildIndexSkeleton(name: string): string {
   ].join('\n');
 }
 
+/**
+ * 索引是否只是骨架：一行条目（`- xxx` / `* xxx`）都没有。
+ *
+ * `hasIndex` 在骨架建库时就是 true（#93 的根因之一），所以「可不可用」必须看内容，
+ * 不能看文件是否存在。
+ */
+export function isIndexSkeleton(text: string): boolean {
+  return !text.split(/\r?\n/).some((line) => /^\s*[-*]\s+\S/.test(line));
+}
+
+/**
+ * 判定构建状态：manifest 明确写过就用它；旧库（无 build 字段）按「有分片或索引有条目」兼容。
+ * 旧库不能因为升级后多了一个字段就被判成不可用。
+ */
+export function resolveBuildStatus(
+  manifest: GameKbManifest | null,
+  fileCount: number,
+  indexText: string | null,
+): GameKbBuildStatus {
+  const explicit = manifest?.build?.status;
+  if (explicit) {
+    return explicit;
+  }
+  if (fileCount > 0) {
+    return 'ready';
+  }
+  if (indexText && !isIndexSkeleton(indexText)) {
+    return 'ready';
+  }
+  return 'draft';
+}
+
+/**
+ * 归一 build 块。两件事：
+ *
+ * 1. **枚举校验**：不合法就丢弃（脏数据不能变成事实）；
+ * 2. **3.95.0 → 3.95.1 降级**：那一版把「建库形态」与「任务形态」塞进同一个 `mode`，
+ *    所以老文件里的 `mode:"incremental"` 既可能是空白建库、也可能是续写任务。
+ *    按下表一次性拆开，且**只在读时归一、不主动重写盘**：
+ *
+ *    | 旧 mode | 旧 status | mode | taskKind |
+ *    |---|---|---|---|
+ *    | `blank` | — | blank | — |
+ *    | `full` | — | full | full（缺省） |
+ *    | `update` | — | full | update（缺省） |
+ *    | `incremental` | `draft` | blank | incremental（缺省） |
+ *    | `incremental` | 其他 | full | incremental（缺省） |
+ *
+ * 最后一行需要解释：3.95.0 的开任务也把 `mode` 写成 `incremental`，两者字面完全相同，
+ * 只能靠 `status` 区分——只有 `draft` 才说明“刚建完就没动过”（= 当时选的是空白建库）；
+ * 已有过任务（building/ready/failed）就按完整建库兼容（宁可猜完整，也不要把未知当空白）。
+ */
+function normalizeBuild(input: unknown): GameKbBuildState | undefined {
+  if (!input || typeof input !== 'object') {
+    return undefined;
+  }
+  const record = input as Record<string, unknown>;
+  const status = BUILD_STATUSES.includes(record.status as GameKbBuildStatus)
+    ? (record.status as GameKbBuildStatus)
+    : undefined;
+  if (!status) {
+    return undefined;
+  }
+
+  const rawMode = typeof record.mode === 'string' ? record.mode : undefined;
+  const rawTaskKind = typeof record.taskKind === 'string' ? record.taskKind : undefined;
+
+  const explicitMode: GameKbBuildMode | undefined = rawMode === 'full' || rawMode === 'blank' ? rawMode : undefined;
+  const explicitTaskKind: GameKbTaskKind | undefined =
+    rawTaskKind === 'full' || rawTaskKind === 'update' || rawTaskKind === 'incremental' ? rawTaskKind : undefined;
+
+  // 旧值降级：3.95.0 的 `update` / `incremental` 是任务形态，不是建库形态。
+  // `incremental` 两义，只能看 status：`draft` = 刚建完没动过（空白建库），其余按完整建库兼容。
+  const legacyTaskKind: GameKbTaskKind | undefined =
+    rawMode === 'update' || rawMode === 'incremental' ? rawMode : undefined;
+  const legacyMode: GameKbBuildMode | undefined = legacyTaskKind
+    ? rawMode === 'incremental' && status === 'draft'
+      ? 'blank'
+      : 'full'
+    : undefined;
+  const mode: GameKbBuildMode | undefined = explicitMode ?? legacyMode;
+  const taskKind: GameKbTaskKind | undefined = explicitTaskKind ?? legacyTaskKind;
+
+  return {
+    status,
+    ...(mode ? { mode } : {}),
+    ...(taskKind ? { taskKind } : {}),
+    ...(typeof record.taskId === 'string' && record.taskId ? { taskId: record.taskId } : {}),
+    ...(typeof record.startedAt === 'string' ? { startedAt: record.startedAt } : {}),
+    ...(typeof record.finishedAt === 'string' ? { finishedAt: record.finishedAt } : {}),
+    ...(typeof record.error === 'string' && record.error ? { error: record.error } : {}),
+  };
+}
+
 /** 读 manifest；文件不存在或解析失败都返回 null（设置页据此显示「损坏」） */
 export async function readManifest(dir: string): Promise<GameKbManifest | null> {
   try {
@@ -102,6 +205,7 @@ export async function readManifest(dir: string): Promise<GameKbManifest | null> 
       index: typeof parsed.index === 'string' ? parsed.index : DEFAULT_INDEX_FILE,
       counts: parsed.counts && typeof parsed.counts === 'object' ? parsed.counts : undefined,
       files: Array.isArray(parsed.files) ? parsed.files.filter((f) => f && typeof f.path === 'string') : undefined,
+      build: normalizeBuild(parsed.build),
     };
   } catch {
     return null;
@@ -115,6 +219,33 @@ export async function writeManifest(dir: string, manifest: GameKbManifest): Prom
   const tmp = `${target}.tmp`;
   await fs.writeFile(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   await fs.rename(tmp, target);
+}
+
+/**
+ * 只更新 build 状态（读 → 合并 → 原子写回）。
+ *
+ * 构建状态必须每次落盘：它要跨「窗口重载 / 任务被替换 / 扩展重启」存活，
+ * 不能只活在内存或聊天里（#93）。
+ */
+export async function updateKnowledgeBaseBuild(
+  dir: string,
+  patch: Partial<GameKbBuildState>,
+): Promise<boolean> {
+  const manifest = await readManifest(dir);
+  if (!manifest) {
+    return false;
+  }
+  const status = patch.status ?? manifest.build?.status;
+  if (!status) {
+    return false;
+  }
+  const build: GameKbBuildState = {
+    ...manifest.build,
+    ...patch,
+    status,
+  };
+  await writeManifest(dir, { ...manifest, build });
+  return true;
 }
 
 /** 数一数磁盘上实际有几个分片（不含 index.md 与 kb.json） */
@@ -158,20 +289,21 @@ export async function listKnowledgeBases(workspaceRoot: string): Promise<GameKbE
     const dir = path.join(root, entry.name);
     const manifest = await readManifest(dir);
     const indexFile = manifest?.index ?? DEFAULT_INDEX_FILE;
-    let hasIndex = false;
+    const fileCount = await countShardFiles(dir);
+    let indexText: string | null = null;
     try {
-      await fs.access(path.join(dir, indexFile));
-      hasIndex = true;
+      indexText = await fs.readFile(path.join(dir, indexFile), 'utf8');
     } catch {
-      hasIndex = false;
+      indexText = null;
     }
     out.push({
       slug: entry.name,
       dir,
       manifest,
       broken: manifest === null,
-      fileCount: await countShardFiles(dir),
-      hasIndex,
+      fileCount,
+      hasIndex: indexText !== null,
+      buildStatus: resolveBuildStatus(manifest, fileCount, indexText),
     });
   }
 
@@ -185,6 +317,8 @@ export interface CreateKnowledgeBaseOptions {
   suffix: string;
   gameRoot?: string;
   gameVersion?: string;
+  /** 建库形态：full = 开对话整库构建；blank = 只建空骨架（之后续写） */
+  mode?: GameKbBuildMode;
 }
 
 /** 建库：目录 + kb.json + index.md 骨架。返回 manifest（slug 已生成） */
@@ -206,6 +340,11 @@ export async function createKnowledgeBase(
     enabled: true,
     index: DEFAULT_INDEX_FILE,
     files: [],
+    build: {
+      status: options.mode === 'blank' ? 'draft' : 'building',
+      mode: options.mode ?? 'full',
+      startedAt: stamp,
+    },
   };
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, DEFAULT_INDEX_FILE), buildIndexSkeleton(manifest.name), 'utf8');

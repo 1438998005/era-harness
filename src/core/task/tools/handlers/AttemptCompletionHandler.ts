@@ -3,6 +3,8 @@ import type { ToolUse } from "@core/assistant-message"
 import { getHookModelContext } from "@core/hooks/hook-model-context"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import * as NotificationHook from "@core/hooks/notification-hook"
+import { notifyKnowledgeBaseBuildFinished } from "@core/knowledge/knowledgeBaseBuildTracker"
+import { maybeSuggestKnowledgeBaseIncrement } from "@core/knowledge/knowledgeBaseHint"
 import { formatResponse } from "@core/prompts/responses"
 import { processFilesIntoText } from "@integrations/misc/extract-text"
 import { showSystemNotification } from "@integrations/notifications"
@@ -205,6 +207,22 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 			await config.callbacks.saveCheckpoint(true, completionMessageTs)
 			await addNewChangesFlagToLastCompletionResultMessage()
 			telemetryService.captureTaskCompleted(config.ulid, getTaskCompletionTelemetry(config))
+		}
+
+		// 建库任务完成：把 kb.json.build 置 ready；非建库任务 no-op。
+		// 放在 completion_result 之后、等待用户反馈之前，避免用户点「新任务」时来不及落盘。
+		try {
+			await notifyKnowledgeBaseBuildFinished(config.taskId)
+		} catch (error) {
+			Logger.warn(`[knowledge-base] 完成状态写入失败（已忽略）：${error}`)
+		}
+
+		// 续写的发现入口：本任务真读过工程文件、且工作区里有可用的库时，
+		// 提一句「可以去点续写」。不产生模型调用，每任务最多一次。
+		try {
+			await maybeSuggestKnowledgeBaseIncrement(config)
+		} catch (error) {
+			Logger.warn(`[knowledge-base] 续写提示失败（已忽略）：${error}`)
 		}
 
 		// we already sent completion_result says, an empty string asks relinquishes control over button and field

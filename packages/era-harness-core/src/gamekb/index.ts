@@ -11,7 +11,9 @@
 
 export {
   buildCreatePrompt,
+  buildIncrementPrompt,
   buildUpdatePrompt,
+  type KnowledgeBaseIncrementScope,
   type KnowledgeBasePromptContext,
 } from './prompt.js';
 export {
@@ -25,6 +27,7 @@ export {
   createKnowledgeBase,
   DEFAULT_INDEX_FILE,
   generateSlug,
+  isIndexSkeleton,
   isValidSlug,
   KB_DIR_PARTS,
   KB_TRASH_DIR,
@@ -33,11 +36,22 @@ export {
   listKnowledgeBases,
   readIndexText,
   readManifest,
+  resolveBuildStatus,
   sanitizeName,
   setKnowledgeBaseEnabled,
   slugTimestamp,
   trashKnowledgeBase,
+  updateKnowledgeBaseBuild,
   writeManifest,
   type CreateKnowledgeBaseOptions,
 } from './store.js';
-export type { GameKbEntry, GameKbFileRef, GameKbKind, GameKbManifest } from './types.js';
+export type {
+  GameKbBuildMode,
+  GameKbBuildState,
+  GameKbBuildStatus,
+  GameKbEntry,
+  GameKbFileRef,
+  GameKbKind,
+  GameKbManifest,
+  GameKbTaskKind,
+} from './types.js';

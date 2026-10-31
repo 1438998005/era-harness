@@ -23,6 +23,7 @@ import {
 	knowledgeBaseDir,
 	MAX_INDEX_CHARS_PER_KB,
 	MAX_TOTAL_CHARS,
+	updateKnowledgeBaseBuild,
 	writeManifest,
 } from "@eraharness/gamekb/index"
 import { loadKnowledgeBaseSection } from "../../src/core/knowledge/knowledgeBaseSection"
@@ -115,26 +116,36 @@ test("总量超限后不再展开后续库，并说明原因", () => {
 	assert.ok(section.length < MAX_TOTAL_CHARS + 3000, "总量要有硬上限")
 })
 
-test("端到端：只有「已启用 + 未损坏 + 有索引」的库会被注入", async () => {
+test("端到端：只有「已启用 + 未损坏 + 有索引 + 构建完成」的库会被注入", async () => {
 	await withTempDir(async (root) => {
 		assert.equal(await loadKnowledgeBaseSection(root), "", "没有库时返回空串")
 		assert.equal(await loadKnowledgeBaseSection(undefined), "", "没有工作区时返回空串")
 
-		const manifest = await createKnowledgeBase(root, { name: "eratw 画蛇添足版", now: NOW, suffix: "abcd" })
+		const manifest = await createKnowledgeBase(root, { name: "eratw 画蛇添足版", now: NOW, suffix: "abcd", mode: "full" })
 		const dir = knowledgeBaseDir(root, manifest.slug)
 		await fs.writeFile(path.join(dir, "index.md"), "- @COMBAT — 战斗结算 — ERB/COMBAT.ERB:12\n", "utf8")
 
+		// #93：刚开的完整建库是 building → 半成品不能当知识库注入（否则模型拿着空索引瞎猜）
+		assert.equal(await loadKnowledgeBaseSection(root), "", "构建中的库不注入")
+
+		await updateKnowledgeBaseBuild(dir, { status: "ready" })
 		const enabled = await loadKnowledgeBaseSection(root)
 		assert.ok(enabled.includes("## 专属知识库（参考，不是铁律）"))
 		assert.ok(enabled.includes("@COMBAT"))
 		assert.ok(enabled.includes(manifest.slug))
 
+		// 失败态（中断/报错）同样不注入
+		await updateKnowledgeBaseBuild(dir, { status: "failed", error: "已中断（可继续构建）" })
+		assert.equal(await loadKnowledgeBaseSection(root), "", "上次未完成的库不注入")
+
+		await updateKnowledgeBaseBuild(dir, { status: "ready" })
+
 		// 关掉开关 → 立刻不注入（用户要的就是「载入/不载入」这一个动作）
-		await writeManifest(dir, { ...manifest, enabled: false })
+		await writeManifest(dir, { ...manifest, enabled: false, build: { status: "ready" } })
 		assert.equal(await loadKnowledgeBaseSection(root), "")
 
 		// 索引文件被删 → 不算可用
-		await writeManifest(dir, { ...manifest, enabled: true })
+		await writeManifest(dir, { ...manifest, enabled: true, build: { status: "ready" } })
 		await fs.rm(path.join(dir, "index.md"))
 		assert.equal(await loadKnowledgeBaseSection(root), "")
 	})

@@ -16,6 +16,46 @@
 /** 条目类别（只用于统计与索引分组，不约束 AI 怎么写） */
 export type GameKbKind = "function" | "constant" | "table" | "other"
 
+/**
+ * 构建状态：`draft` = 只有骨架、还没有内容（空白建库刚建库时的状态）；
+ * `building` = 有任务正在写；`ready` = 至少完成过一次构建/续写；`failed` = 中断/失败。
+ *
+ * 注入提示词只认 `ready`——骨架/半成品不能当成可用库（#93）。
+ */
+export type GameKbBuildStatus = "draft" | "building" | "ready" | "failed"
+
+/**
+ * 建库形态（用户在「新建」时选的那个选项）：
+ * - `full` = 完整知识库：开一场对话通读全工程；
+ * - `blank` = 空白知识库：只建空索引骨架，不开对话。
+ *
+ * ⛔ 只由 `createKnowledgeBase` 写。任务不会、也不应该改它——
+ * 否则“这个库当初是完整建还是空白建”就不可知（见 3.95.1 的修正）。
+ */
+export type GameKbBuildMode = "full" | "blank"
+
+/**
+ * 任务形态（开对话时记录）：整库建库 / 全量更新 / 按范围续写。
+ *
+ * 与建库形态**正交**：完整库和空白库都能被任意任务续写，
+ * 所以续写不存在“专属于某种库”的说法（用户 2026-10-31 澄清）。
+ */
+export type GameKbTaskKind = "full" | "update" | "incremental"
+
+export interface GameKbBuildState {
+  status: GameKbBuildStatus
+  /** 建库时的形态（不会被后续任务覆盖） */
+  mode?: GameKbBuildMode
+  /** 最近一次任务的形态 */
+  taskKind?: GameKbTaskKind
+  /** 构建任务号（扩展开对话后回填），失配时可用于判断「任务已被替换」 */
+  taskId?: string
+  startedAt?: string
+  finishedAt?: string
+  /** 失败/中断原因（人话） */
+  error?: string
+}
+
 /** 分片文件引用（由 AI 在收尾时写进 manifest） */
 export interface GameKbFileRef {
   /** 相对知识库目录的路径，如 `functions/combat.md` */
@@ -45,6 +85,8 @@ export interface GameKbManifest {
   index?: string
   counts?: Partial<Record<GameKbKind, number>>
   files?: GameKbFileRef[]
+  /** 构建状态（旧库没有该字段，读时按「有内容即 ready」兼容） */
+  build?: GameKbBuildState
 }
 
 /** 设置页展示用：manifest + 磁盘上的实际情况 */
@@ -59,4 +101,6 @@ export interface GameKbEntry {
   fileCount: number
   /** 索引文件是否存在 */
   hasIndex: boolean
+  /** 构建状态（由 resolveBuildStatus 按 manifest + 磁盘实际内容判定） */
+  buildStatus: GameKbBuildStatus
 }

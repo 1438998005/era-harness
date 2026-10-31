@@ -15,6 +15,7 @@ import {
 	type KnowledgeBaseSectionItem,
 	listKnowledgeBases,
 	readIndexText,
+	resolveBuildStatus,
 } from "@eraharness/gamekb/index"
 import { Logger } from "@shared/services/Logger"
 
@@ -56,6 +57,11 @@ export async function loadKnowledgeBaseSection(cwd: string | undefined): Promise
 			if (!index) {
 				continue
 			}
+			// 只注入 ready：骨架 / 构建中 / 失败的库不能当参考（#93）
+			const buildStatus = resolveBuildStatus(manifest, entry.fileCount, index)
+			if (buildStatus !== "ready") {
+				continue
+			}
 			items.push({
 				name: manifest.name,
 				slug: entry.slug,
@@ -64,6 +70,7 @@ export async function loadKnowledgeBaseSection(cwd: string | undefined): Promise
 				gameVersion: manifest.gameVersion,
 				currentGameVersion,
 				counts: manifest.counts as Record<string, number> | undefined,
+				buildStatus,
 			})
 		}
 

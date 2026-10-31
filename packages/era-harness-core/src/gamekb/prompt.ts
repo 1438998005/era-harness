@@ -1,8 +1,11 @@
 /**
- * 「建库 / 更新库」两段对话的任务提示词。
+ * 知识库的三段任务提示词：建库 / 更新 / 续写。
  *
  * 放在核心库而不是宿主侧：纯字符串函数，能在 node:test 里直接断言约束有没有写全
  * （分片、只写库目录、不抄正文、必须带出处……漏一条就会生成一份没法用的库）。
+ *
+ * 「建库形态」与「任务形态」是两回事：建库只有 full（完整）与 blank（空白）两种，
+ * 而**更新/续写对两种库都适用**，所以这三段提示词里没有任何一处分叉建库形态。
  *
  * 身份块由调用方传入（`src/shared/identity.ts` 的 `UNRESTRICTED_IDENTITY_BLOCK`）：
  * 核心库不认识插件的 shared 层，也不该认识。
@@ -51,6 +54,19 @@ const HARD_RULES = [
   '- 每条都要能追到出处（`相对路径:行号`）。追不到出处的不写；拿不准的标「未确认」，⛔ 不要编。',
   '- 单个分片 ≤ 300 行；`index.md` ≤ 200 行。超了就是分片没切细，回去拆。',
   '- 不要停下来反复向用户确认：信息不足时按现有代码推断并标注「推断」，先做完再汇报。',
+  '- ⛔ 不要调用 use_subagents：建库是写盘任务，子代理只回文本，且会成倍放大开销（实测一次失控 102 元）。直接用主对话读文件、写分片。',
+].join('\n');
+
+/**
+ * 建库/更新的预期管理（#92）：必须在提示词第一屏写给模型看，
+ * 设置页的确认面板是给用户看的，两边文案同源。
+ */
+const EXPECTATION_NOTES = [
+  '## 先读：这是一次长任务',
+  '- ⏱ 完整建库/更新可能持续 30–120 分钟；期间**不要切换模型、不要新开对话**——那会直接中止本任务。',
+  '- 💰 实测：一次失控的完整建库消耗 102 元（5 个子代理，其中一个 1936 次工具调用）。本版已加预算上限，但仍建议先确认余额充足。',
+  '- 🧠 建议使用智能程度高的模型；弱模型写出的分片质量差、更容易半途跑偏。',
+  '- 🧩 这次没跑完？之后可以在设置页点「续写」按范围继续补；空白建库的库也一样能续写。',
 ].join('\n');
 
 const SHARD_RULES = [
@@ -69,6 +85,8 @@ export function buildCreatePrompt(ctx: KnowledgeBasePromptContext): string {
   // 可选行用 null 占位：直接写 '' 再统一过滤会把**所有**空行吃掉，标题就贴着正文了
   const lines: (string | null)[] = [
     ctx.identityBlock,
+    '',
+    EXPECTATION_NOTES,
     '',
     '# 任务：为这个游戏建立「专属知识库」',
     '',
@@ -112,6 +130,91 @@ export function buildCreatePrompt(ctx: KnowledgeBasePromptContext): string {
   return lines.filter((line): line is string => line !== null).join('\n');
 }
 
+/** 续写的范围：要么给一组文件，要么给一个主题 */
+export interface KnowledgeBaseIncrementScope {
+  /** 给人看的一句话范围描述（写进提示词标题） */
+  label: string;
+  /** 本次要处理的相对路径（最多 60 条；传了就不再要求读全工程） */
+  paths?: string[];
+  /** 本次要处理的主题（与 paths 二选一） */
+  topic?: string;
+}
+
+/**
+ * 续写：给已有的库按范围补内容。
+ *
+ * 关键设计（用户 2026-10-31 澄清）：**续写是一个动作，不是某种库的专属能力**——
+ * 完整建库和空白建库的库都能续写，所以本函数**不接收建库形态参数**，
+ * 也不需要知道库当初是怎么建的。产物与完整建库完全一致：
+ *
+ * 1. 复用同一份 `SHARD_RULES` / `HARD_RULES` / `KB_JSON_SCHEMA`（不是另写一份相似的）；
+ * 2. 不重读整个工程——只读范围文件，否则一次续写又会退回完整建库的成本；
+ * 3. 不使用子代理——建库/续写是写盘任务，子代理只回文本，只会放大开销。
+ */
+export function buildIncrementPrompt(
+  ctx: KnowledgeBasePromptContext & { manifest: GameKbManifest; scope: KnowledgeBaseIncrementScope },
+): string {
+  const files = ctx.manifest.files ?? [];
+  const fileList =
+    files.length > 0
+      ? files.map((f) => `  - \`${f.path}\`${f.title ? `（${f.title}）` : ''}`).join('\n')
+      : '  - （`kb.json` 里没有登记分片，请先自己 `ls` 一遍目录）';
+
+  const paths = (ctx.scope.paths ?? []).map((p) => p.trim()).filter((p) => p.length > 0).slice(0, 60);
+  const scopeLines =
+    paths.length > 0
+      ? ['本次只处理这些文件（⛔ 不要扩大到其它目录）：', ...paths.map((p) => `  - \`${p}\``)]
+      : [`本次只处理主题：**${ctx.scope.topic ?? ctx.scope.label}**`];
+
+  const lines: (string | null)[] = [
+    ctx.identityBlock,
+    '',
+    `# 任务：给知识库「${ctx.manifest.name}」续写本次范围的内容`,
+    '',
+    `范围：${ctx.scope.label}`,
+    `知识库目录：\`${ctx.dir}\``,
+    `工作区根：\`${ctx.workspaceRoot}\``,
+    ctx.gameRoot ? `游戏工程根：\`${ctx.gameRoot}\`` : '游戏工程根：请按工作区探测结果自行确认',
+    ctx.gameVersion ? `本次探测到的游戏版本：${ctx.gameVersion}` : null,
+    `库上次更新时间：${ctx.manifest.updatedAt || '未知'}`,
+    '',
+    '## 本次范围',
+    ...scopeLines,
+    '',
+    '## 与「完整建库」相同的产物标准',
+    '本次**不是**另一种格式：产物必须与完整建库完全一致（同一套目录、分片、索引小节、出处规则）。',
+    '**完整建库的库同样可以续写**——建库形态不影响这里的内容标准。',
+    '',
+    SHARD_RULES,
+    '',
+    HARD_RULES,
+    '',
+    '## 先读再写',
+    '1. 读 `index.md`，列出已有条目；',
+    '2. 读已登记的分片，了解现有分片与写法：',
+    fileList,
+    '3. 只读范围内的文件（⛔ 不要为了“补全”而重读整个工程）；',
+    '4. 找出范围内缺失或语义已变化的条目，补进对应分片并回填 `index.md`。',
+    '',
+    '## 不要做的事',
+    '- ⛔ 不要重写/重排范围外的分片——没变化就一个字都不要动；',
+    '- ⛔ 不要重命名分片、不要把分片合并成一个大文件；',
+    '- ⛔ 不要使用 use_subagents；',
+    '- ⛔ 不要在范围外“顺手补几条”——留给下一次续写。',
+    '',
+    '## kb.json',
+    '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `enabled` 保持原样：',
+    KB_JSON_SCHEMA,
+    '',
+    '## 完成标准',
+    '- 范围内每个新增/变化条目都能在分片里找到详解，且带出处；',
+    '- `index.md` 与分片一一对应，没有指向不存在文件的条目；',
+    '- 单个分片 ≤ 300 行；',
+    '- 汇报：新增 N / 修改 M / 本次覆盖范围。',
+  ];
+  return lines.filter((line): line is string => line !== null).join('\n');
+}
+
 /** 更新库 */
 export function buildUpdatePrompt(ctx: KnowledgeBasePromptContext & { manifest: GameKbManifest }): string {
   const files = ctx.manifest.files ?? [];
@@ -122,6 +225,8 @@ export function buildUpdatePrompt(ctx: KnowledgeBasePromptContext & { manifest: 
 
   const lines: (string | null)[] = [
     ctx.identityBlock,
+    '',
+    EXPECTATION_NOTES,
     '',
     `# 任务：按当前工作区更新知识库「${ctx.manifest.name}」`,
     '',

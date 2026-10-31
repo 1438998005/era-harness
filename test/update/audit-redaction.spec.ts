@@ -569,3 +569,73 @@ test("#63 统计口径是包内：头部数字必须能在正文里数出来", (
 		"折叠摘要行仍在包里说明折叠了多少",
 	)
 })
+
+/**
+ * #95（2026-10-31）：子代理的费用行必须能落盘。
+ *
+ * 事故现场：主任务审计只记了 ¥0.09，真正花掉的 ¥102.43 全在子代理里看不见——
+ * 诊断包发给谁都查不出钱花在哪。所以 `AuditEntry` 新增了 `source:"subagent"` 与
+ * `subagentIndex`；两者都要同时进白名单，否则会被 sanitize 静默丢掉（比不写更难查）。
+ */
+test("#95 子代理费用行：source=subagent 与 subagentIndex 能落盘", () => {
+	const line = serializeAuditEntry(
+		{
+			event: "api",
+			action: "usage",
+			tool: "use_subagents",
+			taskId: "1793429640849",
+			turn: 6,
+			provider: "bigmodel",
+			model: "glm-5.3-flash",
+			inputTokens: 293_000,
+			outputTokens: 93_924,
+			cacheReadTokens: 90_000,
+			cacheWriteTokens: 1_200,
+			cost: 96.86300448,
+			source: "subagent",
+			subagentIndex: 2,
+			message: "failed",
+		},
+		1_700_000_000_000,
+	)!
+	const parsed = JSON.parse(line) as Record<string, unknown>
+
+	assert.equal(parsed.event, "api")
+	assert.equal(parsed.source, "subagent", "source 必须是三值之一，否则会被丢弃")
+	assert.equal(parsed.subagentIndex, 2)
+	assert.equal(parsed.tool, "use_subagents")
+	assert.equal(parsed.cost, 96.86300448)
+	assert.equal(parsed.message, "failed")
+})
+
+test("#95 子代理字段的边界：非法 source 丢弃、subagentIndex 取整且不为负", () => {
+	const badSource = JSON.parse(serializeAuditEntry({ event: "api", source: "robot" as never }, 1)!) as Record<string, unknown>
+	assert.equal(badSource.source, undefined, "未知 source 不能落盘")
+
+	const badIndex = JSON.parse(
+		serializeAuditEntry({ event: "api", source: "subagent", subagentIndex: Number.NaN }, 1)!,
+	) as Record<string, unknown>
+	assert.equal("subagentIndex" in badIndex, false, "NaN 不能当索引写进去")
+
+	const rounded = JSON.parse(serializeAuditEntry({ event: "api", source: "subagent", subagentIndex: 3.7 }, 1)!) as Record<
+		string,
+		unknown
+	>
+	assert.equal(rounded.subagentIndex, 4, "索引取整（与 cleanNumber 同口径）")
+})
+
+test("#95 子代理审计同样不能把正文带出去", () => {
+	// 子代理的 prompt/工具结果都是整段正文：这里的纪律与主循环一致——
+	// 只剥「已知的结构化正文块」，自由文本靠 80 字截断 + 脱敏。
+	const line = serializeAuditEntry(
+		{
+			event: "api",
+			tool: "use_subagents",
+			source: "subagent",
+			subagentIndex: 1,
+			message: '子代理输出：<file_content path="ERB/A.ERB">【角色台词】</file_content>',
+		},
+		1,
+	)!
+	assert.equal(line.includes("角色台词"), false, "file_content 正文块必须被剥掉")
+})

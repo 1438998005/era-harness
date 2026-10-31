@@ -1,4 +1,5 @@
 import type { ToolUse } from "@core/assistant-message"
+import { recordAudit } from "@core/logging/auditLog"
 import { formatResponse } from "@core/prompts/responses"
 import {
 	ClineAskUseSubagents,
@@ -7,11 +8,17 @@ import {
 	SubagentStatusItem,
 } from "@shared/ExtensionMessage"
 import { telemetryService } from "@/services/telemetry"
+import {
+	providerSupportsSubagents,
+	resolveSubagentsEnabled,
+	SUBAGENTS_UNAVAILABLE_FREE_PROVIDER_MESSAGE,
+} from "@/shared/subagents"
 import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
 import { showNotificationForApproval } from "../../utils"
 import { AgentConfigLoader } from "../subagent/AgentConfigLoader"
 import { SubagentRunner } from "../subagent/SubagentRunner"
+import { budgetMessage, SUBAGENT_CALL_BUDGET } from "../subagent/subagentBudget"
 import type { IFullyManagedTool } from "../ToolExecutorCoordinator"
 import type { TaskConfig } from "../types/TaskConfig"
 import type { StronglyTypedUIHelpers } from "../types/UIHelpers"
@@ -84,8 +91,29 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 	}
 
 	async execute(config: TaskConfig, block: ToolUse): Promise<ToolResponse> {
-		const subagentsEnabled = config.services.stateManager.getGlobalSettingsKey("subagentsEnabled")
+		// #94：生效值 = 用户开关 ∧ provider 支持。免费模型下工具本来不进提示词，
+		// 这里兵行险着地拦一次（模型可能凭旧上下文强行调用），并给出可读原因。
+		const apiConfig = config.services.stateManager.getApiConfiguration()
+		const currentMode = config.services.stateManager.getGlobalSettingsKey("mode")
+		const provider = (currentMode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
+		const subagentsEnabled = resolveSubagentsEnabled(
+			config.services.stateManager.getGlobalSettingsKey("subagentsEnabled"),
+			provider,
+		)
 		if (!subagentsEnabled) {
+			recordAudit({
+				event: "tool",
+				taskId: config.taskId,
+				turn: config.taskState.apiRequestCount,
+				tool: this.name,
+				outcome: "denied",
+				provider,
+				model: config.api.getModel().id,
+				message: !providerSupportsSubagents(provider) ? "provider=free" : "user-disabled",
+			})
+			if (!providerSupportsSubagents(provider)) {
+				return formatResponse.toolError(SUBAGENTS_UNAVAILABLE_FREE_PROVIDER_MESSAGE)
+			}
 			return formatResponse.toolError("Subagents are disabled. Enable them in Settings > Features to use this tool.")
 		}
 
@@ -104,9 +132,7 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			)
 		}
 
-		const apiConfig = config.services.stateManager.getApiConfiguration()
-		const currentMode = config.services.stateManager.getGlobalSettingsKey("mode")
-		const provider = (currentMode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
+		const modelId = config.api.getModel().id
 		const approvalPayload: ClineAskUseSubagents = { prompts }
 		const approvalBody = JSON.stringify(approvalPayload)
 
@@ -221,6 +247,7 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			void Promise.allSettled(runners.map((runner) => runner.abort()))
 		}, 100)
 
+		let callBudgetExceeded = false
 		const execution = prompts.map((prompt, index) =>
 			runners[index].run(prompt, async (update) => {
 				const current = entries[index]
@@ -251,6 +278,35 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 					current.contextWindow = update.stats.contextWindow || 0
 					current.contextUsagePercentage = update.stats.contextUsagePercentage || 0
 				}
+
+				// 调用级总预算：任一子代理烧钱过快时，把还没跑完的一并停掉。
+				// 单代理预算能拦住 96 元，这一层拦的是「5 个各 3 元」的合计上限。
+				if (!callBudgetExceeded) {
+					const totalCost = entries.reduce((acc, entry) => acc + (entry.totalCost || 0), 0)
+					if (totalCost >= SUBAGENT_CALL_BUDGET.maxTotalCostCny) {
+						callBudgetExceeded = true
+						for (const [entryIndex, entry] of entries.entries()) {
+							if (entry.status === "pending" || entry.status === "running") {
+								entry.status = "failed"
+								entry.error = budgetMessage("callCost")
+								void runners[entryIndex].abort()
+							}
+						}
+						recordAudit({
+							event: "api",
+							action: "usage",
+							tool: "use_subagents",
+							taskId: config.taskId,
+							provider,
+							model: modelId,
+							cost: totalCost,
+							outcome: "error",
+							message: budgetMessage("callCost"),
+							source: "subagent",
+						})
+					}
+				}
+
 				await queueStatusUpdate("running", true)
 			}),
 		)
@@ -270,7 +326,10 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			}
 			entries[index].status = result.value.status
 			entries[index].result = result.value.result
-			entries[index].error = result.value.error
+			// 调用级预算把剩余 runner abort 时，底层返回的是笼统的 cancelled；
+			// 这里改写成可读的总预算原因，否则 UI 看不到「为什么剩下的没跑」。
+			const cancelledByCallBudget = callBudgetExceeded && result.value.status === "failed" && !result.value.budgetReason
+			entries[index].error = cancelledByCallBudget ? budgetMessage("callCost") : result.value.error
 			entries[index].toolCalls = result.value.stats.toolCalls || 0
 			entries[index].inputTokens = result.value.stats.inputTokens || 0
 			entries[index].outputTokens = result.value.stats.outputTokens || 0
@@ -284,10 +343,32 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			usageCacheWrites += result.value.stats.cacheWriteTokens || 0
 			usageCacheReads += result.value.stats.cacheReadTokens || 0
 			usageCost += result.value.stats.totalCost || 0
+
+			// 子代理费用不再只活在 UI 气泡里：落审计才能在任务被中止/窗口重载后对账。
+			recordAudit({
+				event: "api",
+				action: "usage",
+				tool: "use_subagents",
+				taskId: config.taskId,
+				provider,
+				model: modelId,
+				inputTokens: result.value.stats.inputTokens || 0,
+				outputTokens: result.value.stats.outputTokens || 0,
+				cacheReadTokens: result.value.stats.cacheReadTokens || 0,
+				cacheWriteTokens: result.value.stats.cacheWriteTokens || 0,
+				cost: result.value.stats.totalCost || 0,
+				source: "subagent",
+				subagentIndex: entries[index].index,
+				message: entries[index].status,
+			})
 		})
 
 		const failures = entries.filter((entry) => entry.status === "failed").length
-		await queueStatusUpdate(failures > 0 ? "failed" : "completed", false)
+		try {
+			await queueStatusUpdate(failures > 0 ? "failed" : "completed", false)
+		} catch {
+			// 任务已被中止时 say 会抛 Cline instance aborted；费用已落审计，不能让 UI 反噬任务
+		}
 
 		const subagentUsagePayload: ClineSubagentUsageInfo = {
 			source: "subagents",
@@ -297,7 +378,11 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			cacheReads: usageCacheReads,
 			cost: usageCost,
 		}
-		await config.callbacks.say("subagent_usage", JSON.stringify(subagentUsagePayload))
+		try {
+			await config.callbacks.say("subagent_usage", JSON.stringify(subagentUsagePayload))
+		} catch {
+			// 同上：中止后不再让「发费用汇总」把 tool 执行变成异常
+		}
 
 		const successCount = entries.length - failures
 		const totalToolCalls = entries.reduce((acc, entry) => acc + (entry.toolCalls || 0), 0)
@@ -311,6 +396,8 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			`Succeeded: ${successCount}`,
 			`Failed: ${failures}`,
 			`Tool calls: ${totalToolCalls}`,
+			`Total cost: ¥${usageCost.toFixed(2)}`,
+			...(callBudgetExceeded ? [`⚠️ ${budgetMessage("callCost")}`] : []),
 			`Peak context usage: ${maxContextTokens.toLocaleString()} / ${contextWindow.toLocaleString()} (${maxContextUsagePercentage.toFixed(1)}%)`,
 			"",
 			...entries.map((entry) => {

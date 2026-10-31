@@ -7,6 +7,7 @@ import { formatResponse } from "@core/prompts/responses"
 import { PromptRegistry } from "@core/prompts/system-prompt"
 import type { SystemPromptContext } from "@core/prompts/system-prompt/types"
 import { readGlobalMemoryDocument } from "@core/storage/globalMemory"
+import { checkRepeatedToolCall, LOOP_DETECTION_SOFT_THRESHOLD, toolCallSignature } from "@core/task/loop-detection"
 import { StreamResponseHandler } from "@core/task/StreamResponseHandler"
 import { formatGlobalMemoryForPrompt } from "@shared/global-memory"
 import { ClineAssistantToolUseBlock, ClineStorageMessage, ClineTextContentBlock, ClineUserContent } from "@shared/messages"
@@ -25,6 +26,7 @@ import { ToolExecutorCoordinator } from "../ToolExecutorCoordinator"
 import { ToolValidator } from "../ToolValidator"
 import type { TaskConfig } from "../types/TaskConfig"
 import { SubagentBuilder } from "./SubagentBuilder"
+import { budgetMessage, checkSubagentBudget, SUBAGENT_BUDGET, type SubagentBudgetReason } from "./subagentBudget"
 
 const MAX_EMPTY_ASSISTANT_RETRIES = 3
 const MAX_INITIAL_STREAM_ATTEMPTS = 3
@@ -37,6 +39,8 @@ export interface SubagentRunResult {
 	result?: string
 	error?: string
 	stats: SubagentRunStats
+	/** 因预算/超时中止时带上原因，供 UI 标记 */
+	budgetReason?: SubagentBudgetReason
 }
 
 interface SubagentProgressUpdate {
@@ -236,6 +240,13 @@ export class SubagentRunner {
 	private abortRequested = false
 	private activeCommandExecutions = 0
 	private abortingCommands = false
+	/** 预算/超时原因：一旦设置，所有退出路径都返回可读原因而不是笼统的 cancelled */
+	private budgetReason: SubagentBudgetReason | undefined
+	private turnCount = 0
+	private startedAt = 0
+	private lastChunkAt = 0
+	/** 只有「正在等 API chunk」时才允许空闲看门狗开火；工具执行耗时长不算卡死 */
+	private awaitingChunk = false
 
 	constructor(
 		private baseConfig: TaskConfig,
@@ -296,6 +307,11 @@ export class SubagentRunner {
 
 	async run(prompt: string, onProgress: (update: SubagentProgressUpdate) => void): Promise<SubagentRunResult> {
 		this.abortRequested = false
+		this.budgetReason = undefined
+		this.turnCount = 0
+		this.startedAt = Date.now()
+		this.lastChunkAt = this.startedAt
+		this.awaitingChunk = false
 		const state = new TaskState()
 		let emptyAssistantResponseRetries = 0
 		const contextState: SubagentContextState = {}
@@ -317,11 +333,26 @@ export class SubagentRunner {
 
 		onProgress({ status: "running", stats })
 
+		let idleWatchdog: ReturnType<typeof setInterval> | undefined
+
 		try {
 			const mode = this.baseConfig.services.stateManager.getGlobalSettingsKey("mode")
 			const apiConfiguration = this.baseConfig.services.stateManager.getApiConfiguration()
 			const api = this.apiHandler
 			this.activeApiAbort = api.abort?.bind(api)
+
+			// 空闲看门狗：只在「等 API chunk」时生效；工具执行耗时长不算卡死。
+			// 一旦空闲超限，先记原因再 abort，保证退出路径能给出可读文案。
+			idleWatchdog = setInterval(() => {
+				if (!this.awaitingChunk) {
+					return
+				}
+				if (Date.now() - this.lastChunkAt <= SUBAGENT_BUDGET.maxIdleMs) {
+					return
+				}
+				this.budgetReason = this.budgetReason ?? "idle"
+				void this.abort()
+			}, 5_000)
 
 			const providerId = (
 				mode === "plan" ? apiConfiguration.planModeApiProvider : apiConfiguration.actModeApiProvider
@@ -419,6 +450,13 @@ export class SubagentRunner {
 			]
 
 			while (true) {
+				this.turnCount += 1
+				const preTurnBudget = this.checkBudget(stats)
+				if (preTurnBudget) {
+					const error = budgetMessage(preTurnBudget)
+					onProgress({ status: "failed", error, stats: { ...stats } })
+					return { status: "failed", error, stats, budgetReason: preTurnBudget }
+				}
 				if (
 					usageState.lastRequest &&
 					this.shouldCompactBeforeNextRequest(usageState.lastRequest.totalTokens, api, providerInfo.model.id)
@@ -456,7 +494,10 @@ export class SubagentRunner {
 					contextState,
 				)
 
+				this.awaitingChunk = true
+				this.lastChunkAt = Date.now()
 				for await (const chunk of stream) {
+					this.lastChunkAt = Date.now()
 					switch (chunk.type) {
 						case "usage":
 							requestId = requestId ?? chunk.id
@@ -504,11 +545,17 @@ export class SubagentRunner {
 
 					if (this.shouldAbort()) {
 						await this.abort()
-						const error = "Subagent run cancelled."
-						onProgress({ status: "failed", error, stats: { ...stats } })
-						return { status: "failed", error, stats }
+						const cancelledError = this.budgetReason ? budgetMessage(this.budgetReason) : "Subagent run cancelled."
+						onProgress({ status: "failed", error: cancelledError, stats: { ...stats } })
+						return {
+							status: "failed",
+							error: cancelledError,
+							stats,
+							...(this.budgetReason ? { budgetReason: this.budgetReason } : {}),
+						}
 					}
 				}
+				this.awaitingChunk = false
 
 				const calculatedRequestCost =
 					requestUsage.totalCost ??
@@ -526,6 +573,13 @@ export class SubagentRunner {
 					requestUsage.cacheReadTokens
 				stats.totalCost += calculatedRequestCost || 0
 				usageState.lastRequest = { ...requestUsage }
+
+				const postRequestBudget = this.checkBudget(stats)
+				if (postRequestBudget) {
+					const error = budgetMessage(postRequestBudget)
+					onProgress({ status: "failed", error, stats: { ...stats } })
+					return { status: "failed", error, stats, budgetReason: postRequestBudget }
+				}
 
 				const nativeFinalizedToolCalls = toolUseHandler.getAllFinalizedToolUses().map((toolCall, index) => ({
 					toolUseId: resolveToolUseId(toolCall, index),
@@ -636,6 +690,18 @@ export class SubagentRunner {
 						continue
 					}
 
+					// 与主循环同一套循环检测：子代理此前直接调 handler，绕过了 ToolExecutor，
+					// 于是「同一文件反复读」永远不会熔断（2026-10-31 事故 1936 次工具调用）。
+					const callSignature = toolCallSignature(toolCallParams, toolName)
+					const loopCheck = checkRepeatedToolCall(state, toolName, callSignature)
+					state.lastToolName = toolName
+					state.lastToolParams = callSignature
+					if (loopCheck.hardEscalation) {
+						const error = `子代理已中止：检测到重复调用 ${toolName} 且参数完全相同（窗口内 ${loopCheck.windowCount} 次），继续只会烧钱。`
+						onProgress({ status: "failed", error, stats: { ...stats } })
+						return { status: "failed", error, stats }
+					}
+
 					const toolCallBlock: ToolUse = {
 						type: "tool_use",
 						name: toolName,
@@ -670,9 +736,19 @@ export class SubagentRunner {
 					stats.toolCalls += 1
 					onProgress({ stats: { ...stats } })
 
+					const postToolBudget = this.checkBudget(stats)
+					if (postToolBudget) {
+						const error = budgetMessage(postToolBudget)
+						onProgress({ status: "failed", error, stats: { ...stats } })
+						return { status: "failed", error, stats, budgetReason: postToolBudget }
+					}
+
 					const serializedToolResult = serializeToolResult(toolResult)
+					const loopWarning = loopCheck.softWarning
+						? `[loop warning] 同一调用（${toolName}）在最近窗口中重复了 ${Math.max(loopCheck.windowCount, LOOP_DETECTION_SOFT_THRESHOLD)} 次。不要继续重复；用已有内容作答，或换参数/换文件。\n\n`
+						: ""
 					const toolDescription = handler?.getDescription(toolCallBlock) || `[${toolName}]`
-					pushSubagentToolResultBlock(toolResultBlocks, call, toolDescription, serializedToolResult)
+					pushSubagentToolResultBlock(toolResultBlocks, call, toolDescription, `${loopWarning}${serializedToolResult}`)
 				}
 
 				conversation.push({
@@ -683,6 +759,11 @@ export class SubagentRunner {
 				await delay(0)
 			}
 		} catch (error) {
+			if (this.budgetReason) {
+				const budgetError = budgetMessage(this.budgetReason)
+				onProgress({ status: "failed", error: budgetError, stats: { ...stats } })
+				return { status: "failed", error: budgetError, stats, budgetReason: this.budgetReason }
+			}
 			if (this.shouldAbort()) {
 				const cancelledError = "Subagent run cancelled."
 				onProgress({ status: "failed", error: cancelledError, stats: { ...stats } })
@@ -694,7 +775,55 @@ export class SubagentRunner {
 			onProgress({ status: "failed", error: errorText, stats: { ...stats } })
 			return { status: "failed", error: errorText, stats }
 		} finally {
+			if (idleWatchdog) {
+				clearInterval(idleWatchdog)
+			}
+			this.awaitingChunk = false
 			this.activeApiAbort = undefined
+		}
+	}
+
+	/** 当前预算快照 → 超标原因；每轮/每次工具后都调一次，保证不会多跑一步 */
+	private checkBudget(stats: SubagentRunStats): SubagentBudgetReason | undefined {
+		const now = Date.now()
+		return checkSubagentBudget({
+			turns: this.turnCount,
+			toolCalls: stats.toolCalls,
+			costCny: stats.totalCost,
+			elapsedMs: now - this.startedAt,
+			// 只在「等 chunk」时算空闲；工具执行耗时长不应被判成卡死
+			idleMs: this.awaitingChunk ? now - this.lastChunkAt : 0,
+		})
+	}
+
+	/**
+	 * 等一个 chunk 最多 maxIdleMs；超时就 abort 并抛错。
+	 *
+	 * 只靠 `api.abort()` 不够——底层 HTTP 流若不响应 abort，`for await` 会永久挂起
+	 * （2026-10-31 实测卡了 93 分钟）。Promise.race 保证即使底层 promise 永不 settle，
+	 * 子代理也能在 90 秒后退出。
+	 */
+	private async withIdleTimeout<T>(promise: Promise<T>): Promise<T> {
+		let timer: ReturnType<typeof setTimeout> | undefined
+		try {
+			return await Promise.race([
+				promise,
+				new Promise<T>((_resolve, reject) => {
+					timer = setTimeout(() => {
+						this.budgetReason = this.budgetReason ?? "idle"
+						try {
+							this.activeApiAbort?.()
+						} catch {
+							// abort 失败不影响判定：下面直接抛错退出
+						}
+						reject(new Error(budgetMessage("idle")))
+					}, SUBAGENT_BUDGET.maxIdleMs)
+				}),
+			])
+		} finally {
+			if (timer) {
+				clearTimeout(timer)
+			}
 		}
 	}
 
@@ -848,14 +977,23 @@ export class SubagentRunner {
 			const iterator = stream[Symbol.asyncIterator]()
 
 			try {
-				const firstChunk = await iterator.next()
+				const firstChunk = await this.withIdleTimeout(iterator.next())
 				if (!firstChunk.done) {
 					yield firstChunk.value
 				}
 
-				yield* iterator
-				return
+				while (true) {
+					const next = await this.withIdleTimeout(iterator.next())
+					if (next.done) {
+						return
+					}
+					yield next.value
+				}
 			} catch (error) {
+				// 预算/超时导致的异常不再重试——重试只会继续烧钱
+				if (this.budgetReason) {
+					throw error
+				}
 				if (checkContextWindowExceededError(error)) {
 					const compactResult = this.compactConversationForContextWindow(
 						contextManager,
@@ -874,6 +1012,7 @@ export class SubagentRunner {
 
 				const shouldRetry =
 					!this.shouldAbort() &&
+					!this.budgetReason &&
 					attempt < MAX_INITIAL_STREAM_ATTEMPTS &&
 					this.shouldRetryInitialStreamError(error, providerId, modelId)
 				if (!shouldRetry) {

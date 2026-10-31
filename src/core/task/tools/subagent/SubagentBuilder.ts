@@ -30,6 +30,8 @@ When it makes sense, be clever about chaining commands or in-command scripting i
 Do not run commands that modify files or system state.
 When you have a comprehensive answer, call the attempt_completion tool.
 The attempt_completion result field is sent directly to the main agent, so put your full final findings there.
+Stop exploring as soon as you can answer; do not read more than ~30 files.
+If you find yourself reading the same file or directory repeatedly, stop and report what you have.
 Unless the subagent prompt explicitly asks for detailed analysis, keep the result concise and focus on the files the main agent should read next.
 Include a section titled "Relevant file paths" and list only file paths, one per line.
 Do not include line numbers, summaries, or per-file explanations unless explicitly requested.
