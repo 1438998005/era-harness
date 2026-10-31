@@ -74,7 +74,7 @@ UltraPlan 执行，A–I 九组全部完成。
 | `npm run package` | 通过 |
 | `npm run vsix` | `era-harness-3.94.0.vsix`，**51 文件 / 7.84 MB**，无 HANDOFF/AGENTS |
 
-SHA256：`61d7ecadcde5e83353ab1bdebe5bd7c7ebb1f825ecc17cea1c233bf48e27d546`
+SHA256：`92fbe0549babc151c57c2206f1b5a82de51ce1c7ef27a0c6e16c38361f03e7da`（3.94.0 已发布到 jihulab，`check-jihulab-release.mjs` 全部通过）
 
 ## 未完成
 
