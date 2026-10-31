@@ -29,6 +29,14 @@ export const KB_DIR_PARTS = ['.era-harness', 'knowledge'] as const;
 export const KB_TRASH_DIR = '.trash';
 /** 索引文件名（manifest.index 缺省值） */
 export const DEFAULT_INDEX_FILE = 'index.md';
+/**
+ * 构建状态的**事实源**（宿主独占）。
+ *
+ * 为什么不放在 `kb.json` 里：模型写盘是「整篇覆盖」，按 `KB_JSON_SCHEMA` 重写一次
+ * 就会把 `build` 整块抹掉（或反过来自己写个 `ready` 把半成品洗成可用库）。
+ * `kb.json` 里仍保留一份 `build` 镜像只为兼容旧版本读取，**读盘一律以本文件为准**。
+ */
+export const BUILD_STATE_FILE = 'build.json';
 
 const SLUG_RE = /^kb-\d{12}-[a-z0-9]{4}$/;
 const MAX_NAME_CHARS = 60;
@@ -92,18 +100,43 @@ export function buildIndexSkeleton(name: string): string {
 }
 
 /**
- * 索引是否只是骨架：一行条目（`- xxx` / `* xxx`）都没有。
+ * 索引是否只是骨架：除标题、空行、引用块、分隔线之外，没有任何正文。
+ *
+ * 判据不能只看「有没有 `- ` 列表项」——模型完全可能用表格或有序列表写索引，
+ * 那样会被误判成骨架，进而把有内容的库当成零产出（见 `resolveBuildStatus`）。
  *
  * `hasIndex` 在骨架建库时就是 true（#93 的根因之一），所以「可不可用」必须看内容，
  * 不能看文件是否存在。
  */
 export function isIndexSkeleton(text: string): boolean {
-  return !text.split(/\r?\n/).some((line) => /^\s*[-*]\s+\S/.test(line));
+  return !text.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return false; // 空行
+    }
+    if (trimmed.startsWith('#')) {
+      return false; // 标题
+    }
+    if (trimmed.startsWith('>')) {
+      return false; // 引用块（骨架里的说明文字）
+    }
+    if (/^-{3,}$/.test(trimmed)) {
+      return false; // 分隔线
+    }
+    if (/^[-*+]\s*$/.test(trimmed)) {
+      return false; // 空列表项
+    }
+    return true;
+  });
 }
 
 /**
  * 判定构建状态：manifest 明确写过就用它；旧库（无 build 字段）按「有分片或索引有条目」兼容。
  * 旧库不能因为升级后多了一个字段就被判成不可用。
+ *
+ * ⚠️ `ready` 必须**先取证**：模型喊一声 `attempt_completion` 不代表真写了东西。
+ * 零产出（没有分片、索引还是骨架）说明「跑完了但什么都没留下」，降级成 `failed`——
+ * 用 `failed` 而不是 `draft`，因为 `draft` 是「刚建完还没跑」，这里是「跑过但白跑」。
  */
 export function resolveBuildStatus(
   manifest: GameKbManifest | null,
@@ -111,6 +144,9 @@ export function resolveBuildStatus(
   indexText: string | null,
 ): GameKbBuildStatus {
   const explicit = manifest?.build?.status;
+  if (explicit === 'ready' && fileCount === 0 && (!indexText || isIndexSkeleton(indexText))) {
+    return 'failed';
+  }
   if (explicit) {
     return explicit;
   }
@@ -185,6 +221,56 @@ function normalizeBuild(input: unknown): GameKbBuildState | undefined {
   };
 }
 
+/**
+ * 读构建状态 sidecar。不存在 / 解析失败 / 枚举不合法都返回 `undefined`，
+ * 由调用方回退到 `kb.json.build`（存量库）或按内容推断。
+ */
+export async function readBuildState(dir: string): Promise<GameKbBuildState | undefined> {
+  try {
+    const raw = await fs.readFile(path.join(dir, BUILD_STATE_FILE), 'utf8');
+    return normalizeBuild(JSON.parse(raw));
+  } catch {
+    return undefined;
+  }
+}
+
+/** 写构建状态 sidecar（先写临时文件再 rename，同 `writeManifest` 的原子性） */
+export async function writeBuildState(dir: string, build: GameKbBuildState): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  const target = path.join(dir, BUILD_STATE_FILE);
+  const tmp = `${target}.tmp`;
+  await fs.writeFile(tmp, `${JSON.stringify(build, null, 2)}\n`, 'utf8');
+  await fs.rename(tmp, target);
+}
+
+/**
+ * 按目录串行化的写队列（#103）。
+ *
+ * `updateKnowledgeBaseBuild` 是「读 → 合并 → 写」，两个写者并发时后写会覆盖前写；
+ * 典型现场是用户点「停止」与 `attempt_completion` 几乎同时到达，`failed` / `ready`
+ * 谁赢变成抛硬币，注入门禁也就跟着不稳定。
+ */
+const buildWriteQueues = new Map<string, Promise<unknown>>();
+
+function queueBuildWrite<T>(dir: string, task: () => Promise<T>): Promise<T> {
+  const key = path.resolve(dir);
+  const previous = buildWriteQueues.get(key) ?? Promise.resolve();
+  // 用 then(task, task)：前一个写失败也要继续跑，否则一次异常会卡死整条链
+  const next = previous.then(task, task);
+  const tail = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  buildWriteQueues.set(key, tail);
+  void tail.then(() => {
+    // 只有自己仍是链尾时才清理，避免误删后加入的写操作
+    if (buildWriteQueues.get(key) === tail) {
+      buildWriteQueues.delete(key);
+    }
+  });
+  return next;
+}
+
 /** 读 manifest；文件不存在或解析失败都返回 null（设置页据此显示「损坏」） */
 export async function readManifest(dir: string): Promise<GameKbManifest | null> {
   try {
@@ -193,6 +279,8 @@ export async function readManifest(dir: string): Promise<GameKbManifest | null> 
     if (!parsed || typeof parsed !== 'object' || typeof parsed.slug !== 'string') {
       return null;
     }
+    // 事实源是 sidecar；`kb.json.build` 只在没有 sidecar 的存量库里兜底
+    const sidecar = await readBuildState(dir);
     return {
       schemaVersion: 1,
       slug: parsed.slug,
@@ -205,47 +293,130 @@ export async function readManifest(dir: string): Promise<GameKbManifest | null> 
       index: typeof parsed.index === 'string' ? parsed.index : DEFAULT_INDEX_FILE,
       counts: parsed.counts && typeof parsed.counts === 'object' ? parsed.counts : undefined,
       files: Array.isArray(parsed.files) ? parsed.files.filter((f) => f && typeof f.path === 'string') : undefined,
-      build: normalizeBuild(parsed.build),
+      build: sidecar ?? normalizeBuild(parsed.build),
     };
   } catch {
     return null;
   }
 }
 
-/** 写 manifest（先写临时文件再 rename：中途崩掉不会留下半个 JSON） */
+/**
+ * 写 manifest（先写临时文件再 rename：中途崩掉不会留下半个 JSON）。
+ *
+ * `build` 仍写进 `kb.json`：旧版本（3.95.1 及以前）只认这个字段，保留镜像不会让它们
+ * 读到一个没有构建状态的库。同时镜像一份到 sidecar，保证「第一次写完就有事实源」。
+ */
 export async function writeManifest(dir: string, manifest: GameKbManifest): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   const target = path.join(dir, 'kb.json');
   const tmp = `${target}.tmp`;
   await fs.writeFile(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   await fs.rename(tmp, target);
+  if (manifest.build) {
+    await writeBuildState(dir, manifest.build);
+  }
 }
 
 /**
- * 只更新 build 状态（读 → 合并 → 原子写回）。
+ * 只更新 build 状态。⚠️ **只写 sidecar，绝不重写 `kb.json`**。
  *
- * 构建状态必须每次落盘：它要跨「窗口重载 / 任务被替换 / 扩展重启」存活，
- * 不能只活在内存或聊天里（#93）。
+ * 以前这里是「读 kb.json → 合并 → 写回」：模型正在用 `write_to_file` 整篇写同一个文件，
+ * 两边并发就会互相覆盖——宿主这一次写回会把模型刚写的 `files` / `counts` 抹掉，
+ * 模型下一次整篇重写又会把 `build` 抹掉。状态搬进 sidecar 之后，这条冲突从根上消失。
+ *
+ * 构建状态必须每次落盘：它要跨「窗口重载 / 任务被替换 / 扩展重启」存活（#93）。
  */
 export async function updateKnowledgeBaseBuild(
   dir: string,
   patch: Partial<GameKbBuildState>,
 ): Promise<boolean> {
+  return queueBuildWrite(dir, async () => {
+    // 读 kb.json 只为拿「没有 sidecar 的存量库」的旧 build；写只落 sidecar
+    const manifest = await readManifest(dir);
+    if (!manifest) {
+      return false;
+    }
+    const current = manifest.build;
+    const status = patch.status ?? current?.status;
+    if (!status) {
+      return false;
+    }
+    // 过期写入丢弃：任务已被替换后，旧任务迟到的终态不能盖掉新任务的状态。
+    // `building` 永远接受——那是新任务开工，taskId 本来就和存量不同。
+    if (patch.status !== 'building' && patch.taskId && current?.taskId && patch.taskId !== current.taskId) {
+      return false;
+    }
+    const build: GameKbBuildState = {
+      ...current,
+      ...patch,
+      status,
+    };
+    await writeBuildState(dir, build);
+    return true;
+  });
+}
+
+export interface FinalizeBuildOptions {
+  /** 收尾的任务号；用于和 sidecar 里的 taskId 比对，丢弃迟到写入 */
+  taskId?: string;
+  /** 有值就直接判失败（调用方已经知道出错原因） */
+  error?: string;
+}
+
+/**
+ * 建库任务收尾：**先取证再定状态**（#96）。
+ *
+ * 之前是「没传 error 就当成功」，于是模型喊一声 `attempt_completion`、一个分片都没写，
+ * 库也会变 `ready` 并被注入后续对话。这里改成看磁盘：零产出 → `failed`。
+ */
+export async function finalizeKnowledgeBaseBuild(
+  dir: string,
+  options: FinalizeBuildOptions = {},
+): Promise<GameKbBuildStatus | null> {
   const manifest = await readManifest(dir);
   if (!manifest) {
-    return false;
+    return null;
   }
-  const status = patch.status ?? manifest.build?.status;
-  if (!status) {
-    return false;
+  const finishedAt = new Date().toISOString();
+  const taskIdPatch = options.taskId ? { taskId: options.taskId } : {};
+
+  if (options.error) {
+    await updateKnowledgeBaseBuild(dir, {
+      status: 'failed',
+      finishedAt,
+      error: options.error,
+      ...taskIdPatch,
+    });
+    return 'failed';
   }
-  const build: GameKbBuildState = {
-    ...manifest.build,
-    ...patch,
-    status,
-  };
-  await writeManifest(dir, { ...manifest, build });
-  return true;
+
+  const fileCount = await countShardFiles(dir);
+  const indexFile = manifest.index ?? DEFAULT_INDEX_FILE;
+  let indexText: string | null = null;
+  try {
+    indexText = await fs.readFile(path.join(dir, indexFile), 'utf8');
+  } catch {
+    indexText = null;
+  }
+
+  const produced = fileCount > 0 || Boolean(indexText && !isIndexSkeleton(indexText));
+  if (!produced) {
+    await updateKnowledgeBaseBuild(dir, {
+      status: 'failed',
+      finishedAt,
+      error: '构建结束但没有任何产出（模型可能提前收尾）',
+      ...taskIdPatch,
+    });
+    return 'failed';
+  }
+
+  await updateKnowledgeBaseBuild(dir, {
+    status: 'ready',
+    finishedAt,
+    error: undefined,
+    ...taskIdPatch,
+  });
+  return 'ready';
 }
 
 /** 数一数磁盘上实际有几个分片（不含 index.md 与 kb.json） */

@@ -58,6 +58,11 @@ export async function getKnowledgeBases(_controller: Controller, _request: Empty
 				buildError = "上次构建未完成（窗口已重载或任务被替换）"
 			}
 		}
+		// #96：`ready` 但零产出会被 resolveBuildStatus 降级成 failed。
+		// 红标必须给出原因，否则用户只知道「坏了」却不知道该重建还是该续写。
+		if (buildStatus === "failed" && !buildError && entry.fileCount === 0) {
+			buildError = "上次构建没有任何产出（模型可能提前收尾），需要重新构建"
+		}
 		return {
 			slug: entry.slug,
 			name: manifest?.name ?? entry.slug,

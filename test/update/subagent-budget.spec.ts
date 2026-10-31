@@ -23,7 +23,7 @@ import {
 } from "../../src/core/task/tools/subagent/subagentBudget"
 
 function snapshot(overrides: Partial<SubagentBudgetSnapshot> = {}): SubagentBudgetSnapshot {
-	return { turns: 0, toolCalls: 0, costCny: 0, elapsedMs: 0, idleMs: 0, ...overrides }
+	return { turns: 0, toolCalls: 0, costCny: 0, totalTokens: 0, elapsedMs: 0, idleMs: 0, ...overrides }
 }
 
 test("#95 全 0 不触发（第一轮不能被自己的预算拦下来）", () => {
@@ -95,14 +95,39 @@ test("#95 事故量级确实会触发：1936 次工具 / ¥96.86 / 93 分钟三�
 	assert.equal(checkSubagentBudget({ ...incident, elapsedMs: 60_000, turns: 5, toolCalls: 5 }), "cost")
 })
 
+test("#98 价格未知（cost 恒 0）时按 token 兜底：套餐 provider 的止损不能失效", () => {
+	// 套餐 provider 把价格全置 0，`chunk.totalCost` 返回的是 0（不是 undefined），
+	// `??` 不会回退到计价公式 → cost / callCost 两个分支永不触发，只剩 token 这道闸
+	assert.equal(
+		checkSubagentBudget(snapshot({ costCny: 0, totalTokens: SUBAGENT_BUDGET.maxTotalTokens })),
+		undefined,
+		"等于阈值不算超",
+	)
+	assert.equal(checkSubagentBudget(snapshot({ costCny: 0, totalTokens: SUBAGENT_BUDGET.maxTotalTokens + 1 })), "tokens")
+
+	// 有单价时**不**启用 token 兜底：正常任务不该因为用量大被误杀
+	assert.equal(checkSubagentBudget(snapshot({ costCny: 0.01, totalTokens: SUBAGENT_BUDGET.maxTotalTokens + 1 })), undefined)
+})
+
+test("#98 费用优先于 token：有单价时报告的是「费用超了」而不是「用量超了」", () => {
+	assert.equal(
+		checkSubagentBudget(
+			snapshot({ costCny: SUBAGENT_BUDGET.maxCostCny + 1, totalTokens: SUBAGENT_BUDGET.maxTotalTokens + 1 }),
+		),
+		"cost",
+	)
+})
+
 test("#95 单次调用总预算单独存在（¥10），不与单子代理 ¥3 混用", () => {
 	assert.ok(SUBAGENT_CALL_BUDGET.maxTotalCostCny > SUBAGENT_BUDGET.maxCostCny, "总预算必须大于单个上限，否则多子代理没意义")
 	// 5 个子代理各刚好 ¥3 → 合计 ¥15 > ¥10，必须由调用期预算拦下（不是单个预算）
 	assert.ok(SUBAGENT_BUDGET.maxCostCny * 5 > SUBAGENT_CALL_BUDGET.maxTotalCostCny)
+	// token 兜底同理：调用级上限必须大于单个上限
+	assert.ok(SUBAGENT_CALL_BUDGET.maxTotalTokens > SUBAGENT_BUDGET.maxTotalTokens)
 })
 
 test("#95 文案带当前阈值（改常量后文案不能撒谎）", () => {
-	const reasons = ["wall", "idle", "turns", "toolCalls", "cost", "callCost"] as const
+	const reasons = ["wall", "idle", "turns", "toolCalls", "cost", "tokens", "callTokens", "callCost"] as const
 	for (const reason of reasons) {
 		const message = budgetMessage(reason)
 		assert.ok(message.length > 0, `${reason} 必须有文案`)
@@ -114,5 +139,7 @@ test("#95 文案带当前阈值（改常量后文案不能撒谎）", () => {
 	assert.ok(budgetMessage("turns").includes(String(SUBAGENT_BUDGET.maxTurns)))
 	assert.ok(budgetMessage("toolCalls").includes(String(SUBAGENT_BUDGET.maxToolCalls)))
 	assert.ok(budgetMessage("cost").includes(String(SUBAGENT_BUDGET.maxCostCny)))
+	assert.ok(budgetMessage("tokens").includes(String(SUBAGENT_BUDGET.maxTotalTokens)))
+	assert.ok(budgetMessage("callTokens").includes(String(SUBAGENT_CALL_BUDGET.maxTotalTokens)))
 	assert.ok(budgetMessage("callCost").includes(String(SUBAGENT_CALL_BUDGET.maxTotalCostCny)))
 })

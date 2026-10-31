@@ -17,8 +17,8 @@ import { ClineDefaultTool } from "@/shared/tools"
 import type { ToolResponse } from "../../index"
 import { showNotificationForApproval } from "../../utils"
 import { AgentConfigLoader } from "../subagent/AgentConfigLoader"
-import { SubagentRunner } from "../subagent/SubagentRunner"
-import { budgetMessage, SUBAGENT_CALL_BUDGET } from "../subagent/subagentBudget"
+import { SubagentRunner, type SubagentRunResult } from "../subagent/SubagentRunner"
+import { budgetMessage, SUBAGENT_BUDGET, SUBAGENT_CALL_BUDGET } from "../subagent/subagentBudget"
 import type { IFullyManagedTool } from "../ToolExecutorCoordinator"
 import type { TaskConfig } from "../types/TaskConfig"
 import type { StronglyTypedUIHelpers } from "../types/UIHelpers"
@@ -91,6 +91,12 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 	}
 
 	async execute(config: TaskConfig, block: ToolUse): Promise<ToolResponse> {
+		// #100：子代理不能再开子代理。每层各有一份预算，嵌套一层就把上限翻一倍。
+		// 默认允许工具集里本来就没有 use_subagents，这里拦的是「用户在自定义 agent 里显式配了」的情况。
+		if (config.isSubagentExecution) {
+			return formatResponse.toolError("子代理不能再开子代理：每层各有一份预算会让开销成倍放大。需要并行请回到主对话调用。")
+		}
+
 		// #94：生效值 = 用户开关 ∧ provider 支持。免费模型下工具本来不进提示词，
 		// 这里兵行险着地拦一次（模型可能凭旧上下文强行调用），并给出可读原因。
 		const apiConfig = config.services.stateManager.getApiConfiguration()
@@ -247,7 +253,33 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			void Promise.allSettled(runners.map((runner) => runner.abort()))
 		}, 100)
 
-		let callBudgetExceeded = false
+		/** 调用级预算被触发的原因；undefined = 没触发 */
+		let callBudgetReason: "callCost" | "callTokens" | undefined
+		/** 调用级预算超限：把还没跑完的一并标失败并 abort */
+		const abortRemaining = (reason: "callCost" | "callTokens", totalCost: number) => {
+			callBudgetReason = reason
+			const message = budgetMessage(reason)
+			for (const [entryIndex, entry] of entries.entries()) {
+				if (entry.status === "pending" || entry.status === "running") {
+					entry.status = "failed"
+					entry.error = message
+					void runners[entryIndex].abort()
+				}
+			}
+			recordAudit({
+				event: "api",
+				action: "usage",
+				tool: "use_subagents",
+				taskId: config.taskId,
+				provider,
+				model: modelId,
+				cost: totalCost,
+				outcome: "error",
+				message,
+				source: "subagent",
+			})
+		}
+
 		const execution = prompts.map((prompt, index) =>
 			runners[index].run(prompt, async (update) => {
 				const current = entries[index]
@@ -281,29 +313,19 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 
 				// 调用级总预算：任一子代理烧钱过快时，把还没跑完的一并停掉。
 				// 单代理预算能拦住 96 元，这一层拦的是「5 个各 3 元」的合计上限。
-				if (!callBudgetExceeded) {
+				if (!callBudgetReason) {
 					const totalCost = entries.reduce((acc, entry) => acc + (entry.totalCost || 0), 0)
 					if (totalCost >= SUBAGENT_CALL_BUDGET.maxTotalCostCny) {
-						callBudgetExceeded = true
-						for (const [entryIndex, entry] of entries.entries()) {
-							if (entry.status === "pending" || entry.status === "running") {
-								entry.status = "failed"
-								entry.error = budgetMessage("callCost")
-								void runners[entryIndex].abort()
-							}
+						abortRemaining("callCost", totalCost)
+					} else if (totalCost === 0) {
+						// 套餐 provider 把价格置 0 → 费用这一层永不触发，只能按用量兜底（#98）
+						const totalTokens = entries.reduce(
+							(acc, entry) => acc + (entry.inputTokens || 0) + (entry.outputTokens || 0),
+							0,
+						)
+						if (totalTokens >= SUBAGENT_CALL_BUDGET.maxTotalTokens) {
+							abortRemaining("callTokens", totalCost)
 						}
-						recordAudit({
-							event: "api",
-							action: "usage",
-							tool: "use_subagents",
-							taskId: config.taskId,
-							provider,
-							model: modelId,
-							cost: totalCost,
-							outcome: "error",
-							message: budgetMessage("callCost"),
-							source: "subagent",
-						})
 					}
 				}
 
@@ -311,8 +333,27 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			}),
 		)
 
-		const settled = await Promise.allSettled(execution)
-		clearInterval(abortPollInterval)
+		// 定时器必须进 finally：runner 卡死或中途抛错时，100ms 的轮询会一直留着（S4）。
+		// 再套一层墙钟：单个 runner 的 withIdleTimeout 已能保证退出，但底层流若不响应 abort，
+		// allSettled 仍可能永久挂起——那样连 finally 都进不去。
+		let wallTimer: ReturnType<typeof setTimeout> | undefined
+		const wallClock = new Promise<"timeout">((resolve) => {
+			wallTimer = setTimeout(() => resolve("timeout"), SUBAGENT_BUDGET.maxWallMs + 60_000)
+		})
+		let settled: PromiseSettledResult<SubagentRunResult>[] | "timeout"
+		try {
+			settled = await Promise.race([Promise.allSettled(execution), wallClock])
+		} finally {
+			clearInterval(abortPollInterval)
+			if (wallTimer) {
+				clearTimeout(wallTimer)
+			}
+		}
+		if (settled === "timeout") {
+			await Promise.allSettled(runners.map((runner) => runner.abort()))
+			const wallError = budgetMessage("wall")
+			settled = prompts.map(() => ({ status: "rejected", reason: new Error(wallError) }) as PromiseRejectedResult)
+		}
 		let usageTokensIn = 0
 		let usageTokensOut = 0
 		let usageCacheWrites = 0
@@ -328,8 +369,10 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			entries[index].result = result.value.result
 			// 调用级预算把剩余 runner abort 时，底层返回的是笼统的 cancelled；
 			// 这里改写成可读的总预算原因，否则 UI 看不到「为什么剩下的没跑」。
-			const cancelledByCallBudget = callBudgetExceeded && result.value.status === "failed" && !result.value.budgetReason
-			entries[index].error = cancelledByCallBudget ? budgetMessage("callCost") : result.value.error
+			const cancelledByCallBudget =
+				Boolean(callBudgetReason) && result.value.status === "failed" && !result.value.budgetReason
+			entries[index].error =
+				cancelledByCallBudget && callBudgetReason ? budgetMessage(callBudgetReason) : result.value.error
 			entries[index].toolCalls = result.value.stats.toolCalls || 0
 			entries[index].inputTokens = result.value.stats.inputTokens || 0
 			entries[index].outputTokens = result.value.stats.outputTokens || 0
@@ -397,7 +440,7 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 			`Failed: ${failures}`,
 			`Tool calls: ${totalToolCalls}`,
 			`Total cost: ¥${usageCost.toFixed(2)}`,
-			...(callBudgetExceeded ? [`⚠️ ${budgetMessage("callCost")}`] : []),
+			...(callBudgetReason ? [`⚠️ ${budgetMessage(callBudgetReason)}`] : []),
 			`Peak context usage: ${maxContextTokens.toLocaleString()} / ${contextWindow.toLocaleString()} (${maxContextUsagePercentage.toFixed(1)}%)`,
 			"",
 			...entries.map((entry) => {

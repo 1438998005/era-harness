@@ -3,6 +3,55 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.95.2 — 2026-10-31
+
+> 本版**不新增能力**，只修 3.95.1 发布前 review 查出的问题：4 个 Critical + 6 个 Warning。
+> 两条最要紧的：**零产出的建库不再被判成可用库**（#96）、**套餐 provider 下的费用止损真的生效了**（#98）。
+> 取证与取舍见知识库 `08-待修复清单.md` #96–#109、`25-专属知识库.md` §25.12、`12-插件工具调用链路.md` §12.30。
+
+### 修复 · 构建状态不再寄生在 `kb.json` 里（#106，Critical）
+
+- 构建事实搬到宿主独占的 `<slug>/build.json`；`readManifest` 以 sidecar 为准，`kb.json.build` 只在没有 sidecar 的存量库里兜底。
+- **`updateKnowledgeBaseBuild` 改为只写 sidecar，一个字节都不碰 `kb.json`**：以前是「读 kb.json → 合并 → 写回」，模型正用整篇覆写在写同一个文件，两边会互相覆盖（宿主抹掉模型的 `files`/`counts`，模型抹掉 `build`）。
+- 提示词加两条硬约束：`⛔ 不要创建/修改 build.json`；`kb.json` 用 `replace_in_file` 局部改，不要整篇重写。
+- 旧版本兼容：`writeManifest` 仍把 `build` 镜像进 `kb.json`，3.95.1 及更早的版本读到的库不会缺状态。
+
+### 修复 · `ready` 必须先取证（#96，Critical）
+
+- 建库任务收尾不再「没报错就算成功」：`finalizeKnowledgeBaseBuild` 先数分片、看索引是否还是骨架，**零产出判 `failed`**（文案「构建结束但没有任何产出」）。
+- `resolveBuildStatus` 加兜底：`ready` + 零分片 + 骨架索引 → 降级 `failed`，半成品不会被注入后续对话。
+- 连带修 `isIndexSkeleton`（#105）：判据从「有没有 `- ` 列表项」改为「除标题/空行/引用/分隔线外有没有正文」，否则表格型索引的老库会被误判成零产出。
+
+### 修复 · 套餐 provider 下费用闸门失效（#98，Critical）
+
+- 现场：`bigmodelPlanModels` 把价格全置 0，`chunk.totalCost` 返回的是 **0 而不是 undefined**，`??` 不回退到计价公式 → `cost` / `callCost` 两个分支永不触发，只剩轮次和工具数两道闸。
+- 加 **token 兜底**：`cost === 0` 且累计 `input + output` 超过 200 万（单子代理）/ 600 万（一次调用）时中止，文案说明「未拿到单价，按用量估算」。
+- 同时澄清阈值口径：`cost.ts` 不做币种换算，价格表单位随 provider 漂移（国内 provider 是元，Anthropic 是美元），`maxCostCny` 的注释写明这一限制。
+
+### 修复 · 建库跑完后「续写 / 更新」被拒（#99，Critical）
+
+- 忙判据抽成纯函数 `isTaskStateBusy`，排除 `completion_result` / `resume_completed_task` / `new_task` 三个**终态 ask**。它们等的是收尾按钮，不经过 `handleWebviewAskResponse`，以前会让 `pendingAsk` 长期为真。
+
+### 修复 · 子代理与状态机的健壮性（Warning）
+
+- **#100 嵌套子代理**：`SubagentToolHandler` 加 `isSubagentExecution` 守卫，`SubagentBuilder.resolveAllowedTools` 摘掉 `use_subagents`——以前自定义 agent 能让子代理再起子代理，每层各一份预算。
+- **#102 进度回调的 rejection**：Runner 内 17 处 `onProgress` 裸调用统一走 `emit()` 包一层 try/catch。中止瞬间 `say()` 会抛 `Cline instance aborted`，以前没人接管就是 unhandled rejection。
+- **#103 状态写入串行化**：`updateKnowledgeBaseBuild` 按目录排队，并按 `taskId` 丢弃旧任务迟到的终态写入；「点停止」与「任务完成」同时到达时不再抛硬币。
+- **#97 登记时序**：`openKnowledgeBaseTask` 改为 `initTask → 登记 → 写 building`，窗口内被 abort 也能正常收尾，不会永久停在 `building`。
+- **#104 `building` 可自救**：卡片上新增「标记为失败」按钮 + 灰按钮原因说明；`building` 超过 6 小时的展示层降级保留。
+- **#109 定时器泄漏**：`abortPollInterval` 纳入 `try/finally`，`allSettled` 再套一层墙钟。
+
+### 测试
+
+- 新增 `gamekb-build-sidecar.test.ts`（11 例）：整篇重写 kb.json 后状态与建库形态都还在、状态写入不碰 kb.json、存量库兜底、并发串行化、过期 taskId 丢弃、finalize 四种收尾。
+- 新增 `gamekb-build-lifecycle.spec.ts` / `task-busy.spec.ts` / `subagent-wiring.spec.ts`：前两个测行为，第三个是**源码级接线断言**（`checkBudget` 调用点、`totalTokens` 传参、嵌套守卫），防「函数写好了却没接线」。
+- 同步：`gamekb-build` / `gamekb-manifest` / `subagent-budget` 里把旧行为钉成基线的断言。
+
+### 行为变更（需要知道）
+
+- **零产出的库现在会显示「构建失败」并停止注入**。以前被误标 `ready`、索引其实还是骨架的存量库，升级后会变红标，需要重新构建或续写。
+- 库目录下多一个 `build.json`，**不要手动删**：删了会退回「按内容推断」的旧逻辑。
+
 ## 3.95.1 — 2026-10-31
 
 > 本版是 **3.95.0 的命名与模型修正**，不新增能力：

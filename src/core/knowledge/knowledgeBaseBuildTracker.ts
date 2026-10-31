@@ -10,7 +10,7 @@
  * 并阻止半成品索引进入后续对话。
  */
 
-import { updateKnowledgeBaseBuild } from "@eraharness/gamekb/index"
+import { finalizeKnowledgeBaseBuild, updateKnowledgeBaseBuild } from "@eraharness/gamekb/index"
 import { Logger } from "@shared/services/Logger"
 
 const builds = new Map<string, { dir: string }>()
@@ -25,12 +25,27 @@ export function isKnowledgeBaseBuildTask(taskId: string | undefined): boolean {
 	return Boolean(taskId && builds.has(taskId))
 }
 
+/**
+ * 摘掉登记。开对话失败时用：这条任务不会再有完成/中断回调，
+ * 留在 Map 里只会让后续判断误以为还有建库在跑。
+ */
+export function unregisterKnowledgeBaseBuild(taskId: string | undefined): void {
+	if (taskId) {
+		builds.delete(taskId)
+	}
+}
+
 export function getKnowledgeBaseBuildDir(taskId: string | undefined): string | undefined {
 	return taskId ? builds.get(taskId)?.dir : undefined
 }
 
 /**
- * 任务正常完成 → `ready`；带 error → `failed`。
+ * 任务正常完成 → 先取证再定状态（#96）。
+ *
+ * 「没报错」不等于「建成了」：模型喊一声 `attempt_completion` 就结束，磁盘上可能一个分片
+ * 都没有。状态判定交给 `finalizeKnowledgeBaseBuild`（数分片 + 看索引是否还是骨架），
+ * 零产出判 `failed`，避免半成品在窗口重载后被当成可用库注入。
+ *
  * 任何磁盘异常只记 warn：知识库状态不能反过来让任务完成失败。
  */
 export async function notifyKnowledgeBaseBuildFinished(taskId: string | undefined, error?: string): Promise<void> {
@@ -43,11 +58,7 @@ export async function notifyKnowledgeBaseBuildFinished(taskId: string | undefine
 	}
 	builds.delete(taskId)
 	try {
-		await updateKnowledgeBaseBuild(entry.dir, {
-			status: error ? "failed" : "ready",
-			finishedAt: new Date().toISOString(),
-			error,
-		})
+		await finalizeKnowledgeBaseBuild(entry.dir, { taskId, ...(error ? { error } : {}) })
 	} catch (cause) {
 		Logger.warn(`[knowledge-base] 写入构建完成状态失败（已忽略）：${cause}`)
 	}
@@ -69,6 +80,7 @@ export async function notifyKnowledgeBaseBuildInterrupted(taskId: string | undef
 	try {
 		await updateKnowledgeBaseBuild(entry.dir, {
 			status: "failed",
+			taskId,
 			finishedAt: new Date().toISOString(),
 			error: "已中断（可继续构建）",
 		})

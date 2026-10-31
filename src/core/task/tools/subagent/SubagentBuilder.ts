@@ -95,7 +95,12 @@ export class SubagentBuilder {
 
 	private resolveAllowedTools(configuredTools?: ClineDefaultTool[]): ClineDefaultTool[] {
 		const sourceTools = configuredTools && configuredTools.length > 0 ? configuredTools : SUBAGENT_DEFAULT_ALLOWED_TOOLS
-		return Array.from(new Set([...sourceTools, ClineDefaultTool.ATTEMPT]))
+		// #100：用户的自定义 agent 配置里可能写了 use_subagents。允许它会让子代理再起子代理，
+		// 每层各有一份预算（轮次/费用/token 都是按 runner 计的），嵌套一层就把上限翻一倍。
+		// 这里直接摘掉；`SubagentToolHandler.execute` 还有一道运行时守卫兜底。
+		return Array.from(new Set([...sourceTools, ClineDefaultTool.ATTEMPT])).filter(
+			(tool) => tool !== ClineDefaultTool.USE_SUBAGENTS,
+		)
 	}
 
 	private buildAgentIdentitySystemPrefix(): string {

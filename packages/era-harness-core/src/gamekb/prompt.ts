@@ -55,6 +55,7 @@ const HARD_RULES = [
   '- 单个分片 ≤ 300 行；`index.md` ≤ 200 行。超了就是分片没切细，回去拆。',
   '- 不要停下来反复向用户确认：信息不足时按现有代码推断并标注「推断」，先做完再汇报。',
   '- ⛔ 不要调用 use_subagents：建库是写盘任务，子代理只回文本，且会成倍放大开销（实测一次失控 102 元）。直接用主对话读文件、写分片。',
+  '- ⛔ 不要创建、修改或删除 `build.json`：构建状态由扩展维护，你写了也会被覆盖。',
 ].join('\n');
 
 /**
@@ -118,6 +119,7 @@ export function buildCreatePrompt(ctx: KnowledgeBasePromptContext): string {
     '',
     '## kb.json',
     '文件已经存在（扩展建的初版），你只需要**更新**下面这几个字段，其余保持原样：',
+    '用 `replace_in_file` 局部改这几个字段，⛔ 不要用 `write_to_file` 整篇重写（会把扩展维护的字段一起抹掉）。',
     KB_JSON_SCHEMA,
     '',
     '## 完成标准',
@@ -204,6 +206,7 @@ export function buildIncrementPrompt(
     '',
     '## kb.json',
     '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `enabled` 保持原样：',
+    '用 `replace_in_file` 局部改这几个字段，⛔ 不要用 `write_to_file` 整篇重写（会把扩展维护的字段一起抹掉）。',
     KB_JSON_SCHEMA,
     '',
     '## 完成标准',
@@ -254,6 +257,7 @@ export function buildUpdatePrompt(ctx: KnowledgeBasePromptContext & { manifest: 
     '',
     '## kb.json',
     '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `enabled` 保持原样：',
+    '用 `replace_in_file` 局部改这几个字段，⛔ 不要用 `write_to_file` 整篇重写（会把扩展维护的字段一起抹掉）。',
     KB_JSON_SCHEMA,
     '',
     '## 完成标准',

@@ -247,6 +247,8 @@ export class SubagentRunner {
 	private lastChunkAt = 0
 	/** 只有「正在等 API chunk」时才允许空闲看门狗开火；工具执行耗时长不算卡死 */
 	private awaitingChunk = false
+	/** 进度回调的异常只 warn 一次：中止后每次 say 都会抛，刷屏没有意义 */
+	private progressErrorLogged = false
 
 	constructor(
 		private baseConfig: TaskConfig,
@@ -305,10 +307,11 @@ export class SubagentRunner {
 		}
 	}
 
-	async run(prompt: string, onProgress: (update: SubagentProgressUpdate) => void): Promise<SubagentRunResult> {
+	async run(prompt: string, onProgress: (update: SubagentProgressUpdate) => void | Promise<void>): Promise<SubagentRunResult> {
 		this.abortRequested = false
 		this.budgetReason = undefined
 		this.turnCount = 0
+		this.progressErrorLogged = false
 		this.startedAt = Date.now()
 		this.lastChunkAt = this.startedAt
 		this.awaitingChunk = false
@@ -331,7 +334,7 @@ export class SubagentRunner {
 			contextUsagePercentage: 0,
 		}
 
-		onProgress({ status: "running", stats })
+		void this.emit(onProgress, { status: "running", stats })
 
 		let idleWatchdog: ReturnType<typeof setInterval> | undefined
 
@@ -416,14 +419,14 @@ export class SubagentRunner {
 
 			if (useNativeToolCalls && (!nativeTools || nativeTools.length === 0)) {
 				const error = "Subagent tool requires native tool calling support."
-				onProgress({ status: "failed", error, stats })
+				void this.emit(onProgress, { status: "failed", error, stats })
 				return { status: "failed", error, stats }
 			}
 
 			if (this.shouldAbort()) {
 				await this.abort()
 				const error = "Subagent run cancelled."
-				onProgress({ status: "failed", error, stats: { ...stats } })
+				void this.emit(onProgress, { status: "failed", error, stats: { ...stats } })
 				return { status: "failed", error, stats }
 			}
 
@@ -454,7 +457,7 @@ export class SubagentRunner {
 				const preTurnBudget = this.checkBudget(stats)
 				if (preTurnBudget) {
 					const error = budgetMessage(preTurnBudget)
-					onProgress({ status: "failed", error, stats: { ...stats } })
+					void this.emit(onProgress, { status: "failed", error, stats: { ...stats } })
 					return { status: "failed", error, stats, budgetReason: preTurnBudget }
 				}
 				if (
@@ -518,7 +521,7 @@ export class SubagentRunner {
 							stats.contextTokens = requestUsage.totalTokens
 							stats.contextUsagePercentage =
 								stats.contextWindow > 0 ? (stats.contextTokens / stats.contextWindow) * 100 : 0
-							onProgress({ stats: { ...stats } })
+							void this.emit(onProgress, { stats: { ...stats } })
 							break
 						case "text":
 							requestId = requestId ?? chunk.id
@@ -546,7 +549,7 @@ export class SubagentRunner {
 					if (this.shouldAbort()) {
 						await this.abort()
 						const cancelledError = this.budgetReason ? budgetMessage(this.budgetReason) : "Subagent run cancelled."
-						onProgress({ status: "failed", error: cancelledError, stats: { ...stats } })
+						void this.emit(onProgress, { status: "failed", error: cancelledError, stats: { ...stats } })
 						return {
 							status: "failed",
 							error: cancelledError,
@@ -577,7 +580,7 @@ export class SubagentRunner {
 				const postRequestBudget = this.checkBudget(stats)
 				if (postRequestBudget) {
 					const error = budgetMessage(postRequestBudget)
-					onProgress({ status: "failed", error, stats: { ...stats } })
+					void this.emit(onProgress, { status: "failed", error, stats: { ...stats } })
 					return { status: "failed", error, stats, budgetReason: postRequestBudget }
 				}
 
@@ -633,7 +636,7 @@ export class SubagentRunner {
 					emptyAssistantResponseRetries += 1
 					if (emptyAssistantResponseRetries > MAX_EMPTY_ASSISTANT_RETRIES) {
 						const error = "Subagent did not call attempt_completion."
-						onProgress({ status: "failed", error, stats: { ...stats } })
+						void this.emit(onProgress, { status: "failed", error, stats: { ...stats } })
 						return { status: "failed", error, stats }
 					}
 
@@ -679,8 +682,8 @@ export class SubagentRunner {
 						}
 
 						stats.toolCalls += 1
-						onProgress({ stats: { ...stats } })
-						onProgress({ status: "completed", result: completionResult, stats: { ...stats } })
+						void this.emit(onProgress, { stats: { ...stats } })
+						void this.emit(onProgress, { status: "completed", result: completionResult, stats: { ...stats } })
 						return { status: "completed", result: completionResult, stats }
 					}
 
@@ -698,7 +701,7 @@ export class SubagentRunner {
 					state.lastToolParams = callSignature
 					if (loopCheck.hardEscalation) {
 						const error = `子代理已中止：检测到重复调用 ${toolName} 且参数完全相同（窗口内 ${loopCheck.windowCount} 次），继续只会烧钱。`
-						onProgress({ status: "failed", error, stats: { ...stats } })
+						void this.emit(onProgress, { status: "failed", error, stats: { ...stats } })
 						return { status: "failed", error, stats }
 					}
 
@@ -717,7 +720,7 @@ export class SubagentRunner {
 					}
 
 					const latestToolCall = formatToolCallPreview(toolName, toolCallParams)
-					onProgress({ latestToolCall })
+					void this.emit(onProgress, { latestToolCall })
 
 					const subagentConfig = this.createSubagentTaskConfig(state)
 					const handler = this.baseConfig.coordinator.getHandler(toolName)
@@ -734,12 +737,12 @@ export class SubagentRunner {
 					}
 
 					stats.toolCalls += 1
-					onProgress({ stats: { ...stats } })
+					void this.emit(onProgress, { stats: { ...stats } })
 
 					const postToolBudget = this.checkBudget(stats)
 					if (postToolBudget) {
 						const error = budgetMessage(postToolBudget)
-						onProgress({ status: "failed", error, stats: { ...stats } })
+						void this.emit(onProgress, { status: "failed", error, stats: { ...stats } })
 						return { status: "failed", error, stats, budgetReason: postToolBudget }
 					}
 
@@ -761,18 +764,18 @@ export class SubagentRunner {
 		} catch (error) {
 			if (this.budgetReason) {
 				const budgetError = budgetMessage(this.budgetReason)
-				onProgress({ status: "failed", error: budgetError, stats: { ...stats } })
+				void this.emit(onProgress, { status: "failed", error: budgetError, stats: { ...stats } })
 				return { status: "failed", error: budgetError, stats, budgetReason: this.budgetReason }
 			}
 			if (this.shouldAbort()) {
 				const cancelledError = "Subagent run cancelled."
-				onProgress({ status: "failed", error: cancelledError, stats: { ...stats } })
+				void this.emit(onProgress, { status: "failed", error: cancelledError, stats: { ...stats } })
 				return { status: "failed", error: cancelledError, stats }
 			}
 
 			const errorText = (error as Error).message || "Subagent execution failed."
 			Logger.error("[SubagentRunner] run failed", error)
-			onProgress({ status: "failed", error: errorText, stats: { ...stats } })
+			void this.emit(onProgress, { status: "failed", error: errorText, stats: { ...stats } })
 			return { status: "failed", error: errorText, stats }
 		} finally {
 			if (idleWatchdog) {
@@ -783,6 +786,28 @@ export class SubagentRunner {
 		}
 	}
 
+	/**
+	 * 发一条进度回调，并**接住它的 rejection**。
+	 *
+	 * `onProgress` 由 `SubagentToolHandler` 传进来，是个 async 函数（内部要 `await say`）。
+	 * 中止瞬间 `Task.say()` 会抛 `Cline instance aborted`，而这里十几处调用都不需要等它完成——
+	 * 以前是裸调用，返回值里的 rejection 没人接管，直接变成 unhandled rejection（能掀翻宿主进程）。
+	 * 进度只是 UI 提示，失败不该影响子代理本身的结论，所以吞掉并只 warn 一次。
+	 */
+	private async emit(
+		onProgress: (update: SubagentProgressUpdate) => void | Promise<void>,
+		update: SubagentProgressUpdate,
+	): Promise<void> {
+		try {
+			await onProgress(update)
+		} catch (error) {
+			if (!this.progressErrorLogged) {
+				this.progressErrorLogged = true
+				Logger.warn(`[subagent] 进度回调失败（后续同类错误不再记录）：${error}`)
+			}
+		}
+	}
+
 	/** 当前预算快照 → 超标原因；每轮/每次工具后都调一次，保证不会多跑一步 */
 	private checkBudget(stats: SubagentRunStats): SubagentBudgetReason | undefined {
 		const now = Date.now()
@@ -790,6 +815,9 @@ export class SubagentRunner {
 			turns: this.turnCount,
 			toolCalls: stats.toolCalls,
 			costCny: stats.totalCost,
+			// 只算真实计费的 input/output，不含 cacheReads：
+			// 缓存命中会把同一段上下文反复计数，含进去会误杀正常任务
+			totalTokens: stats.inputTokens + stats.outputTokens,
 			elapsedMs: now - this.startedAt,
 			// 只在「等 chunk」时算空闲；工具执行耗时长不应被判成卡死
 			idleMs: this.awaitingChunk ? now - this.lastChunkAt : 0,

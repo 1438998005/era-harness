@@ -17,28 +17,58 @@ export const SUBAGENT_BUDGET = {
 	maxTurns: 30,
 	/** 最多执行多少次工具 */
 	maxToolCalls: 150,
-	/** 累计费用上限（人民币，与 SubagentRunner 的费用口径一致） */
+	/**
+	 * 累计费用上限（**计价表货币单位**）。
+	 *
+	 * ⚠️ 口径不是「恒为人民币」：`src/utils/cost.ts` 只做 `单价 × token`，不做币种换算，
+	 * 而价格表的单位随 provider 漂移——DeepSeek / BigModel 的条目是「元 / 百万 tokens」
+	 * （`src/shared/api.ts` 里逐条注明），Anthropic 的 `3.0 / 15.0` 才是美元。
+	 * 全项目展示层又统一按元显示（`getPriceCurrency()` 恒返 CNY），所以这里沿用元。
+	 * 后果：走美元标价的 provider 时，这个阈值实际放宽约 7 倍。真正的兜底是下面的 token 判据。
+	 */
 	maxCostCny: 3,
+	/**
+	 * 累计 token 上限（`input + output`，**不含 cacheReads**）。
+	 *
+	 * 为什么必须有：套餐类 provider（如 BigModel coding plan）把价格全置 0，
+	 * `chunk.totalCost` 返回的是 **0 而不是 undefined**，`??` 不会回退到计价公式，
+	 * 于是 `cost` / `callCost` 两个分支永不触发——用户以为买了止损，其实只剩轮次和工具数两道闸。
+	 * 用 token 总量兜底，与单价无关。
+	 */
+	maxTotalTokens: 2_000_000,
 	/** 墙钟上限（从 run() 开始算） */
 	maxWallMs: 10 * 60_000,
 	/** 两次流式 chunk 之间的最长空闲；超时视为请求卡死 */
 	maxIdleMs: 90_000,
 } as const
 
-/** 一次 use_subagents 调用（最多 5 个子代理）的总费用上限 */
+/** 一次 use_subagents 调用（最多 5 个子代理）的总预算 */
 export const SUBAGENT_CALL_BUDGET = {
 	maxTotalCostCny: 10,
+	/** 同上：价格未知时按 token 总量兜底（5 个子代理合计） */
+	maxTotalTokens: 6_000_000,
 } as const
 
-export type SubagentBudgetReason = "turns" | "toolCalls" | "cost" | "wall" | "idle" | "callCost"
+export type SubagentBudgetReason =
+	| "turns"
+	| "toolCalls"
+	| "cost"
+	| "tokens"
+	| "wall"
+	| "idle"
+	/** 调用级（5 个子代理合计）的 token 兜底，只由 `SubagentToolHandler` 产生 */
+	| "callTokens"
+	| "callCost"
 
 export interface SubagentBudgetSnapshot {
 	/** 已完成的「请求 → 工具」轮次 */
 	turns: number
 	/** 已执行的工具调用次数 */
 	toolCalls: number
-	/** 累计费用（元） */
+	/** 累计费用（计价表货币单位，见 SUBAGENT_BUDGET.maxCostCny 的说明） */
 	costCny: number
+	/** 累计 token（input + output，不含 cacheReads） */
+	totalTokens: number
 	/** 从 run() 开始到现在的毫秒数 */
 	elapsedMs: number
 	/** 距离上一个流式 chunk 的毫秒数 */
@@ -65,6 +95,11 @@ export function checkSubagentBudget(snapshot: SubagentBudgetSnapshot): SubagentB
 	if (snapshot.costCny > SUBAGENT_BUDGET.maxCostCny) {
 		return "cost"
 	}
+	// 费用恒为 0 说明「拿不到单价」（套餐 provider 把价格置 0，或该模型没有价格条目）。
+	// 此时只能按用量兜底——否则这道闸等于不存在。
+	if (snapshot.costCny === 0 && snapshot.totalTokens > SUBAGENT_BUDGET.maxTotalTokens) {
+		return "tokens"
+	}
 	return undefined
 }
 
@@ -81,6 +116,10 @@ export function budgetMessage(reason: SubagentBudgetReason): string {
 			return `子代理已中止：超过 ${SUBAGENT_BUDGET.maxToolCalls} 次工具调用`
 		case "cost":
 			return `子代理已中止：费用超过 ¥${SUBAGENT_BUDGET.maxCostCny}`
+		case "tokens":
+			return `子代理已中止：未拿到单价，按用量估算已超过 ${SUBAGENT_BUDGET.maxTotalTokens} tokens`
+		case "callTokens":
+			return `本次调用的子代理累计已超过 ${SUBAGENT_CALL_BUDGET.maxTotalTokens} tokens（未拿到单价，按用量估算），剩余子代理已跳过`
 		case "callCost":
 			return `本次调用的子代理总费用已超过 ¥${SUBAGENT_CALL_BUDGET.maxTotalCostCny}，剩余子代理已跳过`
 	}

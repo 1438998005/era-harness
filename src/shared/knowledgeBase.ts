@@ -68,6 +68,13 @@ export type KnowledgeBaseAction =
 	| { action: "delete"; slug: string }
 	/** 在系统文件管理器里打开库目录（不改内容，只是省得用户自己去翻路径） */
 	| { action: "reveal"; slug: string }
+	/**
+	 * 手动把「构建中」标成失败（#97 的自救出口）。
+	 *
+	 * `building` 只在任务真正收尾时才会被改写；窗口重载、任务被替换、扩展崩溃都会让它
+	 * 永久卡住，而「更新 / 续写 / 删除」三个出口全被它禁用。这里给用户一个「我知道它死了」的按钮。
+	 */
+	| { action: "markFailed"; slug: string }
 
 /** `knowledgeBaseAction` 的响应体 */
 export interface KnowledgeBaseActionResult {

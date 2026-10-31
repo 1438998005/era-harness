@@ -16,7 +16,8 @@
  */
 
 import type { Controller } from "@core/controller"
-import { registerKnowledgeBaseBuild } from "@core/knowledge/knowledgeBaseBuildTracker"
+import { registerKnowledgeBaseBuild, unregisterKnowledgeBaseBuild } from "@core/knowledge/knowledgeBaseBuildTracker"
+import { isTaskStateBusy } from "@core/task/taskBusy"
 import {
 	buildCreatePrompt,
 	buildIncrementPrompt,
@@ -32,16 +33,11 @@ import { Logger } from "@shared/services/Logger"
 /**
  * 有对话在跑 / 在等用户确认时不能开工。
  *
- * 只看 `isStreaming` 不够：等待批准/提问时流已经暂停，`isStreaming` 为 false，
- * 但 `initTask()` 仍会 `clearTask()` 把那个对话中止掉（#93）。
+ * 判据本身抽在 `@core/task/taskBusy`（纯函数，可单测）：它要排除
+ * `completion_result` 这类**终态 ask**，否则「建库跑完 → 点续写」会被永久判成忙（#99）。
  */
 export function isConversationBusy(controller?: Controller): boolean {
-	const task = controller?.task
-	if (!task) {
-		return false
-	}
-	const state = task.taskState
-	return Boolean(state.isStreaming || state.isWaitingForFirstChunk || state.pendingAsk)
+	return isTaskStateBusy(controller?.task?.taskState)
 }
 
 /** 控制器与 initTask 都在才算能开对话；用类型谓词让调用处直接收窄 */
@@ -131,12 +127,15 @@ export async function openKnowledgeBaseTask(
 		return { ok: false, message: "没有指定要做什么。" }
 	}
 
+	let taskId: string | undefined
 	try {
-		const taskId = await controller.initTask(prompt)
+		taskId = await controller.initTask(prompt)
 		if (typeof taskId !== "string" || taskId.length === 0) {
 			return { ok: false, message: "开对话没成功（没有拿到任务号）。" }
 		}
-		// 先落盘再登记：哪怕后续回调丢失，设置页也能看到「构建中」而不是一片空白。
+		// 先登记再落盘（#97）：中间这段窗口里若任务被 abort，`notify*` 会因「查不到 taskId」
+		// 直接 no-op，状态就永久停在 building。先登记能让中断回调正常收尾。
+		registerKnowledgeBaseBuild(taskId, dir)
 		// ⛔ 只写 taskKind，不写 mode：建库形态是用户的选项，不能被任务覆盖。
 		await updateKnowledgeBaseBuild(dir, {
 			status: "building",
@@ -145,11 +144,12 @@ export async function openKnowledgeBaseTask(
 			startedAt: new Date().toISOString(),
 			error: undefined,
 		})
-		registerKnowledgeBaseBuild(taskId, dir)
 		Logger.log(`[knowledge-base] 已开启对话：${taskId}（${taskKind}）`)
 		return { ok: true }
 	} catch (error) {
 		Logger.warn(`[knowledge-base] 开对话失败：${error}`)
+		// 已经登记过的先摘掉：这条任务不会有任何回调，留着会让「有建库在跑」的判断一直为真
+		unregisterKnowledgeBaseBuild(taskId)
 		const message = `开对话没成功：${error instanceof Error ? error.message : String(error)}`
 		await updateKnowledgeBaseBuild(dir, { status: "failed", error: message }).catch(() => false)
 		return { ok: false, message }

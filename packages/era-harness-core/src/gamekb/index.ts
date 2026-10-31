@@ -23,9 +23,11 @@ export {
   type KnowledgeBaseSectionItem,
 } from './section.js';
 export {
+  BUILD_STATE_FILE,
   buildIndexSkeleton,
   createKnowledgeBase,
   DEFAULT_INDEX_FILE,
+  finalizeKnowledgeBaseBuild,
   generateSlug,
   isIndexSkeleton,
   isValidSlug,
@@ -34,6 +36,7 @@ export {
   knowledgeBaseDir,
   knowledgeRoot,
   listKnowledgeBases,
+  readBuildState,
   readIndexText,
   readManifest,
   resolveBuildStatus,
@@ -42,8 +45,10 @@ export {
   slugTimestamp,
   trashKnowledgeBase,
   updateKnowledgeBaseBuild,
+  writeBuildState,
   writeManifest,
   type CreateKnowledgeBaseOptions,
+  type FinalizeBuildOptions,
 } from './store.js';
 export type {
   GameKbBuildMode,

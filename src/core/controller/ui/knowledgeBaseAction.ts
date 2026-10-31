@@ -190,6 +190,27 @@ export async function knowledgeBaseAction(controller: Controller, request: Strin
 		return respond(updated ? { ok: true } : { ok: false, message: "写入失败（kb.json 读不出来）" })
 	}
 
+	if (action.action === "markFailed") {
+		if (typeof action.slug !== "string" || !isValidSlug(action.slug)) {
+			return respond({ ok: false, message: "知识库标识不合法。" })
+		}
+		const dir = knowledgeBaseDir(workspaceRoot, action.slug)
+		const manifest = await readManifest(dir)
+		if (!manifest) {
+			return respond({ ok: false, message: "这个知识库的 kb.json 读不出来（可能被删或损坏），先删掉重建。" })
+		}
+		// 只在真的卡在 building 时才允许：避免用户误点把正常库标成失败
+		if (manifest.build?.status !== "building") {
+			return respond({ ok: false, message: "这个库当前不在构建中，不需要标记失败。" })
+		}
+		const written = await updateKnowledgeBaseBuild(dir, {
+			status: "failed",
+			finishedAt: new Date().toISOString(),
+			error: "用户手动标记为失败（任务可能已失联）",
+		})
+		return respond(written ? { ok: true } : { ok: false, message: "写入构建状态失败。" })
+	}
+
 	if (action.action === "delete") {
 		if (typeof action.slug !== "string" || !isValidSlug(action.slug)) {
 			return respond({ ok: false, message: "知识库标识不合法。" })

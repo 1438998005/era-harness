@@ -158,7 +158,8 @@ test("写盘不留临时文件", async () => {
 		await writeManifest(knowledgeBaseDir(root, manifest.slug), { ...manifest, enabled: false })
 
 		const names = await fs.readdir(knowledgeBaseDir(root, manifest.slug))
-		assert.deepEqual(names.sort(), ["index.md", "kb.json"], "kb.json.tmp 必须已经 rename 掉")
+		// #96：构建状态另落 build.json（事实源）；两者都不能留下 .tmp
+		assert.deepEqual(names.sort(), ["build.json", "index.md", "kb.json"], "kb.json.tmp / build.json.tmp 必须已经 rename 掉")
 	})
 })
 
@@ -368,12 +369,14 @@ test("#93 resolveBuildStatus：有 build 字段就用它，旧库按「有分片
 	assert.equal(resolveBuildStatus({ build: { status: "draft" } } as never, 3, "- x"), "draft", "半成品不能被磁盘文件数“救活”")
 })
 
-test("#93 isIndexSkeleton：认 `- ` / `* ` 条目行", () => {
+test("#105 isIndexSkeleton：任何正文都算内容，不只是 `- ` / `* `", () => {
 	assert.equal(isIndexSkeleton("# t\n\n## 函数\n\n## 机制与坑\n"), true)
 	assert.equal(isIndexSkeleton(""), true)
 	assert.equal(isIndexSkeleton("# t\n\n- @foo — 做什么 — a.ERB:1\n"), false)
 	assert.equal(isIndexSkeleton("# t\n\n* @bar — 做什么 — b.ERB:2\n"), false)
-	assert.equal(isIndexSkeleton("# t\n\n**粗体**不是条目\n"), true, "只有 `- `/`* ` 才算条目")
+	// 表格 / 有序列表 / 粗体行都是正文：只认 `- ` 会把这类索引误判成骨架（#105）
+	assert.equal(isIndexSkeleton("# t\n\n**粗体**也是正文\n"), false, "除标题/空行/引用/分隔线外都算内容")
+	assert.equal(isIndexSkeleton("# t\n\n| 条目 | 出处 |\n|---|---|\n"), false, "表格索引也是正文")
 })
 
 test("#93 listKnowledgeBases 带 buildStatus，设置页据此决定徽标与禁用", async () => {
@@ -407,8 +410,11 @@ test("#93 listKnowledgeBases 带 buildStatus，设置页据此决定徽标与禁
 		assert.equal(bySlug.get(draft.slug)?.buildStatus, "draft")
 		assert.equal(bySlug.get("kb-202609010000-cccc")?.buildStatus, "ready", "旧库不能被升级判成不可用")
 
-		// 完成构建 → list 立刻反映 ready
-		await updateKnowledgeBaseBuild(knowledgeBaseDir(root, building.slug), { status: "ready" })
+		// 完成构建 → list 立刻反映 ready（#96：ready 要过内容校验，先给它一个真实分片）
+		const buildingDir = knowledgeBaseDir(root, building.slug)
+		await fs.mkdir(path.join(buildingDir, "functions"), { recursive: true })
+		await fs.writeFile(path.join(buildingDir, "functions", "b.md"), "# b\n", "utf8")
+		await updateKnowledgeBaseBuild(buildingDir, { status: "ready" })
 		const relisted = await listKnowledgeBases(root)
 		assert.equal(relisted.find((entry) => entry.slug === building.slug)?.buildStatus, "ready")
 	})
@@ -431,7 +437,9 @@ test("3.95.1 空白建库 → 续写完成 → ready（两种建库形态都能�
 		await updateKnowledgeBaseBuild(dir, { status: "building", taskKind: "incremental" })
 		assert.equal((await readManifest(dir))?.build?.mode, "blank", "任务不得覆盖建库形态")
 
-		// 续写完成 → 可注入
+		// 续写完成 → 可注入（续写真的写了分片；#96 之后「零产出」不会再被判 ready）
+		await fs.mkdir(path.join(dir, "functions"), { recursive: true })
+		await fs.writeFile(path.join(dir, "functions", "x.md"), "# x\n", "utf8")
 		await updateKnowledgeBaseBuild(dir, { status: "ready" })
 		const after = await readManifest(dir)
 		assert.equal(after?.build?.status, "ready")

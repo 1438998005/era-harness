@@ -250,6 +250,25 @@ const KnowledgeBaseSection = ({ renderSectionHeader }: KnowledgeBaseSectionProps
 
 								{!item.broken && (
 									<>
+										{item.buildStatus === "building" && (
+											<div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-description">
+												<span>
+													构建中：更新 / 续写 / 删除暂时不可用。若任务已失联（窗口重载、换了对话），
+													这里的按钮会一直灰着——点右边把它标成失败即可恢复。
+												</span>
+												<VSCodeButton
+													appearance="secondary"
+													disabled={busySlug === item.slug}
+													onClick={() =>
+														void runAction(
+															{ action: "markFailed", slug: item.slug },
+															{ slug: item.slug },
+														)
+													}>
+													标记为失败
+												</VSCodeButton>
+											</div>
+										)}
 										<div className="flex flex-wrap gap-2 mt-1">
 											<VSCodeButton
 												disabled={busySlug === item.slug || item.buildStatus === "building"}

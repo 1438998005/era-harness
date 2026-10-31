@@ -76,8 +76,11 @@ const SPECS = [
 	"gamekb-prompt.spec.ts",
 	"gamekb-manifest.spec.ts",
 	"gamekb-index.spec.ts",
+	"gamekb-build-lifecycle.spec.ts",
+	"task-busy.spec.ts",
 	"erabasic-owner.spec.ts",
 	"subagent-budget.spec.ts",
+	"subagent-wiring.spec.ts",
 	"subagents-availability.spec.ts",
 ]
 

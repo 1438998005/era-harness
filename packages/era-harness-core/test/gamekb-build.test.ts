@@ -92,14 +92,15 @@ test('#93 updateKnowledgeBaseBuild 合并而非替换；没有 kb.json 返回 fa
   });
 });
 
-test('#93 updateKnowledgeBaseBuild 原子写：不留下 kb.json.tmp', async () => {
+test('#93 updateKnowledgeBaseBuild 原子写：只动 build.json，不留下 .tmp', async () => {
   await withTempDir(async (root) => {
     const manifest = await createKnowledgeBase(root, { name: 'a', now: NOW, suffix: 'aaaa' });
     const dir = knowledgeBaseDir(root, manifest.slug);
     await updateKnowledgeBaseBuild(dir, { status: 'ready' });
 
     const names = await fs.readdir(dir);
-    assert.deepEqual(names.sort(), ['index.md', 'kb.json']);
+    // #96：构建事实搬进 sidecar；kb.json 不再被状态写入触碰（否则会和模型的整篇写盘互相覆盖）
+    assert.deepEqual(names.sort(), ['build.json', 'index.md', 'kb.json']);
   });
 });
 
@@ -173,12 +174,17 @@ test('3.95.1 旧 mode 降级：incremental+draft → blank，update → full，�
   });
 });
 
-test('#93 resolveBuildStatus：显式状态优先，旧库按内容兼容', () => {
+test('#93 resolveBuildStatus：显式状态优先，但 ready 要过内容校验', () => {
   // 显式状态优先（哪怕磁盘上已经有分片，半成品也不能被文件数「救活」）
   assert.equal(resolveBuildStatus(manifestWith({ status: 'failed' }), 5, '- x'), 'failed');
   assert.equal(resolveBuildStatus(manifestWith({ status: 'draft' }), 3, '- x'), 'draft');
   assert.equal(resolveBuildStatus(manifestWith({ status: 'building' }), 0, null), 'building');
-  assert.equal(resolveBuildStatus(manifestWith({ status: 'ready' }), 0, null), 'ready');
+
+  // #96：ready 必须取证——零分片 + 骨架索引说明「喊了完成但什么都没写」
+  assert.equal(resolveBuildStatus(manifestWith({ status: 'ready' }), 0, null), 'failed');
+  assert.equal(resolveBuildStatus(manifestWith({ status: 'ready' }), 0, '# t\n\n## 函数\n'), 'failed');
+  assert.equal(resolveBuildStatus(manifestWith({ status: 'ready' }), 0, '# t\n\n- @foo — y — a.ERB:1\n'), 'ready');
+  assert.equal(resolveBuildStatus(manifestWith({ status: 'ready' }), 1, null), 'ready');
 
   // 旧库（无 build 字段）
   assert.equal(resolveBuildStatus(manifestWith(), 1, ''), 'ready', '有分片即可用');
@@ -191,13 +197,18 @@ test('#93 resolveBuildStatus：显式状态优先，旧库按内容兼容', () =
   assert.equal(resolveBuildStatus(null, 2, '- x'), 'ready', 'manifest 丢了但磁盘有分片：先按可用处理，避免误伤');
 });
 
-test('#93 isIndexSkeleton 只认 `- ` / `* ` 条目行', () => {
+test('#96 isIndexSkeleton：除标题/空行/引用/分隔线外没有任何正文', () => {
   assert.equal(isIndexSkeleton(''), true);
   assert.equal(isIndexSkeleton('# t\n\n## 函数\n\n## 机制与坑\n'), true);
+  assert.equal(isIndexSkeleton('# t\n\n> 本库由 AI 生成，仅供参考\n'), true);
+  assert.equal(isIndexSkeleton('# t\n\n---\n'), true);
   assert.equal(isIndexSkeleton('# t\n\n- @foo — y — a.ERB:1\n'), false);
   assert.equal(isIndexSkeleton('# t\n\n* @bar — y — b.ERB:2\n'), false);
   assert.equal(isIndexSkeleton('  - 缩进的条目也算\n'), false);
-  assert.equal(isIndexSkeleton('-没有空格的破折号不算\n'), true);
+  // 表格 / 有序列表同样是正文：只认 `- ` 会把这类索引误判成骨架，进而把有内容的库当成零产出
+  assert.equal(isIndexSkeleton('| 条目 | 出处 |\n|---|---|\n| @foo | a.ERB:1 |\n'), false);
+  assert.equal(isIndexSkeleton('1. @foo — a.ERB:1\n'), false);
+  assert.equal(isIndexSkeleton('-没有空格的破折号也算正文\n'), false);
 });
 
 test('#93 writeManifest 后 build 仍在（设置页/注入都靠它跨重启存活）', async () => {
