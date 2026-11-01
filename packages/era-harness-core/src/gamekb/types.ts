@@ -56,6 +56,18 @@ export interface GameKbBuildState {
   error?: string
 }
 
+/**
+ * 纯 UI 状态（`ui.json`，宿主独占）。
+ *
+ * 为什么不留在 `kb.json`：模型会在收尾时整篇重写 `kb.json`，而用户点「载入到对话」开关
+ * 走的是「读 kb.json → 合并 → 写回」——两边并发就会互相覆盖（#115，与 #106 同源）。
+ * 把开关搬进独立 sidecar 后，宿主写盘不再碰模型正在写的那个文件。
+ */
+export interface GameKbUiState {
+  /** 是否把索引注入对话 */
+  enabled: boolean
+}
+
 /** 分片文件引用（由 AI 在收尾时写进 manifest） */
 export interface GameKbFileRef {
   /** 相对知识库目录的路径，如 `functions/combat.md` */
@@ -79,7 +91,12 @@ export interface GameKbManifest {
   gameVersion?: string
   createdAt: string
   updatedAt: string
-  /** 是否把索引注入对话（默认 true） */
+  /**
+   * 是否把索引注入对话（默认 true）。
+   *
+   * ⚠️ 这是**只读镜像**，事实源在 `ui.json`（见 `GameKbUiState`）。保留它只为兼容旧版本读取，
+   * 判断开关一律走 `readManifest()` 合并后的值，不要直接读这里。
+   */
   enabled: boolean
   /** 索引文件名，默认 index.md */
   index?: string

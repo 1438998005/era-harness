@@ -158,8 +158,12 @@ test("写盘不留临时文件", async () => {
 		await writeManifest(knowledgeBaseDir(root, manifest.slug), { ...manifest, enabled: false })
 
 		const names = await fs.readdir(knowledgeBaseDir(root, manifest.slug))
-		// #96：构建状态另落 build.json（事实源）；两者都不能留下 .tmp
-		assert.deepEqual(names.sort(), ["build.json", "index.md", "kb.json"], "kb.json.tmp / build.json.tmp 必须已经 rename 掉")
+		// #96：构建状态另落 build.json（事实源）；#115：开关另落 ui.json。三者都不能留下 .tmp
+		assert.deepEqual(
+			names.sort(),
+			["build.json", "index.md", "kb.json", "ui.json"],
+			"kb.json.tmp / build.json.tmp / ui.json.tmp 必须已经 rename 掉",
+		)
 	})
 })
 
@@ -205,14 +209,22 @@ test("工作区里还没有 knowledge 目录时，列库返回空数组而不是
 	})
 })
 
-test("开关载入：写进 kb.json，非法 slug 直接拒", async () => {
+test("开关载入：只写 ui.json（kb.json 一个字节都不动），非法 slug 直接拒", async () => {
 	await withTempDir(async (root) => {
 		const manifest = await createKnowledgeBase(root, { name: "x", now: NOW, suffix: "aaaa" })
+		const dir = knowledgeBaseDir(root, manifest.slug)
+		const before = await fs.readFile(path.join(dir, "kb.json"), "utf8")
 
 		assert.equal(await setKnowledgeBaseEnabled(root, manifest.slug, false), true)
-		const after = await readManifest(knowledgeBaseDir(root, manifest.slug))
+		const after = await readManifest(dir)
 		assert.equal(after?.enabled, false)
 		assert.equal(after?.createdAt, manifest.createdAt, "只改开关，别动时间戳")
+
+		// #115：模型可能正在整篇重写 kb.json，宿主这边不能碰它
+		const rawAfter = await fs.readFile(path.join(dir, "kb.json"), "utf8")
+		assert.equal(rawAfter, before, "关开关不能重写 kb.json")
+		const ui = JSON.parse(await fs.readFile(path.join(dir, "ui.json"), "utf8"))
+		assert.equal(ui.enabled, false, "开关事实源在 ui.json")
 
 		assert.equal(await setKnowledgeBaseEnabled(root, "../../etc", false), false)
 		assert.equal(await setKnowledgeBaseEnabled(root, "kb-202610311200-zzzz", false), false, "库不存在时返回 false")

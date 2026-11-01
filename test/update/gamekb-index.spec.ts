@@ -23,8 +23,8 @@ import {
 	knowledgeBaseDir,
 	MAX_INDEX_CHARS_PER_KB,
 	MAX_TOTAL_CHARS,
+	setKnowledgeBaseEnabled,
 	updateKnowledgeBaseBuild,
-	writeManifest,
 } from "@eraharness/gamekb/index"
 import { loadKnowledgeBaseSection } from "../../src/core/knowledge/knowledgeBaseSection"
 
@@ -141,11 +141,12 @@ test("端到端：只有「已启用 + 未损坏 + 有索引 + 构建完成」�
 		await updateKnowledgeBaseBuild(dir, { status: "ready" })
 
 		// 关掉开关 → 立刻不注入（用户要的就是「载入/不载入」这一个动作）
-		await writeManifest(dir, { ...manifest, enabled: false, build: { status: "ready" } })
+		// #115：开关的事实源搬进 ui.json，走 setKnowledgeBaseEnabled 而不是直接改 kb.json
+		await setKnowledgeBaseEnabled(root, manifest.slug, false)
 		assert.equal(await loadKnowledgeBaseSection(root), "")
 
 		// 索引文件被删 → 不算可用
-		await writeManifest(dir, { ...manifest, enabled: true, build: { status: "ready" } })
+		await setKnowledgeBaseEnabled(root, manifest.slug, true)
 		await fs.rm(path.join(dir, "index.md"))
 		assert.equal(await loadKnowledgeBaseSection(root), "")
 	})

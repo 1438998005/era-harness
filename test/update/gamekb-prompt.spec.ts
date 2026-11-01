@@ -143,7 +143,7 @@ test("更新提示词：没有登记分片时给出兜底，且强调「只改�
 	assert.ok(prompt.includes("⛔ 不要重新组织目录、不要重命名分片"))
 	assert.ok(prompt.includes("没变化的条目**一个字都不要动**"))
 	assert.ok(prompt.includes("只更新 `updatedAt` / `counts` / `files` / `gameVersion`"))
-	assert.ok(prompt.includes("`slug` / `name` / `createdAt` / `enabled` 保持原样"))
+	assert.ok(prompt.includes("`slug` / `name` / `createdAt` / `index` 保持原样"))
 })
 
 test("更新提示词：带上本次探测到的版本，便于判断哪一层变了", () => {

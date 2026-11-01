@@ -19,8 +19,10 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   createKnowledgeBase,
+  finalizeKnowledgeBaseBuild,
   isIndexSkeleton,
   knowledgeBaseDir,
+  readBuildState,
   readManifest,
   resolveBuildStatus,
   updateKnowledgeBaseBuild,
@@ -100,7 +102,8 @@ test('#93 updateKnowledgeBaseBuild 原子写：只动 build.json，不留下 .tm
 
     const names = await fs.readdir(dir);
     // #96：构建事实搬进 sidecar；kb.json 不再被状态写入触碰（否则会和模型的整篇写盘互相覆盖）
-    assert.deepEqual(names.sort(), ['build.json', 'index.md', 'kb.json']);
+    // #115：开关也搬进 ui.json，所以建库后会多一个 ui.json
+    assert.deepEqual(names.sort(), ['build.json', 'index.md', 'kb.json', 'ui.json']);
   });
 });
 
@@ -221,5 +224,73 @@ test('#93 writeManifest 后 build 仍在（设置页/注入都靠它跨重启存
     assert.equal(read?.build?.status, 'ready');
     assert.equal(read?.build?.mode, 'blank');
     assert.equal(read?.build?.finishedAt, '2026-10-31T06:00:00.000Z');
+  });
+});
+
+test('#127 kb.json 损坏时 finalize 照常收尾（以 build.json 为兜底）', async () => {
+  await withTempDir(async (root) => {
+    const manifest = await createKnowledgeBase(root, { name: 'a', now: NOW, suffix: 'aaaa', mode: 'full' });
+    const dir = knowledgeBaseDir(root, manifest.slug);
+    // 模拟模型半截写入把 kb.json 写坏
+    await fs.writeFile(path.join(dir, 'kb.json'), '{"slug": "kb-2026103112', 'utf8');
+
+    // 此前这条路径直接 return null，build.json 永久卡 building；现在照常落终态
+    assert.equal(await finalizeKnowledgeBaseBuild(dir, { error: '测试收尾' }), 'failed');
+    assert.equal(await readManifest(dir), null, 'kb.json 仍是坏的');
+    const build = await readBuildState(dir);
+    assert.equal(build?.status, 'failed');
+    assert.equal(build?.error, '测试收尾');
+  });
+});
+
+test('#127 kb.json 损坏且 build.json 也缺 → finalize 返回 null（真的无对象可收尾）', async () => {
+  await withTempDir(async (root) => {
+    const dir = path.join(root, 'orphan-kb');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'kb.json'), 'not-json', 'utf8');
+    assert.equal(await finalizeKnowledgeBaseBuild(dir, { error: 'x' }), null);
+  });
+});
+
+test('#128 存量「关着」的库：读取时回填 ui.json，关闭状态不再怕 kb.json 被整篇重写', async () => {
+  await withTempDir(async (root) => {
+    const dir = path.join(root, 'kb');
+    await fs.mkdir(dir, { recursive: true });
+    // 存量形态：只有 kb.json 且 enabled:false（旧版本直接写 kb.json 的产物），无 ui.json
+    await fs.writeFile(
+      path.join(dir, 'kb.json'),
+      JSON.stringify({ slug: 'kb-202610311200-abcd', name: 'x', enabled: false }),
+      'utf8',
+    );
+
+    assert.equal((await readManifest(dir))?.enabled, false, '读取要如实反映关闭状态');
+    assert.deepEqual((await fs.readdir(dir)).sort(), ['kb.json', 'ui.json'], '第一次读取就把关闭状态固化进 ui.json');
+
+    // 模型按 schema 整篇重写 kb.json（schema 里没有 enabled 字段）→ 关闭状态不翻转
+    await fs.writeFile(
+      path.join(dir, 'kb.json'),
+      JSON.stringify({ slug: 'kb-202610311200-abcd', name: 'x' }),
+      'utf8',
+    );
+    assert.equal((await readManifest(dir))?.enabled, false, 'kb.json 丢字段后由 ui.json 的事实源兜住');
+  });
+});
+
+test('#132 slug 带穿越形状视为损坏（读取层兜底，防未来新调用点踩坑）', async () => {
+  await withTempDir(async (root) => {
+    const dir = path.join(root, 'kb');
+    await fs.mkdir(dir, { recursive: true });
+    const write = (slug: string) =>
+      fs.writeFile(path.join(dir, 'kb.json'), JSON.stringify({ slug, name: 'x' }), 'utf8');
+
+    await write('..\\..\\evil');
+    assert.equal(await readManifest(dir), null, '含 .. 与反斜杠视为损坏');
+    await write('foo/bar');
+    assert.equal(await readManifest(dir), null, '含分隔符视为损坏');
+    await write('/etc/evil');
+    assert.equal(await readManifest(dir), null, '绝对路径视为损坏');
+    // 合法形状不受影响：不做全格式校验，非 kb- 前缀的手建名照样能读
+    await write('my-notes');
+    assert.equal((await readManifest(dir))?.slug, 'my-notes');
   });
 });

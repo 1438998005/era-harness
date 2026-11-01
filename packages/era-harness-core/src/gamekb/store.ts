@@ -11,6 +11,7 @@
  * 避免日文/中文路径在跨工具（git、压缩包、Windows 长短路径）时编码不一致。
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -21,7 +22,58 @@ import type {
   GameKbEntry,
   GameKbManifest,
   GameKbTaskKind,
+  GameKbUiState,
 } from './types.js';
+
+/**
+ * 原子写的临时文件名：带 pid + 随机数（#120）。
+ *
+ * 旧写法固定 `<target>.tmp`，两个写者并发时 A 写一半、B 截断写完并 rename，
+ * A 的 rename 落空（Windows 直接 ENOENT/EPERM，POSIX 下 fd 仍指向已改名 inode），
+ * 落盘的可能是半截 JSON。唯一名让每个写者有自己的 tmp，rename 原子性才成立。
+ */
+function tmpNameFor(target: string): string {
+  return `${target}.${process.pid}.${randomUUID()}.tmp`;
+}
+
+const RENAME_RETRIES = 3;
+
+/**
+ * rename 小退避重试（#120 的 Windows 侧）。
+ *
+ * tmp 名唯一化之后，「两个写者 rename 到同一目标」仍可能瞬时 EPERM——
+ * 目标刚落盘就被杀软扫描 / 另一个 rename 在替换，句柄被短暂占用。
+ * 这类失败不产生坏文件但会让写盘方报错，退避重试几次即可；非占用类错误照常抛出。
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < RENAME_RETRIES; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') {
+        await cleanupTmp(from);
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+  // #130：重试耗尽也没成，tmp 留在库里就是惰性垃圾——尽力清掉，清不掉不影响主错误
+  await cleanupTmp(from);
+  throw lastError;
+}
+
+/** rename 失败后把 tmp 删掉（尽力而为；失败静默，主错误优先） */
+async function cleanupTmp(tmp: string): Promise<void> {
+  try {
+    await fs.unlink(tmp);
+  } catch {
+    // 清不掉就算了
+  }
+}
 
 /** 相对工作区根的固定前缀 */
 export const KB_DIR_PARTS = ['.era-harness', 'knowledge'] as const;
@@ -38,7 +90,23 @@ export const DEFAULT_INDEX_FILE = 'index.md';
  */
 export const BUILD_STATE_FILE = 'build.json';
 
+/**
+ * 纯 UI 状态（宿主独占）。
+ *
+ * `enabled` 从 `kb.json` 搬出来：那个文件是模型可整篇重写的，而用户点开关走的是
+ * 「读 → 合并 → 写回」，两边并发必互相覆盖（#115，与 #106 同源）。
+ * `kb.json` 里仍留一份镜像，兼容旧版本读取。
+ */
+export const UI_STATE_FILE = 'ui.json';
+
 const SLUG_RE = /^kb-\d{12}-[a-z0-9]{4}$/;
+/**
+ * 索引文件名白名单：只接受知识库目录内的**单层** `.md` 文件。
+ *
+ * `index` 字段住在模型可写的 `kb.json` 里，原来只判「是字符串」就直接 `path.join` 读盘，
+ * 于是 `"../../../.ssh/id_rsa"` 能被读出来拼进系统提示词（#110）。这里按白名单收敛。
+ */
+const INDEX_FILE_RE = /^[A-Za-z0-9_-]+\.md$/;
 const MAX_NAME_CHARS = 60;
 const BUILD_STATUSES: readonly GameKbBuildStatus[] = ['draft', 'building', 'ready', 'failed'];
 // 枚举取值以 types.ts 为准；这里不再重复一份数组（两份必然漂移）
@@ -56,6 +124,27 @@ export function knowledgeBaseDir(workspaceRoot: string, slug: string): string {
 /** slug 只接受自己生成的形态：任何外部传入的 slug 都必须先过这一关（防目录穿越） */
 export function isValidSlug(slug: string): boolean {
   return SLUG_RE.test(slug);
+}
+
+/** 把 `manifest.index` 收敛成安全值；不合法一律回落默认（#110） */
+export function safeIndexFile(raw: unknown): string {
+  return typeof raw === 'string' && INDEX_FILE_RE.test(raw) ? raw : DEFAULT_INDEX_FILE;
+}
+
+/**
+ * 索引文件的实际绝对路径。
+ *
+ * 白名单之外再做一次 `path.relative` 兜底——万一将来白名单被放宽，也不会让
+ * `path.join` 把 `..` 带出知识库目录。所有读索引正文的地方都必须走这里。
+ */
+export function resolveIndexPath(dir: string, index: string | undefined): string {
+  const root = path.resolve(dir);
+  const abs = path.resolve(root, safeIndexFile(index));
+  const rel = path.relative(root, abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    return path.join(root, DEFAULT_INDEX_FILE);
+  }
+  return abs;
 }
 
 /** 本地时间戳 `yyyyMMddHHmm`（不用 toISOString：那是 UTC，跨时区会看着像错了一天） */
@@ -238,9 +327,35 @@ export async function readBuildState(dir: string): Promise<GameKbBuildState | un
 export async function writeBuildState(dir: string, build: GameKbBuildState): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   const target = path.join(dir, BUILD_STATE_FILE);
-  const tmp = `${target}.tmp`;
+  const tmp = tmpNameFor(target);
   await fs.writeFile(tmp, `${JSON.stringify(build, null, 2)}\n`, 'utf8');
-  await fs.rename(tmp, target);
+  await renameWithRetry(tmp, target);
+}
+
+/**
+ * 读纯 UI 状态 sidecar。不存在 / 解析失败返回 `undefined`，
+ * 由调用方回退到 `kb.json.enabled`（存量库）。
+ */
+export async function readUiState(dir: string): Promise<GameKbUiState | undefined> {
+  try {
+    const raw = await fs.readFile(path.join(dir, UI_STATE_FILE), 'utf8');
+    const parsed = JSON.parse(raw) as Partial<GameKbUiState>;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.enabled !== 'boolean') {
+      return undefined;
+    }
+    return { enabled: parsed.enabled };
+  } catch {
+    return undefined;
+  }
+}
+
+/** 写纯 UI 状态 sidecar（tmp + rename） */
+export async function writeUiState(dir: string, ui: GameKbUiState): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  const target = path.join(dir, UI_STATE_FILE);
+  const tmp = tmpNameFor(target);
+  await fs.writeFile(tmp, `${JSON.stringify(ui, null, 2)}\n`, 'utf8');
+  await renameWithRetry(tmp, target);
 }
 
 /**
@@ -279,7 +394,24 @@ export async function readManifest(dir: string): Promise<GameKbManifest | null> 
     if (!parsed || typeof parsed !== 'object' || typeof parsed.slug !== 'string') {
       return null;
     }
-    // 事实源是 sidecar；`kb.json.build` 只在没有 sidecar 的存量库里兜底
+    // #132：slug 只做**防穿越**校验（含分隔符 / `..` / 绝对路径即视为损坏），
+    // 不做全格式校验——存量库的 slug 不一定长成 `kb-*`，全格式会误伤。
+    // 当前没有调用方拿 manifest.slug 拼路径，但这是潜伏点，防在读取层最稳。
+    if (/[/\\]/.test(parsed.slug) || parsed.slug.includes('..') || path.isAbsolute(parsed.slug)) {
+      return null;
+    }
+    // 事实源是 ui.json；`kb.json.enabled` 只在没有 sidecar 的存量库里兜底（#115）。
+    // #128：存量「关着」的库要在第一次读取时回填 ui.json——否则迁移窗口里模型按
+    // schema 整篇重写 kb.json（schema 里没有 enabled 字段），关闭状态会被翻转成开。
+    const uiState = await readUiState(dir);
+    if (!uiState && parsed.enabled === false) {
+      try {
+        await writeUiState(dir, { enabled: false });
+      } catch {
+        // 回填失败不影响本次读取，下次读取会再试
+      }
+    }
+    // build 的事实源是 sidecar；`kb.json.build` 只在没有 sidecar 的存量库里兜底
     const sidecar = await readBuildState(dir);
     return {
       schemaVersion: 1,
@@ -289,8 +421,8 @@ export async function readManifest(dir: string): Promise<GameKbManifest | null> 
       gameVersion: typeof parsed.gameVersion === 'string' ? parsed.gameVersion : undefined,
       createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : '',
-      enabled: parsed.enabled !== false,
-      index: typeof parsed.index === 'string' ? parsed.index : DEFAULT_INDEX_FILE,
+      enabled: uiState?.enabled ?? (parsed.enabled !== false),
+      index: safeIndexFile(parsed.index),
       counts: parsed.counts && typeof parsed.counts === 'object' ? parsed.counts : undefined,
       files: Array.isArray(parsed.files) ? parsed.files.filter((f) => f && typeof f.path === 'string') : undefined,
       build: sidecar ?? normalizeBuild(parsed.build),
@@ -309,9 +441,9 @@ export async function readManifest(dir: string): Promise<GameKbManifest | null> 
 export async function writeManifest(dir: string, manifest: GameKbManifest): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   const target = path.join(dir, 'kb.json');
-  const tmp = `${target}.tmp`;
+  const tmp = tmpNameFor(target);
   await fs.writeFile(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  await fs.rename(tmp, target);
+  await renameWithRetry(tmp, target);
   if (manifest.build) {
     await writeBuildState(dir, manifest.build);
   }
@@ -331,12 +463,15 @@ export async function updateKnowledgeBaseBuild(
   patch: Partial<GameKbBuildState>,
 ): Promise<boolean> {
   return queueBuildWrite(dir, async () => {
-    // 读 kb.json 只为拿「没有 sidecar 的存量库」的旧 build；写只落 sidecar
+    // kb.json 只用来给「没有 sidecar 的存量库」兜底；它读不出来时**不能直接放弃**：
+    // 模型完全可能把它写成非法 JSON（提示词就是让它改这个文件），那样 build.json 会永久停在
+    // `building`，界面卡在「构建中」且没有任何报错冒出来，连「标记为失败」自救按钮都写不进去（#119）。
     const manifest = await readManifest(dir);
-    if (!manifest) {
+    const current = manifest?.build ?? (await readBuildState(dir));
+    if (!manifest && !current && patch.status !== 'building') {
+      // 目录和 sidecar 都不存在，又只想写一个终态——没有对象可更新
       return false;
     }
-    const current = manifest.build;
     const status = patch.status ?? current?.status;
     if (!status) {
       return false;
@@ -374,7 +509,11 @@ export async function finalizeKnowledgeBaseBuild(
   options: FinalizeBuildOptions = {},
 ): Promise<GameKbBuildStatus | null> {
   const manifest = await readManifest(dir);
-  if (!manifest) {
+  const buildState = await readBuildState(dir);
+  // #127：kb.json 损坏时不能直接放弃——build.json 还在就照常收尾（与 #119 的
+  // updateKnowledgeBaseBuild 同一口径），否则「正常完成」这条路径会把 build.json
+  // 永久卡在 building。两边都没有才是真的无对象可收尾。
+  if (!manifest && !buildState) {
     return null;
   }
   const finishedAt = new Date().toISOString();
@@ -391,10 +530,11 @@ export async function finalizeKnowledgeBaseBuild(
   }
 
   const fileCount = await countShardFiles(dir);
-  const indexFile = manifest.index ?? DEFAULT_INDEX_FILE;
   let indexText: string | null = null;
   try {
-    indexText = await fs.readFile(path.join(dir, indexFile), 'utf8');
+    // manifest 可能为 null（kb.json 损坏、只有 build.json 的库）：resolveIndexPath
+    // 对 undefined 回落到默认 index.md
+    indexText = await fs.readFile(resolveIndexPath(dir, manifest?.index), 'utf8');
   } catch {
     indexText = null;
   }
@@ -459,11 +599,10 @@ export async function listKnowledgeBases(workspaceRoot: string): Promise<GameKbE
     }
     const dir = path.join(root, entry.name);
     const manifest = await readManifest(dir);
-    const indexFile = manifest?.index ?? DEFAULT_INDEX_FILE;
     const fileCount = await countShardFiles(dir);
     let indexText: string | null = null;
     try {
-      indexText = await fs.readFile(path.join(dir, indexFile), 'utf8');
+      indexText = await fs.readFile(resolveIndexPath(dir, manifest?.index), 'utf8');
     } catch {
       indexText = null;
     }
@@ -520,10 +659,12 @@ export async function createKnowledgeBase(
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, DEFAULT_INDEX_FILE), buildIndexSkeleton(manifest.name), 'utf8');
   await writeManifest(dir, manifest);
+  // 开关的事实源：建库即写，之后 readManifest 优先读它（#115）
+  await writeUiState(dir, { enabled: true });
   return manifest;
 }
 
-/** 开关「载入到对话」 */
+/** 开关「载入到对话」——只写 `ui.json`，绝不重写 `kb.json`（模型可能正在整篇写它） */
 export async function setKnowledgeBaseEnabled(workspaceRoot: string, slug: string, enabled: boolean): Promise<boolean> {
   if (!isValidSlug(slug)) {
     return false;
@@ -533,7 +674,7 @@ export async function setKnowledgeBaseEnabled(workspaceRoot: string, slug: strin
   if (!manifest) {
     return false;
   }
-  await writeManifest(dir, { ...manifest, enabled });
+  await writeUiState(dir, { enabled });
   return true;
 }
 
@@ -562,9 +703,8 @@ export async function trashKnowledgeBase(workspaceRoot: string, slug: string, no
 
 /** 读索引正文；读不到返回 null */
 export async function readIndexText(entry: GameKbEntry): Promise<string | null> {
-  const file = entry.manifest?.index ?? DEFAULT_INDEX_FILE;
   try {
-    return await fs.readFile(path.join(entry.dir, file), 'utf8');
+    return await fs.readFile(resolveIndexPath(entry.dir, entry.manifest?.index), 'utf8');
   } catch {
     return null;
   }

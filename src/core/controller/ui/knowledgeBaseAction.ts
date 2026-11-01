@@ -7,6 +7,7 @@ import {
 	isValidSlug,
 	type KnowledgeBaseIncrementScope,
 	knowledgeBaseDir,
+	readBuildState,
 	readManifest,
 	setKnowledgeBaseEnabled,
 	trashKnowledgeBase,
@@ -195,13 +196,12 @@ export async function knowledgeBaseAction(controller: Controller, request: Strin
 			return respond({ ok: false, message: "知识库标识不合法。" })
 		}
 		const dir = knowledgeBaseDir(workspaceRoot, action.slug)
-		const manifest = await readManifest(dir)
-		if (!manifest) {
-			return respond({ ok: false, message: "这个知识库的 kb.json 读不出来（可能被删或损坏），先删掉重建。" })
-		}
+		// #127：kb.json 损坏时 build.json 还在，自救按钮不能被 kb.json 卡死
+		//（与 store 的 updateKnowledgeBaseBuild / finalizeKnowledgeBaseBuild 同一口径）
+		const buildStatus = (await readManifest(dir))?.build?.status ?? (await readBuildState(dir))?.status
 		// 只在真的卡在 building 时才允许：避免用户误点把正常库标成失败
-		if (manifest.build?.status !== "building") {
-			return respond({ ok: false, message: "这个库当前不在构建中，不需要标记失败。" })
+		if (buildStatus !== "building") {
+			return respond({ ok: false, message: "这个库当前不在构建中（或状态读不出来），无法标记失败。" })
 		}
 		const written = await updateKnowledgeBaseBuild(dir, {
 			status: "failed",

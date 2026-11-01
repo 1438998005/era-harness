@@ -38,7 +38,6 @@ const KB_JSON_SCHEMA = [
   '  "gameVersion": "<游戏版本串，拿不到就省略>",',
   '  "createdAt": "<⛔ 不要改>",',
   '  "updatedAt": "<本次更新时间，ISO 8601>",',
-  '  "enabled": true,',
   '  "index": "index.md",',
   '  "counts": { "function": 0, "constant": 0, "table": 0 },',
   '  "files": [{ "path": "functions/xxx.md", "title": "分片标题", "count": 12 }]',
@@ -56,6 +55,8 @@ const HARD_RULES = [
   '- 不要停下来反复向用户确认：信息不足时按现有代码推断并标注「推断」，先做完再汇报。',
   '- ⛔ 不要调用 use_subagents：建库是写盘任务，子代理只回文本，且会成倍放大开销（实测一次失控 102 元）。直接用主对话读文件、写分片。',
   '- ⛔ 不要创建、修改或删除 `build.json`：构建状态由扩展维护，你写了也会被覆盖。',
+  '- ⛔ 不要创建、修改或删除 `ui.json`：载入开关由扩展维护，你写了也会被覆盖。',
+  '- ⛔ `index` 只能填知识库目录内的 `.md` 文件名（如 `index.md`），不要写路径分隔符或 `..`：读盘时会按白名单校验，非法值一律回落 `index.md`。',
 ].join('\n');
 
 /**
@@ -205,7 +206,7 @@ export function buildIncrementPrompt(
     '- ⛔ 不要在范围外“顺手补几条”——留给下一次续写。',
     '',
     '## kb.json',
-    '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `enabled` 保持原样：',
+    '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `index` 保持原样：',
     '用 `replace_in_file` 局部改这几个字段，⛔ 不要用 `write_to_file` 整篇重写（会把扩展维护的字段一起抹掉）。',
     KB_JSON_SCHEMA,
     '',
@@ -256,7 +257,7 @@ export function buildUpdatePrompt(ctx: KnowledgeBasePromptContext & { manifest: 
     HARD_RULES,
     '',
     '## kb.json',
-    '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `enabled` 保持原样：',
+    '只更新 `updatedAt` / `counts` / `files` / `gameVersion`，`slug` / `name` / `createdAt` / `index` 保持原样：',
     '用 `replace_in_file` 局部改这几个字段，⛔ 不要用 `write_to_file` 整篇重写（会把扩展维护的字段一起抹掉）。',
     KB_JSON_SCHEMA,
     '',
