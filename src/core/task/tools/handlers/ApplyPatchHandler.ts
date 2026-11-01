@@ -4,11 +4,13 @@ import type { ToolUse } from "@core/assistant-message"
 import { diffErbStructure, formatErbStructureWarning, isErbLikePath } from "@core/era/erb-check"
 import { formatResponse } from "@core/prompts/responses"
 import { resolveWorkspacePath } from "@core/workspace"
-import { processFilesIntoText } from "@integrations/misc/extract-text"
+import { detectEncoding, processFilesIntoText } from "@integrations/misc/extract-text"
 import type { ClineSayTool } from "@shared/ExtensionMessage"
 import { fileExistsAtPath } from "@utils/fs"
 import { getReadablePath, isLocatedInWorkspace } from "@utils/path"
 import { applyPatch } from "diff"
+import * as iconv from "iconv-lite"
+import type { DiffViewProvider } from "@/integrations/editor/DiffViewProvider"
 import { telemetryService } from "@/services/telemetry"
 import { BASH_WRAPPERS, DiffError, PATCH_MARKERS, type Patch, PatchActionType, type PatchChunk } from "@/shared/Patch"
 import { preserveEscaping } from "@/shared/string"
@@ -92,6 +94,19 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 		const provider = config.services.diffViewProvider
 		this.initializeHelpers(config)
 
+		// #156：预览只设置 provider.editType、不 open 也不 reset——这批值会残留到
+		// 下一个工具；WriteToFileToolHandler 信任残留 editType 判 fileExists，会把
+		// 「新文件」当成「修改已有文件」走 modify 分支读盘 ENOENT。预览结束（含
+		// 中途 return/throw）必须恢复现场。
+		const prevEditType = provider.editType
+		try {
+			await this.previewPatchStreamInner(rawInput, provider, config)
+		} finally {
+			provider.editType = prevEditType
+		}
+	}
+
+	private async previewPatchStreamInner(rawInput: string, provider: DiffViewProvider, config: TaskConfig): Promise<void> {
 		const lines = this.stripBashWrapper(rawInput.split("\n"))
 
 		// Extract the first operation path and type
@@ -221,7 +236,12 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 		// era harness（2026-10-24 同类扫描）：方言残片混进 patch 头部的文件路径
 		// （如 `*** Update File: x</path>`）要到写盘阶段才炸出难懂的 EINVAL。
 		// patch 正文合法地大量含尖括号，所以只查**头部提取出的文件路径**。
-		const dirtyPath = this.extractAllFiles(rawInput).find((p) => /[<>]/.test(p))
+		// #140：MOVE 行的目标（*** Move to: x）也要扫——extractAllFiles 只扫
+		// ADD/UPDATE/DELETE，Move 的目标此前漏网，到写盘才炸 EINVAL。
+		const dirtyPath = [
+			...this.extractAllFiles(rawInput),
+			...this.extractFilesForOperations(rawInput, [PATCH_MARKERS.MOVE]),
+		].find((p) => /[<>]/.test(p))
 		if (dirtyPath) {
 			config.taskState.consecutiveMistakeCount++
 			return formatResponse.toolError(
@@ -551,7 +571,14 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 			if (!(await fileExistsAtPath(absolutePath))) {
 				throw new DiffError(`File not found: ${filePath}`)
 			}
-			const fileContent = await readFile(absolutePath, "utf8")
+			// #152：原来 readFile(absolutePath, "utf8") 硬解——CP932 的 ERB 会被解成
+			// mojibake，applyChunks 以它为基底生成 newContent 整文件写回，等于把整个
+			// 文件污染掉。与 DiffViewProvider.open()（:67-72）同款：buffer → 编码探测
+			// → 解码；iconv 不认识的编码兜底回 utf8（对齐 #167）。
+			const fileBuffer = await readFile(absolutePath)
+			const detectedEncoding = await detectEncoding(fileBuffer)
+			const encoding = iconv.encodingExists(detectedEncoding) ? detectedEncoding : "utf8"
+			const fileContent = iconv.decode(fileBuffer, encoding)
 			const normalizedContent = fileContent.replace(/\r\n/g, "\n")
 			files[filePath] = normalizedContent
 		}
@@ -565,7 +592,10 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 		for (const [path, action] of Object.entries(patch.actions)) {
 			const targetResolution = await this.pathResolver!.resolveAndValidate(path, "ApplyPatchHandler.previewPatch")
 			if (!targetResolution) {
-				continue
+				// #157：原来 continue 静默跳过——ADD 到 clineignore 命中/不可解析的路径
+				// 会被悄悄丢掉，最终回复仍是 Successfully applied patch，模型以为写成功
+				// 了。与 loadFiles 的 Access denied、movePath 的 throw 对齐，loud fail。
+				throw new DiffError(`Access denied or invalid path: ${path}`)
 			}
 
 			switch (action.type) {
@@ -579,6 +609,17 @@ export class ApplyPatchHandler implements IFullyManagedTool {
 					changes[path] = { type: PatchActionType.ADD, newContent: action.newFile }
 					break
 				case PatchActionType.UPDATE:
+					// #140：`*** Move to:` 的目标此前不经过任何校验，直通 createFile——
+					// clineignore 与路径合法性对真实写盘目标形同虚设。旧路径怎么验，它就怎么验。
+					if (action.movePath) {
+						const moveResolution = await this.pathResolver!.resolveAndValidate(
+							action.movePath,
+							"ApplyPatchHandler.patchToCommit",
+						)
+						if (!moveResolution) {
+							throw new DiffError(`Invalid move target: ${action.movePath}`)
+						}
+					}
 					// Extract starting line numbers from chunks (convert from 0-indexed to 1-indexed)
 					const startLineNumbers = action.chunks.map((chunk) => chunk.origIndex + 1)
 					changes[path] = {

@@ -13,7 +13,7 @@ import {
 	writeTargetMatches,
 } from "@eraharness/encoding/write"
 import { createDirectoriesForFile } from "@utils/fs"
-import { getCwd } from "@utils/path"
+import { arePathsEqual, getCwd } from "@utils/path"
 import * as diff from "diff"
 import * as fs from "fs/promises"
 import * as iconv from "iconv-lite"
@@ -56,7 +56,11 @@ export abstract class DiffViewProvider {
 		const absolutePathResolved = workspaceResolver.resolveWorkspacePath(cwd, relPath, "DiffViewProvider.open.absolutePath")
 		this.absolutePath = typeof absolutePathResolved === "string" ? absolutePathResolved : absolutePathResolved.absolutePath
 		this.relPath = options?.displayPath ?? relPath
-		const fileExists = this.editType === "modify"
+		// #150：原来用 `editType === "modify"` 判 fileExists，"delete" 落进 create 分支
+		// ——审批前 fs.writeFile(path, "") 就把待删文件清零，拒绝后 revertChanges 再
+		// fs.rm 把它彻底删掉（点拒绝 = 文件丢失）。delete 与 modify 同为「已有文件」，
+		// 都要走读取分支拿到真实 originalContent。
+		const fileExists = this.editType !== "create"
 
 		// if the file is already open, ensure it's not dirty before getting its contents
 		if (fileExists) {
@@ -79,7 +83,9 @@ export abstract class DiffViewProvider {
 		// for new files, create any necessary directories and keep track of new directories to delete if the user denies the operation
 		this.createdDirs = await createDirectoriesForFile(this.absolutePath)
 		// make sure the file exists before we open it
-		if (!fileExists) {
+		// #150：只有真正的新建（create）才清空落盘——delete 的「清空」只发生在
+		// diff 视图的文档里，磁盘原文件保持原样直到用户批准。
+		if (this.editType === "create") {
 			await fs.writeFile(this.absolutePath, "")
 		}
 		// get diagnostics before editing the file, we'll compare to diagnostics after editing to see if cline needs to fix anything
@@ -369,17 +375,19 @@ export abstract class DiffViewProvider {
 		/** 编码写回结论；符合判据时为 undefined */
 		encodingNote: string | undefined
 	}> {
+		// #153：原来这里是「返回全 undefined 的成功形状」——diff 编辑器被关闭时
+		// （审批窗口可无限长）文件根本没保存，handler 却照报成功并产出
+		// <final_file_content>undefined</final_file_content>。改成抛错：调用方
+		// （WriteToFileToolHandler / ApplyPatchHandler）的 catch 会 revert + 上报，
+		// 模型拿到失败信号可以重发。
+		if (!this.relPath || !this.absolutePath || this.newContent === undefined) {
+			throw new Error("saveChanges called without an active edit (no newContent)")
+		}
 		// get the contents before save operation which may do auto-formatting
 		const preSaveContent = await this.getDocumentText()
 
-		if (!this.relPath || !this.absolutePath || !this.newContent || preSaveContent === undefined) {
-			return {
-				newProblemsMessage: undefined,
-				userEdits: undefined,
-				autoFormattingEdits: undefined,
-				finalContent: undefined,
-				encodingNote: undefined,
-			}
+		if (preSaveContent === undefined) {
+			throw new Error("The diff editor was closed before saving; the file was not modified. Please retry the edit.")
 		}
 
 		await this.saveDocument()
@@ -573,46 +581,54 @@ export abstract class DiffViewProvider {
 	}
 
 	async revertChanges(): Promise<void> {
-		if (!this.absolutePath || !this.isEditing) {
-			return
-		}
-		const fileExists = this.editType === "modify"
+		try {
+			if (!this.absolutePath || !this.isEditing) {
+				return
+			}
+			// #150：delete 与 modify 同路恢复——open() 已不再清零磁盘文件，这里把
+			// diff 文档恢复成 originalContent 并保存（VS Code 关 diff 视图需要文档
+			// 处于已保存态），磁盘自始至终未被改动。旧 `!fileExists` 的 save+rm 分支
+			// 现在只服务 create（新建文件被拒 → 删掉新建的文件），语义重新成立。
+			const fileExists = this.editType !== "create"
 
-		if (!fileExists) {
-			// This is a load-bearing save statement- even though the file is saved and then immediately deleted.
-			// In vscode, it will not close the diff editor correctly if the file is not saved.
-			await this.saveDocument()
-			await this.closeAllDiffViews()
-			await fs.rm(this.absolutePath, { force: true })
-			Logger.log(`File ${this.absolutePath} has been deleted.`)
+			if (!fileExists) {
+				// This is a load-bearing save statement- even though the file is saved and then immediately deleted.
+				// In vscode, it will not close the diff editor correctly if the file is not saved.
+				await this.saveDocument()
+				await this.closeAllDiffViews()
+				await fs.rm(this.absolutePath, { force: true })
+				Logger.log(`File ${this.absolutePath} has been deleted.`)
 
-			// Remove only the directories we created, in reverse order
-			for (let i = this.createdDirs.length - 1; i >= 0; i--) {
-				try {
-					await fs.rmdir(this.createdDirs[i])
-					Logger.log(`Directory ${this.createdDirs[i]} has been deleted.`)
-				} catch (error) {
-					Logger.log(`Could not delete directory ${this.createdDirs[i]}`, error)
+				// Remove only the directories we created, in reverse order
+				for (let i = this.createdDirs.length - 1; i >= 0; i--) {
+					try {
+						await fs.rmdir(this.createdDirs[i])
+						Logger.log(`Directory ${this.createdDirs[i]} has been deleted.`)
+					} catch (error) {
+						Logger.log(`Could not delete directory ${this.createdDirs[i]}`, error)
+					}
 				}
-			}
-		} else {
-			// revert document
-			// Apply the edit and save, since contents shouldn't have changed this won't show in local history unless of
-			// course the user made changes and saved during the edit.
-			const contents = (await this.getDocumentText()) || ""
-			const lineCount = (contents.match(/\n/g) || []).length + 1
-			await this.replaceText(this.originalContent ?? "", { startLine: 0, endLine: lineCount }, undefined)
+			} else {
+				// revert document
+				// Apply the edit and save, since contents shouldn't have changed this won't show in local history unless of
+				// course the user made changes and saved during the edit.
+				const contents = (await this.getDocumentText()) || ""
+				const lineCount = (contents.match(/\n/g) || []).length + 1
+				await this.replaceText(this.originalContent ?? "", { startLine: 0, endLine: lineCount }, undefined)
 
-			await this.saveDocument()
-			Logger.log(`File ${this.absolutePath} has been reverted to its original content.`)
-			if (this.documentWasOpen) {
-				openFile(this.absolutePath, true)
+				await this.saveDocument()
+				Logger.log(`File ${this.absolutePath} has been reverted to its original content.`)
+				if (this.documentWasOpen) {
+					openFile(this.absolutePath, true)
+				}
+				await this.closeAllDiffViews()
 			}
-			await this.closeAllDiffViews()
+		} finally {
+			// #154：openDiffEditor 超时（10s reject）后 replaceText 会抛
+			// "User closed text editor"，中途抛错也必须落回终态——原来 reset 在方法
+			// 尾部、抛错即被跳过，isEditing 永久卡 true，本任务后续写文件全部失败。
+			await this.reset()
 		}
-
-		// edit is done
-		await this.reset()
 	}
 
 	async scrollToFirstDiff() {
@@ -636,7 +652,16 @@ export abstract class DiffViewProvider {
 
 	async deleteFile(fileName: string) {
 		const fileLocation = this.absolutePath
-		if (!fileLocation?.endsWith(fileName) || !this.isEditing) {
+		// #151：原来用 endsWith(fileName) 校验「要删的就是打开中的这个文件」，但
+		// fileLocation 是原生分隔符的绝对路径（WorkspaceResolver resolve 产物），
+		// fileName 是 patch 里的正斜杠相对路径——Windows 上恒 false，删除静默落空，
+		// 留下被清空成 0 字节的文件。换成规范化等值比较。
+		if (!fileLocation || !this.isEditing) {
+			return
+		}
+		const targetAbsolute = path.resolve(await getCwd(), fileName)
+		if (!arePathsEqual(fileLocation, targetAbsolute)) {
+			Logger.warn(`[DiffViewProvider.deleteFile] 目标与当前编辑文件不一致，跳过删除: ${fileName}`)
 			return
 		}
 

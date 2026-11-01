@@ -465,12 +465,14 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 				throw error
 			}
 
-			// Mark the file as edited by Cline
-			config.services.fileContextTracker.markFileAsEditedByCline(relPath)
-
 			// Save the changes and get the result
 			const { newProblemsMessage, userEdits, autoFormattingEdits, finalContent, encodingNote } =
 				await config.services.diffViewProvider.saveChanges()
+
+			// #161：标记必须在保存成功之后——原来先 mark 再 save，保存抛错时标记
+			// 残留，用户随后的手动编辑会被 FileContextTracker 当成 cline 编辑消费掉，
+			// user_edited / stale 保护对该文件失效。
+			config.services.fileContextTracker.markFileAsEditedByCline(relPath)
 
 			// Reset consecutive mistake counter on successful file operation
 			config.taskState.consecutiveMistakeCount = 0
@@ -591,7 +593,9 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 
 		// Check if file exists to determine the correct UI message
 		let fileExists: boolean
-		if (config.services.diffViewProvider.editType !== undefined) {
+		// #156：只在 provider 真处于编辑态时才信任 editType——patch 预览会设置
+		// editType 但从不 open，残留值会把新文件误判成「修改已有文件」。
+		if (config.services.diffViewProvider.isEditing && config.services.diffViewProvider.editType !== undefined) {
 			fileExists = config.services.diffViewProvider.editType === "modify"
 		} else {
 			fileExists = await fileExistsAtPath(absolutePath)

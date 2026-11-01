@@ -105,7 +105,9 @@ export class FileEditProvider extends DiffViewProvider {
 	}
 
 	protected async saveDocument(): Promise<Boolean> {
-		if (!this.absolutePath || !this.documentContent) {
+		// #155：空串是合法编辑（「清空文件」）——原来 !this.documentContent 把空串
+		// 当 falsy 拒写，上层却照报成功，磁盘保留旧内容。
+		if (!this.absolutePath || this.documentContent === undefined) {
 			return false
 		}
 
