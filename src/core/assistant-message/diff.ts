@@ -439,6 +439,13 @@ async function constructNewFileContentV1(
 
 	// If this is the final chunk, we need to apply all replacements and build the final result
 	if (isFinal) {
+		// #148：流结束时仍停在 SEARCH 态，说明 REPLACE 段从未出现（流被截断或模型漏了
+		// 标记）。此前整块被静默丢弃，模型会误以为编辑已生效；对齐 V2 getResult() 的
+		// 同场景抛错（文案一致），调用方 WriteToFileToolHandler 有 try/catch + diff_error
+		// 上报接得住。isFinal 只兜 inReplace 是上游有意的宽容路径，保持不动。
+		if (inSearch) {
+			throw new Error("File processing incomplete - SEARCH/REPLACE operations still active during finalization")
+		}
 		// Handle the case where we're still in replace mode when processing ends
 		// and this is the final chunk - treat it as if we encountered the REPLACE marker
 		if (inReplace && searchMatchIndex !== -1) {

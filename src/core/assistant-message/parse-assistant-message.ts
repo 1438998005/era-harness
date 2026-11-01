@@ -35,8 +35,16 @@ function decodeCommandEntities(text: string): string {
 		.replace(/&gt;/g, ">")
 		.replace(/&quot;/g, '"')
 		.replace(/&apos;/g, "'")
-		.replace(/&#(\d+);/g, (_m, d) => String.fromCodePoint(Number(d)))
-		.replace(/&#x([0-9a-fA-F]+);/g, (_m, h) => String.fromCodePoint(Number.parseInt(h, 16)))
+		.replace(/&#(\d+);/g, (_m, d) => {
+			const code = Number(d)
+			// #147：越界码点会让 fromCodePoint 抛 RangeError，把整轮流式解析炸断；
+			// 越界就保留原文本，交给上游按畸形输出处理。
+			return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _m
+		})
+		.replace(/&#x([0-9a-fA-F]+);/g, (_m, h) => {
+			const code = Number.parseInt(h, 16)
+			return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _m
+		})
 		.replace(/&amp;/g, "&")
 }
 

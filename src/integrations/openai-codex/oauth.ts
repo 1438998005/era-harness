@@ -363,8 +363,9 @@ export class OpenAiCodexOAuthManager {
 			}
 
 			const newCredentials = await this.refreshPromise
-			this.refreshPromise = null
+			// #146：同 getAccessToken——先落凭证再清 refreshPromise，堵住并发二次刷新窗口。
 			await this.saveCredentials(newCredentials)
+			this.refreshPromise = null
 			return newCredentials.access_token
 		} catch (error) {
 			this.refreshPromise = null
@@ -440,8 +441,11 @@ export class OpenAiCodexOAuthManager {
 				}
 
 				const newCredentials = await this.refreshPromise
-				this.refreshPromise = null
+				// #146：必须先落凭证再清 refreshPromise。反过来会在「刷新完成→凭证更新」
+				// 的窗口期放并发 getAccessToken 进来拿旧 refresh_token 二次刷新，上游
+				// 轮换 refresh_token 时触发 invalid_grant → clearCredentials 把用户登出。
 				await this.saveCredentials(newCredentials)
+				this.refreshPromise = null
 			} catch (error) {
 				this.refreshPromise = null
 				Logger.error("[openai-codex-oauth] Failed to refresh token:", error)
@@ -661,7 +665,9 @@ export class OpenAiCodexOAuthManager {
 				5 * 60 * 1000,
 			) // 5 minutes
 
-			server.listen(OPENAI_CODEX_OAUTH_CONFIG.callbackPort, () => {
+			// #145：不绑 host 时 Node 默认监听全部网卡，局域网可达 OAuth 回调；
+			// redirect_uri 是 http://localhost:1455，回环才是预期。
+			server.listen(OPENAI_CODEX_OAUTH_CONFIG.callbackPort, "127.0.0.1", () => {
 				if (this.pendingAuth) {
 					this.pendingAuth.server = server
 				}

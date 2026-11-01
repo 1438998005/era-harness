@@ -114,6 +114,7 @@ export class PatchParser {
 		]
 
 		while (!stopMarkers.some((m) => this.lines[this.index]?.startsWith(m.trim()))) {
+			const prevIndex = this.index
 			const currentLine = this.lines[this.index]
 			const defStr = currentLine?.startsWith("@@ ") ? currentLine.substring(3) : undefined
 			const sectionStr = currentLine === "@@" ? currentLine : undefined
@@ -165,6 +166,14 @@ export class PatchParser {
 
 				index = newIndex + nextChunkContext.length
 				this.index = endPatchIndex
+			}
+
+			// #138：零前进守卫。空行（或越界 undefined 行）不是 stop marker，peek 见空行
+			// 立即 break 原样返回，findContext 对空上下文返回 start，this.index 不动
+			// → while 永真，同步死循环挂死扩展宿主；文件位置 index===0 时上面
+			// `index !== 0` 的 Invalid Line 拦不住这条路径。任何一次迭代都必须推进。
+			if (this.index === prevIndex) {
+				throw new DiffError(`Invalid Line (parser made no progress): ${this.lines[prevIndex] ?? "<EOF>"}`)
 			}
 		}
 
@@ -265,16 +274,14 @@ function findContext(lines: string[], context: string[], start: number, eof: boo
 
 	const findCore = (startIdx: number): [number, number, number] => {
 		// Pass 1: exact equality after canonicalization
+		//（#144：不再在这里逐位置算 bestSimilarity——它只在「全部 pass 都失配」的
+		// 返回值里被读到，而那条路必然走过 Pass4，Pass4 会对同一批位置维护同一个
+		// 最大值。这里每个位置都算一次 O(ctx²) Levenshtein 纯属白烧。）
 		const canonicalContext = canonicalize(context.join("\n"))
 		for (let i = startIdx; i < lines.length; i++) {
 			const segment = canonicalize(lines.slice(i, i + context.length).join("\n"))
 			if (segment === canonicalContext) {
 				return [i, 0, 1.0]
-			}
-			// Track best similarity for reporting
-			const similarity = calculateSimilarity(segment, canonicalContext)
-			if (similarity > bestSimilarity) {
-				bestSimilarity = similarity
 			}
 		}
 
@@ -306,16 +313,26 @@ function findContext(lines: string[], context: string[], start: number, eof: boo
 			}
 		}
 
-		// Pass 4: Partial matching with similarity threshold (66% match = 2/3 lines)
-		const SIMILARITY_THRESHOLD = 0.66
+		// Pass 4: Partial matching with similarity threshold.
+		// #144：0.66 意味着 1/3 字符不同也照样命中——模糊匹配是「错位写盘」的安全
+		// 参数，打错位置的代价远大于让模型重发。提高到 0.9（Pass1-3 的精确/空白
+		// 归一通道不变，规规矩矩的补丁不受影响；低于阈值落入 chunk skipped 警告）。
+		const SIMILARITY_THRESHOLD = 0.9
 		for (let i = startIdx; i < lines.length; i++) {
 			const segment = canonicalize(lines.slice(i, i + context.length).join("\n"))
-			const similarity = calculateSimilarity(segment, canonicalContext)
-			if (similarity >= SIMILARITY_THRESHOLD) {
-				return [i, 1000, similarity]
-			}
-			if (similarity > bestSimilarity) {
-				bestSimilarity = similarity
+			// #144：长度差预筛。Levenshtein 距离 ≥ 长度差，所以相似度上界 = min/max；
+			// 连当前最优都追不上的位置直接跳过昂贵的 O(ctx²) 计算。bestSimilarity
+			// 保持精确（被跳过的位置在数学上不可能超过它）。
+			const maxLen = Math.max(segment.length, canonicalContext.length)
+			const lenUpperBound = maxLen === 0 ? 1 : Math.min(segment.length, canonicalContext.length) / maxLen
+			if (lenUpperBound > bestSimilarity) {
+				const similarity = calculateSimilarity(segment, canonicalContext)
+				if (similarity >= SIMILARITY_THRESHOLD) {
+					return [i, 1000, similarity]
+				}
+				if (similarity > bestSimilarity) {
+					bestSimilarity = similarity
+				}
 			}
 		}
 

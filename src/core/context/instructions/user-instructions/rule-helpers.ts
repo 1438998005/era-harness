@@ -376,6 +376,29 @@ export async function deleteRuleFile(
 	type: string,
 ): Promise<{ success: boolean; message: string }> {
 	try {
+		// #142：rulePath 来自 webview，此前只查存在性就 fs.rm——`../x` 可删任意文件。
+		// toggle 表就是白名单：refresh/synchronize 只为各 rules/workflows 目录下的
+		// 文件建键，路径必须是其中一张表里登记过的键（resolve 归一后比较），否则拒绝。
+		const registeredRulePathToggles = [
+			controller.stateManager.getGlobalSettingsKey("globalWorkflowToggles"),
+			controller.stateManager.getGlobalSettingsKey("globalClineRulesToggles"),
+			controller.stateManager.getWorkspaceStateKey("workflowToggles"),
+			controller.stateManager.getWorkspaceStateKey("localCursorRulesToggles"),
+			controller.stateManager.getWorkspaceStateKey("localWindsurfRulesToggles"),
+			controller.stateManager.getWorkspaceStateKey("localAgentsRulesToggles"),
+			controller.stateManager.getWorkspaceStateKey("localClineRulesToggles"),
+		]
+		const isRulePathRegistered = registeredRulePathToggles.some((toggles) => {
+			const resolvedRequest = path.resolve(rulePath)
+			return Object.keys(toggles ?? {}).some((key) => path.resolve(key) === resolvedRequest)
+		})
+		if (!isRulePathRegistered) {
+			return {
+				success: false,
+				message: `路径不在已登记的 rules/workflows 清单内，拒绝删除：${rulePath}`,
+			}
+		}
+
 		// Check if file exists
 		const fileExists = await fileExistsAtPath(rulePath)
 		if (!fileExists) {
