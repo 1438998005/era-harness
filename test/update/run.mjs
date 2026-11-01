@@ -82,6 +82,13 @@ const SPECS = [
 	"subagent-budget.spec.ts",
 	"subagent-wiring.spec.ts",
 	"subagents-availability.spec.ts",
+	"subagent-command-guard.spec.ts",
+	"run-game-approval.spec.ts",
+	"merge-task-restore.spec.ts",
+	"webview-input-guard.spec.ts",
+	"apply-patch-guard.spec.ts",
+	"hardening-guards.spec.ts",
+	"hardening2-guards.spec.ts",
 ]
 
 const aliasResolverPlugin = {
