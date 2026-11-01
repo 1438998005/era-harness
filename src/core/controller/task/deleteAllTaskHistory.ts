@@ -2,6 +2,7 @@ import { DeleteAllTaskHistoryCount } from "@shared/proto/cline/task"
 import fs from "fs/promises"
 import path from "path"
 import { HostProvider } from "@/hosts/host-provider"
+import { hashWorkingDir } from "@/integrations/checkpoints/CheckpointUtils"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { fileExistsAtPath } from "../../../utils/fs"
@@ -88,19 +89,32 @@ export async function deleteAllTaskHistory(controller: Controller): Promise<Dele
 		}
 
 		// Delete everything (not preserving favorites)
+		// #170：先快照本窗口的 task id——state 清空之后就查不到了。
+		const taskIds = taskHistory.map((task) => task.id)
 		controller.stateManager.setGlobalState("taskHistory", [])
 
 		try {
-			// Remove all contents of tasks directory
+			// #170：原来直接 rm 全局 tasks/ 目录——globalStorage 跨窗口共享，别的
+			// 窗口正在跑的任务数据会被一并删掉。只删本窗口 taskHistory 里出现过的 id。
 			const taskDirPath = path.join(HostProvider.get().globalStorageFsPath, "tasks")
-			if (await fileExistsAtPath(taskDirPath)) {
-				await fs.rm(taskDirPath, { recursive: true, force: true })
+			for (const id of taskIds) {
+				const taskDir = path.join(taskDirPath, id)
+				if (await fileExistsAtPath(taskDir)) {
+					await fs.rm(taskDir, { recursive: true, force: true })
+				}
 			}
 
-			// Remove checkpoints directory contents
-			const checkpointsDirPath = path.join(HostProvider.get().globalStorageFsPath, "checkpoints")
-			if (await fileExistsAtPath(checkpointsDirPath)) {
-				await fs.rm(checkpointsDirPath, { recursive: true, force: true })
+			// #170：checkpoints 同理收敛——按本工作区 hash 删（与 CheckpointTracker
+			// 初始化时的 workingDir/hash 同源：getWorkspacePaths()[0]），别的窗口、
+			// 别的工程的影子 git 不动。
+			const workspacePaths = await HostProvider.workspace.getWorkspacePaths({})
+			const firstWorkspacePath = workspacePaths.paths[0]
+			if (firstWorkspacePath) {
+				const cwdHash = hashWorkingDir(firstWorkspacePath)
+				const workspaceCheckpointsDir = path.join(HostProvider.get().globalStorageFsPath, "checkpoints", cwdHash)
+				if (await fileExistsAtPath(workspaceCheckpointsDir)) {
+					await fs.rm(workspaceCheckpointsDir, { recursive: true, force: true })
+				}
 			}
 		} catch (error) {
 			HostProvider.window.showMessage({

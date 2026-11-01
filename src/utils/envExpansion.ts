@@ -21,7 +21,9 @@ function expandString(value: string): string {
 	return value.replace(/\$\{env:([^}]+)\}/g, (match, varName) => {
 		// Trim whitespace from variable name to be forgiving of formatting
 		const trimmedVarName = varName.trim()
-		const envValue = process.env[trimmedVarName]
+		// #172：process.env 沿原型链取值会把 `${env:toString}` 取到
+		// Object.prototype.toString、展开成函数字符串——只认自有属性。
+		const envValue = Object.hasOwn(process.env, trimmedVarName) ? process.env[trimmedVarName] : undefined
 
 		if (envValue === undefined) {
 			Logger.warn(`[MCP Config] Environment variable not found: ${trimmedVarName}`)

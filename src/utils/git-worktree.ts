@@ -1,6 +1,7 @@
 import * as path from "path"
 import simpleGit from "simple-git"
 import { Logger } from "@/shared/services/Logger"
+import { isSafeGitRef } from "@/utils/git"
 import { copyWorktreeIncludeFiles } from "./worktree-include"
 
 export interface Worktree {
@@ -175,6 +176,15 @@ export async function createWorktree(
 	const isRepo = await checkGitRepo(cwd)
 	if (!isRepo) {
 		return { success: false, message: "Not a git repository" }
+	}
+
+	// #169：branch / baseBranch 原样进 git args——`--force` 会被 git 当 flag 解析
+	// （`git worktree add <path> --force` 会强制检出进非空目录，覆盖其中同名文件）。
+	if (options.branch && !isSafeGitRef(options.branch)) {
+		return { success: false, message: `Invalid branch name: ${options.branch}` }
+	}
+	if (options.baseBranch && !isSafeGitRef(options.baseBranch)) {
+		return { success: false, message: `Invalid base branch name: ${options.baseBranch}` }
 	}
 
 	try {

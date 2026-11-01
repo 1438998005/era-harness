@@ -108,6 +108,8 @@ export class StateManager {
 	private pendingWorkspaceState = new Set<LocalStateKey>()
 	private persistenceTimeout: NodeJS.Timeout | null = null
 	private readonly PERSISTENCE_DELAY_MS = 500
+	/** #168：连续持久化失败的重试次数（成功即清零；封顶后停止自动重试，等下次写入再拉起） */
+	private persistenceFailureRetries = 0
 	private taskHistoryWatcher: FSWatcher | null = null
 
 	// Callback for persistence errors
@@ -742,19 +744,44 @@ export class StateManager {
 			return
 		}
 
-		// Execute all persistence operations in parallel
-		await Promise.all([
-			this.persistGlobalStateBatch(this.pendingGlobalState),
-			this.persistSecretsBatch(this.pendingSecrets),
-			this.persistWorkspaceStateBatch(this.pendingWorkspaceState),
-			this.persistTaskStateBatch(this.pendingTaskState),
-		])
-
-		// Clear pending sets after successful persistence
+		// #168：先把 pending 集合换出快照、立刻清空字段——持久化 await 期间新写入
+		// 落进「新的」pending，由下一轮防抖处理。原来直接把活动集合传进
+		// persist*Batch、await 结束后统一 .clear()，会把 await 窗口内新写入的 key
+		// 一起吞掉（丢状态，之后 early-return 永不落盘）。
+		const globalKeys = new Set(this.pendingGlobalState)
+		const secretKeys = new Set(this.pendingSecrets)
+		const workspaceKeys = new Set(this.pendingWorkspaceState)
+		const taskKeys = new Map(this.pendingTaskState)
 		this.pendingGlobalState.clear()
 		this.pendingSecrets.clear()
 		this.pendingWorkspaceState.clear()
 		this.pendingTaskState.clear()
+
+		// Execute all persistence operations in parallel
+		try {
+			await Promise.all([
+				this.persistGlobalStateBatch(globalKeys),
+				this.persistSecretsBatch(secretKeys),
+				this.persistWorkspaceStateBatch(workspaceKeys),
+				this.persistTaskStateBatch(taskKeys),
+			])
+			this.persistenceFailureRetries = 0
+		} catch (error) {
+			// 失败的批次合回 pending，等重试——不能静默丢
+			for (const key of globalKeys) {
+				this.pendingGlobalState.add(key)
+			}
+			for (const key of secretKeys) {
+				this.pendingSecrets.add(key)
+			}
+			for (const key of workspaceKeys) {
+				this.pendingWorkspaceState.add(key)
+			}
+			for (const [key, value] of taskKeys) {
+				this.pendingTaskState.set(key, value)
+			}
+			throw error
+		}
 	}
 
 	/**
@@ -792,6 +819,14 @@ export class StateManager {
 
 				// Call persistence error callback for error recovery
 				this.onPersistenceError?.({ error: error })
+
+				// #168：失败后重新调度重试——原来只 log（注释声称会自动重试但没有），
+				// pending 数据会一直滞留内存直到进程退出。连续失败封顶后停止自动重试
+				// （磁盘持续不可写时不再每 500ms 刷错误日志），下次写入会重新拉起。
+				if (this.persistenceFailureRetries < 3) {
+					this.persistenceFailureRetries++
+					this.scheduleDebouncedPersistence()
+				}
 			}
 		}, this.PERSISTENCE_DELAY_MS)
 	}

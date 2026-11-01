@@ -30,6 +30,18 @@ export function getBuiltinIgnorePatterns(cwd: string): string[] {
 }
 
 /**
+ * #166：剥掉每一段末尾的空格与点（Win32 文件层语义——"secrets.env " 与
+ * "src/a." 打开的就是 "secrets.env" 与 "src/a"），让 ignore 匹配与文件层看到
+ * 同一个路径。只影响段尾（中间/开头的空格不动），逐段处理。
+ */
+function stripTrailingWin32Chars(relativePath: string): string {
+	return relativePath
+		.split("/")
+		.map((segment) => segment.replace(/[\s.]+$/, ""))
+		.join("/")
+}
+
+/**
  * Controls LLM access to files by enforcing ignore patterns.
  * Designed to be instantiated once in Cline.ts and passed to file manipulation services.
  * Uses the 'ignore' library to support standard .gitignore syntax in .clineignore files.
@@ -97,40 +109,43 @@ export class ClineIgnoreController {
 	 */
 	private async loadClineIgnore(): Promise<void> {
 		try {
-			// Reset ignore instance to prevent duplicate patterns
-			this.ignoreInstance = ignore()
+			// #166：先在临时实例上构建，全部成功后才整体替换——原来第一行就把
+			// ignoreInstance 重置为空再读文件，读取抛错（EBUSY/EPERM，常见于同步
+			// 客户端锁文件）时旧规则已经没了，fail-open 到下一次成功加载为止。
+			const nextInstance = ignore()
 			const builtinPatterns = getBuiltinIgnorePatterns(this.cwd)
 			if (builtinPatterns.length > 0) {
-				this.ignoreInstance.add(builtinPatterns)
+				nextInstance.add(builtinPatterns)
 			}
 			const ignorePath = path.join(this.cwd, ".clineignore")
 			if (await fileExistsAtPath(ignorePath)) {
 				const content = await fs.readFile(ignorePath, "utf8")
 				this.clineIgnoreContent = content
-				await this.processIgnoreContent(content)
-				this.ignoreInstance.add(".clineignore")
+				await this.processIgnoreContent(content, nextInstance)
+				nextInstance.add(".clineignore")
 			} else {
 				this.clineIgnoreContent = undefined
 			}
+			this.ignoreInstance = nextInstance
 		} catch (error) {
-			// Should never happen: reading file failed even though it exists
-			Logger.error("Unexpected error loading .clineignore:", error)
+			// 读取失败：保留旧实例（内置 + 用户规则原样有效），只记日志
+			Logger.error("Failed to load .clineignore, keeping previous rules:", error)
 		}
 	}
 
 	/**
 	 * Process ignore content and apply all ignore patterns
 	 */
-	private async processIgnoreContent(content: string): Promise<void> {
+	private async processIgnoreContent(content: string, target: Ignore): Promise<void> {
 		// Optimization: first check if there are any !include directives
 		if (!content.includes("!include ")) {
-			this.ignoreInstance.add(content)
+			target.add(content)
 			return
 		}
 
 		// Process !include directives
 		const combinedContent = await this.processClineIgnoreIncludes(content)
-		this.ignoreInstance.add(combinedContent)
+		target.add(combinedContent)
 	}
 
 	/**
@@ -185,9 +200,13 @@ export class ClineIgnoreController {
 			// Normalize path to be relative to cwd and use forward slashes
 			const absolutePath = path.resolve(this.cwd, filePath)
 			const relativePath = path.relative(this.cwd, absolutePath).toPosix()
+			// #166：Win32 文件层会剥掉路径末尾的空格与点（"secrets.env " 打开的就是
+			// "secrets.env"），而 ignore 匹配是纯字符串——不归一就能用尾随空格/点
+			// 绕过 .clineignore。只在 Windows 文件层语义下需要。
+			const ignoreCandidate = process.platform === "win32" ? stripTrailingWin32Chars(relativePath) : relativePath
 
 			// Ignore expects paths to be path.relative()'d
-			return !this.ignoreInstance.ignores(relativePath)
+			return !this.ignoreInstance.ignores(ignoreCandidate)
 		} catch (_error) {
 			// Logger.error(`Error validating access for ${filePath}:`, error)
 			// Ignore is designed to work with relative file paths, so will throw error for paths outside cwd. We are allowing access to all files outside cwd.

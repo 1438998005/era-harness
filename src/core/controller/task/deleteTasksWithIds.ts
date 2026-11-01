@@ -1,10 +1,8 @@
 import { Empty, StringArrayRequest } from "@shared/proto/cline/common"
 import fs from "fs/promises"
-import path from "path"
 import { HostProvider } from "@/hosts/host-provider"
 import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
-import { fileExistsAtPath } from "../../../utils/fs"
 import { Controller } from ".."
 
 /**
@@ -61,7 +59,7 @@ async function deleteTaskWithId(controller: Controller, id: string): Promise<voi
 			await controller.getTaskWithId(id)
 
 		// Remove task from state
-		const updatedTaskHistory = await controller.deleteTaskFromState(id)
+		await controller.deleteTaskFromState(id)
 
 		// Delete the task files
 		for (const filePath of [
@@ -80,18 +78,11 @@ async function deleteTaskWithId(controller: Controller, id: string): Promise<voi
 			Logger.debug("Could not remove task directory (may not be empty):", error)
 		}
 
-		// If no tasks remain, clean up everything
-		if (updatedTaskHistory.length === 0) {
-			const taskDirPath = path.join(HostProvider.get().globalStorageFsPath, "tasks")
-			const checkpointsDirPath = path.join(HostProvider.get().globalStorageFsPath, "checkpoints")
-
-			if (await fileExistsAtPath(taskDirPath)) {
-				await fs.rm(taskDirPath, { recursive: true, force: true })
-			}
-			if (await fileExistsAtPath(checkpointsDirPath)) {
-				await fs.rm(checkpointsDirPath, { recursive: true, force: true })
-			}
-		}
+		// #170：原来「本窗口历史删光就 rm 全局 tasks/checkpoints 目录」——这两个
+		// 目录是跨窗口共享的（StateManager 是每窗口独立缓存），窗口 A 删光自己可见
+		// 的历史时，窗口 B 正在跑的任务的数据和影子 git 会被整体删掉。per-task 的
+		// 文件清理上面已经完成；全量清理只走 deleteAllTaskHistory 的显式动作
+		// （且已收敛到本窗口范围），这里不再做任何全局 rm。
 	} catch (error) {
 		Logger.debug(`Error deleting task ${id}:`, error)
 		throw error // Re-throw to let caller handle the error

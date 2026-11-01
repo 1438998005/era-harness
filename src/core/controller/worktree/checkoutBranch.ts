@@ -1,6 +1,7 @@
 import { CheckoutBranchRequest, WorktreeResult } from "@shared/proto/cline/worktree"
 import { getWorkspacePath } from "@utils/path"
 import simpleGit from "simple-git"
+import { isSafeGitRef } from "@/utils/git"
 import { Controller } from ".."
 
 /**
@@ -24,6 +25,15 @@ export async function checkoutBranch(_controller: Controller, request: CheckoutB
 		return WorktreeResult.create({
 			success: false,
 			message: "Branch name is required",
+		})
+	}
+
+	// #169：branch 原样进 simple-git 的 args——`--force` 会被 git 当 flag 解析，
+	// 静默吞掉工作区未提交的更改。
+	if (!isSafeGitRef(branch)) {
+		return WorktreeResult.create({
+			success: false,
+			message: `Invalid branch name: ${branch}`,
 		})
 	}
 

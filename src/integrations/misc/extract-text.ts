@@ -89,6 +89,14 @@ export interface TextExtractionOptions {
 export async function callTextExtractionFunctions(filePath: string, options?: TextExtractionOptions): Promise<string> {
 	const fileExtension = path.extname(filePath).toLowerCase()
 
+	// #167：20MB 限流原来只在 default 文本分支——PDF/DOCX/XLSX/IPYNB 会直接全量
+	// 读盘 + 同步解析。前置到所有分支之前。
+	const fileStat = await fs.stat(filePath)
+	if (fileStat.size > 20 * 1000 * 1024) {
+		// 20MB limit (20 * 1000 * 1024 bytes, decimal MB)
+		throw new Error(`File is too large to read into context.`)
+	}
+
 	let content: string
 
 	switch (fileExtension) {
@@ -105,14 +113,12 @@ export async function callTextExtractionFunctions(filePath: string, options?: Te
 			content = await extractTextFromExcel(filePath)
 			break
 		default:
-			// Check file size with stat() first - faster than reading entire file for size check
-			const fileStat = await fs.stat(filePath)
-			if (fileStat.size > 20 * 1000 * 1024) {
-				// 20MB limit (20 * 1000 * 1024 bytes, decimal MB)
-				throw new Error(`File is too large to read into context.`)
-			}
 			const fileBuffer = await fs.readFile(filePath)
-			const encoding = await detectEncoding(fileBuffer, fileExtension)
+			const detectedEncoding = await detectEncoding(fileBuffer, fileExtension)
+			// #167：chardet 可能返回 iconv-lite 不支持的编码（如 ISO-2022-JP 这种
+			// stateful 编码）——直接 decode 会抛 "Encoding not recognized"，让
+			// read_file 对这个文件永久失败。兜底回 utf8。
+			const encoding = iconv.encodingExists(detectedEncoding) ? detectedEncoding : "utf8"
 			content = iconv.decode(fileBuffer, encoding)
 	}
 
@@ -136,7 +142,9 @@ async function extractTextFromDOCX(filePath: string): Promise<string> {
 
 async function extractTextFromIPYNB(filePath: string): Promise<string> {
 	const fileBuffer = await fs.readFile(filePath)
-	const encoding = await detectEncoding(fileBuffer)
+	const detectedEncoding = await detectEncoding(fileBuffer)
+	// #167：同 default 分支——iconv 不支持的编码兜底回 utf8。
+	const encoding = iconv.encodingExists(detectedEncoding) ? detectedEncoding : "utf8"
 	const data = iconv.decode(fileBuffer, encoding)
 
 	// Strip all outputs to reduce context size - outputs aren't needed for understanding

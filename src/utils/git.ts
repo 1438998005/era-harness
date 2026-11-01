@@ -12,6 +12,34 @@ const GIT_OUTPUT_LINE_LIMIT = 500
 /** commit 标识只允许 hash 与相对引用（HEAD~1）：开头必须是字母数字，防止被当成 git 选项 */
 const COMMIT_REF_RE = /^[0-9A-Za-z][0-9A-Za-z^~._-]*$/
 
+/**
+ * 分支名 / 起点名（进 `git checkout` / `git worktree add` 的位置参数）安全校验（#169）。
+ *
+ * 这些值来自 webview RPC，不能信任取值范围：git 会把以 `-` 开头的参数当 flag
+ * 解析，`--force` 会被拼成选项——`git checkout --force` 静默吞掉未提交更改、
+ * `git worktree add <path> --force` 强制检出进非空目录。与 COMMIT_REF_RE 同族
+ * 的「防被当成 git 选项」闸，但 ref 形态更宽（允许 / 与 .）。
+ */
+export function isSafeGitRef(ref: string): boolean {
+	// 空串直接拒绝（调用方往往已做过必填校验，这里是第二道闸）
+	if (typeof ref !== "string" || ref.length === 0) {
+		return false
+	}
+	// 选项注入：git 把以 - 开头的位置参数当 flag（--force / -b / -C<path>）
+	if (ref.startsWith("-")) {
+		return false
+	}
+	// 空白与控制字符：不仅不是合法 ref 形态，还会把单个参数拆成两个
+	if (/[\s\u0000-\u001f\u007f]/.test(ref)) {
+		return false
+	}
+	// 相对穿越形态顺手拒绝（refs 里没有合法的 .. 用法）
+	if (ref.includes("..")) {
+		return false
+	}
+	return true
+}
+
 export interface GitCommit {
 	hash: string
 	shortHash: string

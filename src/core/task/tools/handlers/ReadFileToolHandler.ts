@@ -216,19 +216,21 @@ export class ReadFileToolHandler implements IFullyManagedTool {
 			)
 		}
 
-		// Check clineignore access
-		const accessValidation = this.validator.checkClineIgnorePath(relPath!)
+		// Resolve the absolute path based on multi-workspace configuration
+		const pathResult = resolveWorkspacePath(config, relPath!, "ReadFileToolHandler.execute")
+		const { absolutePath, displayPath } =
+			typeof pathResult === "string" ? { absolutePath: pathResult, displayPath: relPath! } : pathResult
+
+		// #166：clineignore 校验必须用解析后的路径且在解析之后——`@主根:src/x`
+		// 这种 hint 前缀在原始输入里剥不掉，先校验等于字面串匹配不到规则、放行绕过。
+		const resolvedForIgnore = typeof pathResult === "string" ? relPath! : pathResult.resolvedPath
+		const accessValidation = this.validator.checkClineIgnorePath(resolvedForIgnore)
 		if (!accessValidation.ok) {
 			if (!config.isSubagentExecution) {
 				await config.callbacks.say("clineignore_error", relPath)
 			}
 			return formatResponse.toolError(formatResponse.clineIgnoreError(relPath!))
 		}
-
-		// Resolve the absolute path based on multi-workspace configuration
-		const pathResult = resolveWorkspacePath(config, relPath!, "ReadFileToolHandler.execute")
-		const { absolutePath, displayPath } =
-			typeof pathResult === "string" ? { absolutePath: pathResult, displayPath: relPath! } : pathResult
 
 		// Determine workspace context for telemetry
 		const fallbackAbsolutePath = path.resolve(config.cwd, relPath ?? "")

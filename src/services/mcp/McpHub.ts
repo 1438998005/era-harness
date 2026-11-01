@@ -670,8 +670,11 @@ export class McpHub {
 	}
 
 	private appendErrorMessage(connection: McpConnection, error: string) {
-		const newError = connection.server.error ? `${connection.server.error}\n${error}` : error
-		connection.server.error = newError //.slice(0, 800)
+		// #171：`.slice(0, 800)` 被注释掉之后，stderr 里每一块含 "error" 的输出都会
+		// 无限追加——内存无界增长，且每次 notifyWebviewOfServerChanges 全文推 webview。
+		// 恢复上游的截断语义：保留最早（通常是根因）的 800 字符。
+		const combined = connection.server.error ? `${connection.server.error}\n${error}` : error
+		connection.server.error = combined.slice(0, 800)
 	}
 
 	private async fetchToolsList(serverName: string): Promise<McpTool[]> {

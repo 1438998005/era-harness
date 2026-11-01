@@ -11,12 +11,14 @@ import { sendHistoryButtonClickedEvent } from "./core/controller/ui/subscribeToH
 import { sendMcpButtonClickedEvent } from "./core/controller/ui/subscribeToMcpButtonClicked"
 import { sendSettingsButtonClickedEvent } from "./core/controller/ui/subscribeToSettingsButtonClicked"
 import { sendWorktreesButtonClickedEvent } from "./core/controller/ui/subscribeToWorktreesButtonClicked"
+import { StateManager } from "./core/storage/StateManager"
 import { WebviewProvider } from "./core/webview"
 import { createClineAPI } from "./exports"
 
 import "./utils/path" // necessary to have access to String.prototype.toPosix
 import path from "node:path"
 import type { ExtensionContext } from "vscode"
+import { flushAudit } from "@/core/logging/auditLog"
 import { registerGlobalErrorCapture } from "@/core/logging/global-error-capture"
 import { HostProvider } from "@/hosts/host-provider"
 import { registerEraBasicLanguageSupport } from "@/hosts/vscode/erabasic"
@@ -438,10 +440,14 @@ export async function activate(context: vscode.ExtensionContext) {
 					"Generate Notebook Cell",
 					"Enter your prompt for generating notebook cell (press Enter to confirm & Esc to cancel)",
 				)
-				if (!userPrompt) return
+				if (!userPrompt) {
+					return
+				}
 
 				const ctx = await getNotebookCommandContext(range, diagnostics)
-				if (!ctx) return
+				if (!ctx) {
+					return
+				}
 
 				const notebookContext = `User prompt: ${userPrompt}
 Insert a new Jupyter notebook cell above or below the current cell based on user prompt.
@@ -462,7 +468,9 @@ ${ctx.cellJson || "{}"}
 			commands.JupyterExplainCell,
 			async (range?: vscode.Range, diagnostics?: vscode.Diagnostic[]) => {
 				const ctx = await getNotebookCommandContext(range, diagnostics)
-				if (!ctx) return
+				if (!ctx) {
+					return
+				}
 
 				const notebookContext = ctx.cellJson
 					? `\n\nCurrent Notebook Cell Context (JSON, sanitized of image data):\n\`\`\`json\n${ctx.cellJson}\n\`\`\``
@@ -481,10 +489,14 @@ ${ctx.cellJson || "{}"}
 					"Improve Notebook Cell",
 					"Enter your prompt for improving the current notebook cell (press Enter to confirm & Esc to cancel)",
 				)
-				if (!userPrompt) return
+				if (!userPrompt) {
+					return
+				}
 
 				const ctx = await getNotebookCommandContext(range, diagnostics)
-				if (!ctx) return
+				if (!ctx) {
+					return
+				}
 
 				const notebookContext = `User prompt: ${userPrompt}
 ${NOTEBOOK_EDIT_INSTRUCTIONS}
@@ -698,6 +710,17 @@ async function getBinaryLocation(name: string): Promise<string> {
 
 // This method is called when your extension is deactivated
 export async function deactivate() {
+	// 先把审计队列落盘：recordAudit 是 fire-and-forget，abort 后立刻重载窗口会丢掉最后几行（#117）
+	await flushAudit()
+
+	// #168：把防抖中的状态落盘——持久化有 500ms 防抖，任何状态写入后立刻关窗
+	// /重载会丢掉最后一批（taskHistory、autoApprovalSettings 等）。
+	try {
+		await StateManager.get().flushPendingState()
+	} catch {
+		// StateManager 未初始化（初始化失败路径）时 get() 会抛——关窗路径不再二次报错
+	}
+
 	// Dispose Non-VSCode-specific services
 	tearDown()
 

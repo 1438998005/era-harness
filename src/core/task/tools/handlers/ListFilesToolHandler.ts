@@ -84,18 +84,6 @@ export class ListFilesToolHandler implements IFullyManagedTool {
 			)
 		}
 
-		// Check clineignore access before performing any IO.
-		// Increment the counter so repeated attempts at blocked paths
-		// accumulate toward the yolo-mode mistake limit.
-		const accessValidation = this.validator.checkClineIgnorePath(relDirPath!)
-		if (!accessValidation.ok) {
-			config.taskState.consecutiveMistakeCount++
-			if (!config.isSubagentExecution) {
-				await config.callbacks.say("clineignore_error", relDirPath)
-			}
-			return formatResponse.toolError(formatResponse.clineIgnoreError(relDirPath!))
-		}
-
 		// Resolve the path and execute the list operation inside a single
 		// try/catch so that failures in either step (e.g. bad workspace hint,
 		// non-existent directory) return a graceful tool error instead of
@@ -110,6 +98,23 @@ export class ListFilesToolHandler implements IFullyManagedTool {
 			;({ absolutePath, displayPath } =
 				typeof pathResult === "string" ? { absolutePath: pathResult, displayPath: relDirPath! } : pathResult)
 			usedWorkspaceHint = typeof pathResult !== "string"
+
+			// #166：clineignore 校验必须用解析后的路径且在解析之后——
+			// `@主根:src/x` 这种 hint 前缀在原始输入里剥不掉，字面串匹配不到任何
+			// 规则，先校验等于放行绕过。
+			const resolvedForIgnore = typeof pathResult === "string" ? relDirPath! : pathResult.resolvedPath
+			// Check clineignore access before performing any IO.
+			// Increment the counter so repeated attempts at blocked paths
+			// accumulate toward the yolo-mode mistake limit.
+			const accessValidation = this.validator.checkClineIgnorePath(resolvedForIgnore)
+			if (!accessValidation.ok) {
+				config.taskState.consecutiveMistakeCount++
+				if (!config.isSubagentExecution) {
+					await config.callbacks.say("clineignore_error", relDirPath)
+				}
+				return formatResponse.toolError(formatResponse.clineIgnoreError(relDirPath!))
+			}
+
 			;[files, didHitLimit] = await listFiles(absolutePath, recursive, LIST_FILES_LIMIT)
 		} catch (error) {
 			config.taskState.consecutiveMistakeCount++
