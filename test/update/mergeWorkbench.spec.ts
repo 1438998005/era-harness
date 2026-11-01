@@ -337,7 +337,7 @@ test("有对话在跑（busy）→ 进 notes，不写任何东西", async () => 
 	})
 })
 
-test("AI 动了工作台之外的文件 → 记进 notes，但不影响合并结果", async () => {
+test("AI 动了工作台之外的文件 → 还原并中止本轮，冲突保留本地（#114/#123 语义）", async () => {
 	await withTempRoot(async (root) => {
 		const fakes = [conflicting("ERB/A.ERB")]
 		const result = await resolveConflictsViaWorkbench({
@@ -348,11 +348,17 @@ test("AI 动了工作台之外的文件 → 记进 notes，但不影响合并结
 			shouldMerge: AGREE_ALL,
 			runTask: async (prompt, layout) => {
 				const out = await answerAll()(prompt, layout)
-				return { ...out, status: "completed", unexpected: [{ path: "ERB/A.ERB", kind: "modified" }] }
+				// 真实 runMergeConversation 的语义：发现越界改动 → 还原 → 一律 failed 中止，
+				// 不存在 completed+unexpected 的组合（#123 起取消/超时同样还原）
+				return {
+					status: "failed",
+					detail: "AI 改动了 1 个本次合并之外的文件，已全部还原：\n  · ERB/A.ERB（被改）",
+					unexpected: [{ path: "ERB/A.ERB", kind: "modified" }],
+				}
 			},
 		})
-		assert.equal(result.files[0].decision, "merged")
-		assert.ok(result.notes?.some((n) => n.includes("工作台之外的文件")))
+		assert.equal(result.files[0].decision, "keep-local")
+		assert.ok(result.notes?.some((n) => n.includes("没能跑完") && n.includes("已全部还原")))
 	})
 })
 

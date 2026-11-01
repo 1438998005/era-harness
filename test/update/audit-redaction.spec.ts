@@ -78,6 +78,26 @@ test("scrubSecrets 擦除常见密钥形态", () => {
 	assert.match(scrubSecrets("api_key=superSecretValue1234"), /\[redacted\]/)
 })
 
+test("#116 带固定前缀的云厂商密钥也要擦（AIza / AKIA / hf_ / glpat-）", () => {
+	// 这几种长度都够不上上面那两条「长十六进制 / 长 Base64」规则：
+	// AIza 共 39 字符（差 1 位不满足 {40,}）、AKIA 含非 hex 字母、hf_/glpat- 同理。
+	// 而 provider 的 401 文案常回显 key 片段，诊断包又是要发给别人排障的。
+	const cases: Array<[string, string]> = [
+		["google", `Incorrect API key provided: AIzaSyD-1234567890abcdefghijklmnopqrstu`],
+		["aws", `The security token included in the request is invalid: AKIAIOSFODNN7EXAMPLE`],
+		["huggingface", `invalid token: hf_abcdefghijklmnopqrstuvwxyz012345`],
+		["gitlab", `401 Unauthorized: glpat-abcdefghij0123456789`],
+	]
+
+	for (const [name, raw] of cases) {
+		const scrubbed = scrubSecrets(raw)
+		assert.match(scrubbed, /\[redacted\]/, `${name} 的密钥没有被擦除：${scrubbed}`)
+	}
+
+	// 反例：普通单词不能被误擦（避免把审计日志擦成一片星号）
+	assert.equal(scrubSecrets("this is a normal log line").includes("[redacted]"), false)
+})
+
 test("字符串截断到上限并压成单行", () => {
 	// 注意：纯字母/数字长串会被当成 base64 密钥整段擦除，所以用中文构造「长文本」
 	const long = `${"路径/片段 ".repeat(80)}\n第二行`

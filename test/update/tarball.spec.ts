@@ -79,6 +79,21 @@ test("路径穿越条目被拒绝，且不影响后续条目解析", async () =>
 	assert.equal(files.get("ok.txt"), "fine")
 })
 
+test("dot-like 路径段进 rejected，不在目标目录里留下怪名字（#121）", async () => {
+	const tar = buildTar([
+		{ path: "eratw-sub-modding-develop", type: "dir" },
+		{ path: "eratw-sub-modding-develop/.. /evil.txt", content: "pwn" },
+		{ path: "eratw-sub-modding-develop/..../weird.txt", content: "pwn" },
+		{ path: "eratw-sub-modding-develop/ok.txt", content: "fine" },
+	])
+	const { stats, files } = await collect(tar)
+
+	// rejected 记录的是归档原始路径（含顶层前缀），不是剥前缀后的形式
+	assert.ok(stats.rejected.includes("eratw-sub-modding-develop/.. /evil.txt"))
+	assert.ok(stats.rejected.includes("eratw-sub-modding-develop/..../weird.txt"))
+	assert.deepEqual([...files.keys()], ["ok.txt"])
+})
+
 test("filter 为 false 时丢弃内容但仍消费流（后续条目照常解析）", async () => {
 	const tar = buildTar([
 		{ path: "eratw-sub-modding-develop", type: "dir" },
@@ -142,4 +157,21 @@ test("normalizeEntryPath：绝对路径与空路径一律拒绝", () => {
 	assert.equal(normalizeEntryPath("a//b"), null)
 	assert.equal(normalizeEntryPath("./ERB/a.ERB"), "ERB/a.ERB")
 	assert.equal(normalizeEntryPath("ERB/口上/a.ERB"), "ERB/口上/a.ERB")
+})
+
+test("normalizeEntryPath：dot-like 段一律拒绝（#121/#129）", () => {
+	// `.. ` 尾空格：实测 Windows 会创建字面 `.. ` 目录（非穿越），但仍是脏目录——直接拒
+	assert.equal(normalizeEntryPath(".. /evil.txt"), null)
+	assert.equal(normalizeEntryPath("foo/.. /bar.txt"), null)
+	// 全点段：`....` 不是 `..`，语义上没有任何合法文件名长这样
+	assert.equal(normalizeEntryPath("...."), null)
+	assert.equal(normalizeEntryPath("a/.../b.txt"), null)
+	// 点空混合段（#129）：trimEnd 剥不掉中间空格，此前会漏——实测不穿越
+	//（writeFile ENOENT / mkdir 落成字面目录仍留 root 内），但按脏名口径一律拒
+	assert.equal(normalizeEntryPath("x/.. ./evil.txt"), null)
+	assert.equal(normalizeEntryPath("x/. . ./evil.txt"), null)
+	assert.equal(normalizeEntryPath(".. ."), null)
+	assert.equal(normalizeEntryPath("a/…/b.txt"), "a/…/b.txt") // 中文省略号不是点，放行
+	// 普通段带尾空格不是 dot-like：不穿越，保留原名（脏但无害）
+	assert.equal(normalizeEntryPath("dir /file.txt"), "dir /file.txt")
 })

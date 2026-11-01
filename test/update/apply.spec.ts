@@ -216,6 +216,19 @@ test("路径越界直接拒绝（防 ../ 穿越）", async () => {
 	})
 })
 
+test("dot-like 路径段同样拒绝（#121/#129，纵深防御）", async () => {
+	await withTempRoot(async (root) => {
+		// `.. ` 尾空格：即使第一道闸（normalizeEntryPath）漏了，apply 层也不能落盘
+		const plan = makePlan([{ path: ".. /outside.txt", action: "write", reason: "upstream-add" }])
+		await assert.rejects(applyPlan({ root, plan, label: "x", provide: () => Buffer.from("x") }), /路径越界/)
+		const plan2 = makePlan([{ path: "a/..../b.txt", action: "write", reason: "upstream-add" }])
+		await assert.rejects(applyPlan({ root, plan: plan2, label: "x", provide: () => Buffer.from("x") }), /路径越界/)
+		// 点空混合段（#129）：正则改用 /^[\s.]*$/ 后同样拦下
+		const plan3 = makePlan([{ path: "x/.. ./outside.txt", action: "write", reason: "upstream-add" }])
+		await assert.rejects(applyPlan({ root, plan: plan3, label: "x", provide: () => Buffer.from("x") }), /路径越界/)
+	})
+})
+
 test("dryRun：不写盘、不产生备份目录", async () => {
 	await withTempRoot(async (root) => {
 		await writeFiles(root, { "ERB/A.ERB": "old A" })

@@ -63,6 +63,21 @@ export function recordAudit(entry: AuditEntry): void {
 		})
 }
 
+/**
+ * 等队列里的审计行落盘。**只在进程退出时用**（`deactivate`）。
+ *
+ * `recordAudit` 是 fire-and-forget：abort 之后用户立刻重载窗口，最后那条 `task/abort`
+ * 与 `api/usage` 可能还在队列里没写出去（#117）。这里把链 await 掉；
+ * 异常只 warn——审计不能阻塞扩展退出。
+ */
+export async function flushAudit(): Promise<void> {
+	try {
+		await writeChain
+	} catch (error) {
+		Logger.warn("[audit] 退出前落盘失败（已忽略）:", error instanceof Error ? error.message : error)
+	}
+}
+
 async function appendLine(line: string): Promise<void> {
 	const dir = getDiagnosticsDir()
 	await fs.mkdir(dir, { recursive: true })

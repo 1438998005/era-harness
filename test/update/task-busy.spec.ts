@@ -11,10 +11,9 @@
  */
 
 import assert from "node:assert/strict"
-import fs from "node:fs"
-import path from "node:path"
 import test from "node:test"
 import { isTaskStateBusy, TERMINAL_ASKS } from "../../src/core/task/taskBusy"
+import { readCode } from "./source-probe"
 
 test("#99 终态 ask 不算忙（等的是收尾按钮，不是用户回答）", () => {
 	assert.deepEqual([...TERMINAL_ASKS].sort(), ["completion_result", "new_task", "resume_completed_task"])
@@ -43,6 +42,14 @@ test("#99 没有任务 / 空状态不忙", () => {
 })
 
 test("#99 接线：建库任务的忙判据必须走这个纯函数", () => {
-	const source = fs.readFileSync(path.join(process.cwd(), "src/hosts/vscode/knowledgeBaseTask.ts"), "utf8")
+	const source = readCode("src/hosts/vscode/knowledgeBaseTask.ts")
 	assert.ok(source.includes("isTaskStateBusy("), "knowledgeBaseTask 必须调用 isTaskStateBusy，否则终态 ask 的排除等于没接上")
+})
+
+test("#113 接线：合并对话的忙判据也必须走同一个纯函数（同类第二处）", () => {
+	// 剥注释：这条断言要检的是代码里有没有裸判，注释里提到不算
+	const source = readCode("src/hosts/vscode/mergeTask.ts")
+	assert.ok(source.includes("isTaskStateBusy("), "mergeTask 必须调用 isTaskStateBusy")
+	// 裸判 isStreaming 会在「等用户点确认」时误判「不忙」→ initTask → 把用户的任务杀掉
+	assert.equal(/taskState\.isStreaming/.test(source), false, "mergeTask 不能再裸判 taskState.isStreaming（#113 的根因就是它）")
 })

@@ -108,13 +108,26 @@ export function backupDirName(label: string, date = new Date()): string {
 }
 
 function isInsideRoot(root: string, rel: RelPath): boolean {
-	if (rel.startsWith("/") || /^[a-zA-Z]:/.test(rel) || rel.split("/").includes("..")) {
+	if (rel.startsWith("/") || /^[a-zA-Z]:/.test(rel)) {
 		return false
 	}
-	const abs = path.resolve(root, ...rel.split("/"))
+	// 逐段判 dot-like（#121/#129，与 normalizeEntryPath 同一条规则）：
+	// 实测 path.resolve 把 `.. ` / `....` 都当字面段保留、不当作父目录，
+	// 所以旧写法放行它们，会在游戏目录里创建 `.. ` 这类字面怪目录。
+	// #129 实测补充：`.. .`/`. . .` 这类点空混合段同样不穿越（writeFile ENOENT /
+	// mkdir 落成字面目录仍留在 root 内），但同样按脏名拒绝，保持口径一致。
+	const segments = rel.split("/")
+	if (segments.some((s) => /^[\s.]*$/.test(s))) {
+		return false
+	}
+	const abs = path.resolve(root, ...segments)
 	const normalizedRoot = path.resolve(root)
-	const withSep = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`
-	return abs.startsWith(withSep)
+	// path.relative 前缀判定替代字符串 startsWith：顺带修掉 Windows 大小写漂移误拒
+	// （path.win32.relative 比较时不区分大小写，实测 `C:\Root` vs `c:\root\a` 返回 `a\b.ERB`）。
+	// ⚠️ 判 `..` 必须带分隔符：裸 startsWith("..") 会误拒 `..foo.txt` 这类合法文件名；
+	// dot-like 段已在上面拦掉，这里是纵深防御。
+	const relFromRoot = path.relative(normalizedRoot, abs)
+	return relFromRoot !== "" && relFromRoot !== ".." && !relFromRoot.startsWith(`..${path.sep}`) && !path.isAbsolute(relFromRoot)
 }
 
 /** 计划里真正要动盘的动作 */

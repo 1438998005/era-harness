@@ -235,7 +235,12 @@ export function normalizeEntryPath(raw: string): string | null {
 		return null
 	}
 	const segments = p.split("/")
-	if (segments.some((s) => s === ".." || s === "")) {
+	// 逐段判 dot-like（#121/#129）：`.. `、`....`、`.. .`、`. . .` 这类「全点或点空混合」段
+	// 语义上都不存在合法文件名，一律拒。实测（2026-10-31，%TEMP%）：这类段**不构成穿越**——
+	// 中间段不存在时 writeFile 报 ENOENT，mkdir recursive 会建出字面 `.. .` 目录但仍留在
+	// 目标目录内——所以这是脏目录/口径一致性问题，不是安全洞；拒掉是为了不在游戏树里
+	// 落下 `.. .` 这种没法正常寻址的目录。普通段带尾空格（`dir /x`）不匹配，保留原名。
+	if (segments.some((s) => /^[\s.]*$/.test(s))) {
 		return null
 	}
 	return segments.join("/")

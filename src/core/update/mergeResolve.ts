@@ -530,14 +530,8 @@ export async function resolveConflictsViaWorkbench(options: WorkbenchMergeOption
 				aborted = true
 				break
 			}
-			if (outcome.unexpected.length > 0) {
-				notes.push(
-					`注意：第 ${roundIndex + 1} 轮对话动了 ${outcome.unexpected.length} 个工作台之外的文件（${outcome.unexpected
-						.slice(0, 3)
-						.map((c) => c.path)
-						.join("、")}${outcome.unexpected.length > 3 ? " 等" : ""}）。这些改动没有被采用。`,
-				)
-			}
+			// outcome.unexpected.length > 0 的分支不存在：只要发现越界改动，runTask 一律
+			// 返回 failed（还原后中止，#114/#123），上面那个 if 就已经接住了。
 			options.onProgress?.({ phase: "collect" })
 			collected = await collectWorkbench(layout, items)
 			if (collected.every((c) => c.ok)) {
