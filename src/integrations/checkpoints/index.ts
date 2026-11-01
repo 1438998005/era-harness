@@ -676,8 +676,14 @@ export class TaskCheckpointManager implements ICheckpointManager {
 				await this.services.messageStateHandler.overwriteApiConversationHistory(newConversationHistory)
 
 				// update the context history state
+				// #158：new 出来的 ContextManager 内存 map 是空的，直接 truncate + save
+				// 会把磁盘上的 contextHistory 文件整个覆盖成空——恢复后首条消息替换、
+				// 截断通知全部丢失，后续请求重发原始超大首条消息（token 暴涨甚至超窗）。
+				// 磁盘状态就是重建任务的真相源：先 load，再截断，再保存。
+				const taskDirectory = await ensureTaskDirectoryExists(this.task.taskId)
 				const contextManager = new ContextManager()
-				await contextManager.truncateContextHistory(message.ts, await ensureTaskDirectoryExists(this.task.taskId))
+				await contextManager.initializeContextHistory(taskDirectory)
+				await contextManager.truncateContextHistory(message.ts, taskDirectory)
 
 				// aggregate deleted api reqs info so we don't lose costs/tokens
 				const clineMessages = this.services.messageStateHandler.getClineMessages()

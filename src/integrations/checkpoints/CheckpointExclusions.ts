@@ -187,7 +187,28 @@ function getCacheFilePatterns(): string[] {
  * @returns Array of glob patterns for config files
  */
 function getConfigFilePatterns(): string[] {
-	return ["*.env*", "*.local", "*.development", "*.production"]
+	// #164：私钥/凭据类文件不能进影子 git——它们会明文落在 globalStorage 的
+	// checkpoints 仓库里，只有「删除全部任务」时才清理。
+	return [
+		"*.env*",
+		"*.local",
+		"*.development",
+		"*.production",
+		"*.pem",
+		"*.key",
+		"*.p12",
+		"*.pfx",
+		"*.jks",
+		"*.keystore",
+		"id_rsa*",
+		"id_ed25519*",
+		"id_ecdsa*",
+		".ssh/",
+		".aws/",
+		".npmrc",
+		".netrc",
+		".git-credentials",
+	]
 }
 
 /**

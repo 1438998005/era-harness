@@ -242,7 +242,13 @@ class CheckpointTracker {
 
 			const addFilesResult = await this.gitOperations.addCheckpointFiles(git)
 			if (!addFilesResult.success) {
-				Logger.error("Failed to add at least one file(s) to checkpoints shadow git")
+				// #160：staging 失败还继续 commit，会产出一个不含本次改动的空提交，
+				// 消息上记下的 lastCheckpointHash 指向旧树——之后「恢复到该点」等于
+				// 静默回滚到编辑前状态。对齐 initShadowGit 的语义：staging 失败就 fail，
+				// 宁可这个点没有 checkpoint（TaskCheckpointManager 的 .catch 会记录，
+				// 消息保持无 hash，不会把错 hash 写进历史）。注意「没有可提交的改动」
+				// 走的是 success:true（git add 空跑成功），不经过这里。
+				throw new Error("Failed to stage files for checkpoint commit")
 			}
 
 			const commitMessage = "checkpoint-" + this.cwdHash + "-" + this.taskId

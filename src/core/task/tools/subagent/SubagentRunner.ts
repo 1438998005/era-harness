@@ -924,7 +924,8 @@ export class SubagentRunner {
 		}
 
 		const deletedRange = contextManager.getNextTruncationRange(conversation, conversationHistoryDeletedRange, "quarter")
-		if (deletedRange[1] < deletedRange[0]) {
+		// #163：无物可删时返回 undefined（沿用现有区间）
+		if (!deletedRange || deletedRange[1] < deletedRange[0]) {
 			return {
 				didCompact,
 				conversationHistoryDeletedRange: updatedDeletedRange,

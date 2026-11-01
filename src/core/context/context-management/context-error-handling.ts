@@ -58,9 +58,27 @@ function checkIsOpenAIContextWindowError(error: unknown): boolean {
 	}
 }
 
+// #159：Anthropic 超窗的实际文案（"prompt is too long: X tokens > Y maximum"、
+// "input length and max_tokens exceed context limit"）+ 通用上下文词形。
+// type === "invalid_request_error" 只是 Anthropic 全部 4xx 的统一形态——模型名错、
+// 参数不支持等普通 400 也长这样，不能仅凭 type 就触发「删 3/4 历史重试」。
+const ANTHROPIC_CONTEXT_ERROR_PATTERNS = [
+	/\bcontext\s*(?:length|window)\b/i,
+	/\bmaximum\s*context\b/i,
+	/\b(?:input\s*)?tokens?\s*exceed/i,
+	/\btoo\s*many\s*tokens?\b/i,
+	/\bprompt is too long\b/i,
+	/\bexceed context (?:limit|window)\b/i,
+] as const
+
 function checkIsAnthropicContextWindowError(response: any): boolean {
 	try {
-		return response?.error?.error?.type === "invalid_request_error"
+		if (response?.error?.error?.type !== "invalid_request_error") {
+			return false
+		}
+		// #159：对齐同文件其他 checker——必须同时命中上下文相关的错误文案。
+		const message: string = String(response?.error?.error?.message ?? response?.error?.message ?? "")
+		return ANTHROPIC_CONTEXT_ERROR_PATTERNS.some((pattern) => pattern.test(message))
 	} catch {
 		return false
 	}

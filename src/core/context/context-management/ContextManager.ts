@@ -241,9 +241,17 @@ export class ContextManager {
 				const previousRequestText = clineMessages[previousApiReqIndex]?.text
 				if (previousRequestText) {
 					const timestamp = clineMessages[previousApiReqIndex].ts
-					const { tokensIn, tokensOut, cacheWrites, cacheReads }: ClineApiReqInfo = JSON.parse(previousRequestText)
-					const totalTokens = (tokensIn || 0) + (tokensOut || 0) + (cacheWrites || 0) + (cacheReads || 0)
 					const { maxAllowedSize } = getContextWindowInfo(api)
+					// #162：api_req_started.text 若损坏（半截 JSON），这里的解析抛错会中断
+					// 整轮请求循环。对齐同文件 getSavedContextHistory 与上方 telemetry 的
+					// 兜底：解析失败按 0 token 处理，跳过本轮「接近窗口」判定。
+					let totalTokens = 0
+					try {
+						const { tokensIn, tokensOut, cacheWrites, cacheReads }: ClineApiReqInfo = JSON.parse(previousRequestText)
+						totalTokens = (tokensIn || 0) + (tokensOut || 0) + (cacheWrites || 0) + (cacheReads || 0)
+					} catch (error) {
+						Logger.warn("Failed to parse previous API request info, skipping truncation check:", error)
+					}
 
 					// This is the most reliable way to know when we're close to hitting the context window.
 					if (totalTokens >= maxAllowedSize) {
@@ -300,7 +308,7 @@ export class ContextManager {
 		apiMessages: Anthropic.Messages.MessageParam[],
 		currentDeletedRange: [number, number] | undefined,
 		keep: "none" | "lastTwo" | "half" | "quarter",
-	): [number, number] {
+	): [number, number] | undefined {
 		// We always keep the first user-assistant pairing, and truncate an even number of messages from there
 		const rangeStartIndex = 2 // index 0 and 1 are kept
 		const startOfRest = currentDeletedRange ? currentDeletedRange[1] + 1 : 2 // inclusive starting index
@@ -324,6 +332,12 @@ export class ContextManager {
 			// After flooring, we multiply by 2 to get the number of messages.
 			// Note that this will also always be an even number.
 			messagesToRemove = Math.floor(((apiMessages.length - startOfRest) * 3) / 4 / 2) * 2
+		}
+
+		// #163：没有可删的消息时沿用现有区间——继续往下算会产出 [2, 1] 甚至 [2, 0]
+		// 这种倒置区间，落盘后让后续截断从错误的下标起步。
+		if (messagesToRemove <= 0) {
+			return currentDeletedRange
 		}
 
 		let rangeEndIndex = startOfRest + messagesToRemove - 1 // inclusive ending index
