@@ -1,4 +1,5 @@
 import type { ToolUse } from "@core/assistant-message"
+import { runCommandGates } from "@core/permissions/commandGates"
 import { formatResponse } from "@core/prompts/responses"
 import { WorkspacePathAdapter } from "@core/workspace/WorkspacePathAdapter"
 import { showApprovalNotification, showSystemNotification } from "@integrations/notifications"
@@ -164,35 +165,13 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 			// If no hint, use primary workspace (cwd)
 		}
 
-		// Check command permission validation (CLINE_COMMAND_PERMISSIONS env var)
-		const permissionResult = config.services.commandPermissionController.validateCommand(actualCommand)
-		if (!permissionResult.allowed) {
-			let errorMessage: string
-			if (permissionResult.failedSegment) {
-				errorMessage =
-					`Command "${actualCommand}" was denied by CLINE_COMMAND_PERMISSIONS. ` +
-					`Segment "${permissionResult.failedSegment}" ${permissionResult.reason}.`
-			} else {
-				const matchedPattern = permissionResult.matchedPattern
-					? ` (matched pattern: ${permissionResult.matchedPattern})`
-					: ""
-				errorMessage =
-					`Command "${actualCommand}" was denied by CLINE_COMMAND_PERMISSIONS. ` +
-					`Reason: ${permissionResult.reason}${matchedPattern}`
-			}
-			if (!config.isSubagentExecution) {
-				await config.callbacks.say("command_permission_denied", errorMessage)
-			}
-			return formatResponse.toolError(formatResponse.permissionDeniedError(errorMessage))
-		}
-
-		// Check clineignore validation for command
-		const ignoredFileAttemptedToAccess = config.services.clineIgnoreController.validateCommand(actualCommand)
-		if (ignoredFileAttemptedToAccess) {
-			if (!config.isSubagentExecution) {
-				await config.callbacks.say("clineignore_error", ignoredFileAttemptedToAccess)
-			}
-			return formatResponse.toolError(formatResponse.clineIgnoreError(ignoredFileAttemptedToAccess))
+		// 命令闸（CLINE_COMMAND_PERMISSIONS / clineignore / 子代理只读）——单一闸源在
+		// commandGates（#134）：attempt_completion 的 command 通道也必须过同一套闸，
+		// 这里不再各写一份，防止两条通道的判据漂移。子代理只读闸必须先于下面的
+		// `config.isSubagentExecution ||` 自动批准分支，helper 的返回顺序保证了这一点。
+		const deniedResponse = await runCommandGates(config, actualCommand)
+		if (deniedResponse) {
+			return deniedResponse
 		}
 
 		let didAutoApprove = false

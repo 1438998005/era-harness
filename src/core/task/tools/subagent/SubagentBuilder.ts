@@ -21,6 +21,30 @@ export const SUBAGENT_DEFAULT_ALLOWED_TOOLS: ClineDefaultTool[] = [
 	ClineDefaultTool.ATTEMPT,
 ]
 
+/**
+ * 子代理一律不给的工具（即使自定义 agent 的 YAML 里显式写了也不生效）。
+ *
+ * - `USE_SUBAGENTS`：防嵌套翻倍（#100）
+ * - 写盘类：子代理的职责是探索代码；给了写权限就等于「YAML + 全局自动批准 = 静默改盘」（#112）
+ */
+const SUBAGENT_FORBIDDEN_TOOLS = new Set<ClineDefaultTool>([
+	ClineDefaultTool.USE_SUBAGENTS,
+	ClineDefaultTool.FILE_NEW,
+	ClineDefaultTool.FILE_EDIT,
+	ClineDefaultTool.APPLY_PATCH,
+	ClineDefaultTool.NEW_RULE,
+	ClineDefaultTool.GLOBAL_MEMORY,
+	// #125：下面这批要么自带副作用、要么没有可用的审批通道，YAML 授予也不生效。
+	// - MCP：等价于把「能起进程/写盘」的服务端交给无审批通道的子代理（#112 同源通道）
+	// - NEW_TASK / ASK：会向真实用户弹窗（新建任务 / 追问），子代理没有这个通道
+	// - RUN_GAME：拉起 GUI 进程并重写游戏目录引擎产物（handler 里另有硬拒兜底）
+	ClineDefaultTool.MCP_USE,
+	ClineDefaultTool.MCP_ACCESS,
+	ClineDefaultTool.NEW_TASK,
+	ClineDefaultTool.ASK,
+	ClineDefaultTool.RUN_GAME,
+])
+
 export const SUBAGENT_SYSTEM_SUFFIX = `\n\n# Subagent Execution Mode
 You are running as a research subagent. Your job is to explore the codebase and gather information to answer the question.
 Explore, read related files, trace through call chains, and build a complete picture before reporting back.
@@ -98,8 +122,13 @@ export class SubagentBuilder {
 		// #100：用户的自定义 agent 配置里可能写了 use_subagents。允许它会让子代理再起子代理，
 		// 每层各有一份预算（轮次/费用/token 都是按 runner 计的），嵌套一层就把上限翻一倍。
 		// 这里直接摘掉；`SubagentToolHandler.execute` 还有一道运行时守卫兜底。
+		//
+		// #112：写盘工具也一并摘掉。`AgentConfigLoader` 的 `tools` 是 `z.nativeEnum(ClineDefaultTool)`，
+		// 用户 YAML 里写 `tools: [write_to_file]` 就能拿到写权限；而 `shouldAutoApproveToolWithPath`
+		// 只看全局自动批准设置、**不看 isSubagentExecution**，于是「YAML 授予写工具 + 开了 editFiles
+		// 自动批准」= 子代理静默写盘。子代理的职责是探索代码，不需要落盘。
 		return Array.from(new Set([...sourceTools, ClineDefaultTool.ATTEMPT])).filter(
-			(tool) => tool !== ClineDefaultTool.USE_SUBAGENTS,
+			(tool) => !SUBAGENT_FORBIDDEN_TOOLS.has(tool),
 		)
 	}
 

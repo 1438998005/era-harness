@@ -5,6 +5,7 @@ import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import * as NotificationHook from "@core/hooks/notification-hook"
 import { notifyKnowledgeBaseBuildFinished } from "@core/knowledge/knowledgeBaseBuildTracker"
 import { maybeSuggestKnowledgeBaseIncrement } from "@core/knowledge/knowledgeBaseHint"
+import { runCommandGates } from "@core/permissions/commandGates"
 import { formatResponse } from "@core/prompts/responses"
 import { processFilesIntoText } from "@integrations/misc/extract-text"
 import { showSystemNotification } from "@integrations/notifications"
@@ -154,6 +155,15 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 		const lastMessage = config.messageState.getClineMessages().at(-1)
 
 		if (command) {
+			// #134：attempt_completion 携带的 command 此前绕过全部命令闸（三道闸只在
+			// ExecuteCommandToolHandler 里，本 handler 直接调 executeCommandTool，下游
+			// CommandExecutor 零校验），yolo 下静默执行。现在与 execute_command 共用
+			// 同一套闸；拒绝时在发出 completion_result 之前就返回，不进审批/执行。
+			const deniedResponse = await runCommandGates(config, command)
+			if (deniedResponse) {
+				return deniedResponse
+			}
+
 			if (lastMessage && lastMessage.ask !== "command") {
 				// haven't sent a command message yet so first send completion_result then command
 				const completionMessageTs = await config.callbacks.say("completion_result", result, undefined, undefined, false)

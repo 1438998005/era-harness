@@ -60,6 +60,13 @@ export class AutoApprove {
 	// Check if the tool should be auto-approved based on the settings
 	// Returns bool for most tools, and tuple for tools with nested settings
 	shouldAutoApproveTool(toolName: ClineDefaultTool): boolean | [boolean, boolean] {
+		// run_game 会拉起 GUI 进程、并重写游戏目录里的引擎产物（懒加载索引、全局存档），
+		// 属不可逆副作用：yolo / 权限全开也不放行，必须当面确认（#111）。
+		// 放在 yoloModeToggled 判断之前——那个分支会无条件 return true。
+		if (toolName === ClineDefaultTool.RUN_GAME) {
+			return false
+		}
+
 		// 全局记忆可逆（可逐条删除/一键清空）、写入在聊天里留 info 行，不打断对话
 		if (toolName === ClineDefaultTool.GLOBAL_MEMORY) {
 			return [true, true]
@@ -155,6 +162,13 @@ export class AutoApprove {
 		blockname: ClineDefaultTool,
 		autoApproveActionpath: string | undefined,
 	): Promise<boolean> {
+		// #122：run_game 的唯一审批消费点走的是本函数（RunGameToolHandler → WithPath），
+		// 而本函数自己的 yolo / autoApproveAll 早退在下面内部闸（shouldAutoApproveTool）之前，
+		// 光靠那道闸拦不住 yolo——这里必须再闸一次，两个函数都要挡。
+		if (blockname === ClineDefaultTool.RUN_GAME) {
+			return false
+		}
+
 		// 身份范围优先于 YOLO / 权限全开：跨范围的文件修改一律走人工确认
 		if (autoApproveActionpath && EDIT_TOOLS.includes(blockname)) {
 			const cwd = await getCwd(getDesktopDir())

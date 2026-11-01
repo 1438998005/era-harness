@@ -147,7 +147,10 @@ const USER_SETTINGS_FIELDS = {
 	terminalOutputLineLimit: { default: 500 as number },
 	maxConsecutiveMistakes: { default: 3 as number },
 	strictPlanModeEnabled: { default: false as boolean },
-	hooksEnabled: { default: true as boolean },
+	// #137（2026-11-01 用户裁定）：hooks 默认关——脚本被发现即执行、无确认，
+	// 对「下载 mod 包解进工程再打开」的用户是供应链执行面（与 enableCheckpointsSetting
+	// 默认关同一先例）。getHooksEnabledSafe 的 ?? false 只兜「存量无值」，新装默认在这里。
+	hooksEnabled: { default: false as boolean },
 	yoloModeToggled: { default: false as boolean },
 	autoApproveAllToggled: { default: false as boolean },
 	useAutoCondense: { default: false as boolean },

@@ -21,6 +21,7 @@ interface ParsedCommand {
 	segments: string[] // Individual commands between operators
 	subshells: ParsedCommand[] // Recursively parsed contents of (...) and $(...)
 	hasRedirects: boolean // Whether redirect operators (>, >>, <, etc.) were found
+	hasUnsafeOps?: boolean // #124：无法归类的操作符（如单个 `&`）——不是重定向，不允许用 allowRedirects 豁免
 }
 
 /**
@@ -41,8 +42,26 @@ interface ParsedCommand {
 export class CommandPermissionController {
 	private config: CommandPermissionConfig | null = null
 
-	constructor() {
-		this.config = this.parseConfig()
+	constructor(config?: CommandPermissionConfig) {
+		this.config = config ?? this.parseConfig()
+	}
+
+	/**
+	 * 把命令切成「已硬化过的」片段，供子代理只读守卫复用。
+	 *
+	 * 为什么不各自写一份：这套解析已经处理了 `&& || | ;`、`$( )`、反引号、引号外换行、重定向，
+	 * 自写一个必被绕过。返回 `null` 表示「无法安全判定」（解析失败 / 含重定向 / 含子 shell），
+	 * 调用方应一律按拒绝处理。
+	 */
+	getSegments(command: string): string[] | null {
+		if (this.detectDangerousCharsOutsideQuotes(command)) {
+			return null
+		}
+		const parsed = this.parseCommandSegments(command)
+		if (parsed.hasRedirects || parsed.hasUnsafeOps || parsed.subshells.length > 0) {
+			return null
+		}
+		return parsed.segments.length > 0 ? parsed.segments : null
 	}
 
 	/**
@@ -114,6 +133,14 @@ export class CommandPermissionController {
 	 * @returns PermissionValidationResult
 	 */
 	private validateParsedCommand(parsed: ParsedCommand, fullCommand: string): PermissionValidationResult {
+		// 未知操作符（#124）：即使 allowRedirects 也不放行——它不是重定向，是没建模的操作符
+		if (parsed.hasUnsafeOps) {
+			return {
+				allowed: false,
+				reason: "shell_operator_detected",
+			}
+		}
+
 		// Check if redirects are allowed
 		if (parsed.hasRedirects && !this.config?.allowRedirects) {
 			return {
@@ -253,6 +280,17 @@ export class CommandPermissionController {
 				// 3. Handle Redirect Operators: >, >>, <, etc.
 				if (typeof token === "object" && "op" in token && REDIRECT_OPERATORS.has(token.op as string)) {
 					result.hasRedirects = true
+					continue
+				}
+
+				// 3.5 未知操作符（#124）：不能静默吞掉。此前单个 `&` 落到这里会被跳过且不
+				// flushSegment，"ls & grep x y" 被并成一段 "ls grep x y"，白名单只看第一段
+				// 就把第二段也放行了。fail-closed：一律视为不安全。
+				// ⚠️ 必须排除 glob（shell-quote 的 glob 变体是 { op: "glob"; pattern }，
+				// 带 op 属性）——glob 不是命令操作符，仍走下面第 5 类的 pattern 通道。
+				if (typeof token === "object" && "op" in token && token.op !== "glob") {
+					result.hasUnsafeOps = true
+					flushSegment()
 					continue
 				}
 

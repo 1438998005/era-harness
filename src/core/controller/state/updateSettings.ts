@@ -1,4 +1,5 @@
 import { buildApiHandler } from "@core/api"
+import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import { Empty } from "@shared/proto/cline/common"
 import { PlanActMode, McpDisplayMode as ProtoMcpDisplayMode, UpdateSettingsRequest } from "@shared/proto/cline/state"
 import { convertProtoToApiProvider } from "@shared/proto-conversions/models/api-configuration-conversion"
@@ -136,7 +137,9 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 		}
 
 		if (request.hooksEnabled !== undefined) {
-			const wasEnabled = controller.stateManager.getGlobalSettingsKey("hooksEnabled") ?? true
+			// #137：默认值统一走 getHooksEnabledSafe 单源（现在是「未设置=关」），
+			// 这里只用于遥测对比，不能各自散一份 ?? true。
+			const wasEnabled = getHooksEnabledSafe(controller.stateManager.getGlobalSettingsKey("hooksEnabled"))
 			const isEnabled = !!request.hooksEnabled
 			controller.stateManager.setGlobalState("hooksEnabled", isEnabled)
 			if (controller.task && wasEnabled !== isEnabled) {

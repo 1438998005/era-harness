@@ -28,6 +28,7 @@ import {
 	Link2Icon,
 	LoaderCircleIcon,
 	PencilIcon,
+	PlayIcon,
 	RefreshCwIcon,
 	SearchIcon,
 	SettingsIcon,
@@ -731,6 +732,39 @@ export const ChatRowContent = memo(
 							</div>
 						</div>
 					)
+				case "runGame": {
+					// 审批卡片与结果卡片共用这个分支：ask 阶段没有 content，say 阶段带报告。
+					// 不写这个 case 会命中下面的 default → <InvisibleSpacer/>，卡片完全不可见（#111）。
+					const isAsk = message.type === "ask"
+					const isStop = tool.action === "stop"
+					const verbKey = isStop
+						? isAsk
+							? "chatRow.wantsToStopGame"
+							: "chatRow.stoppedGame"
+						: isAsk
+							? "chatRow.wantsToRunGame"
+							: "chatRow.ranGame"
+					return (
+						<div>
+							<div className={HEADER_CLASSNAMES}>
+								<PlayIcon className="size-2" />
+								{tool.operationIsLocatedInWorkspace === false &&
+									toolIcon("sign-out", "yellow", -90, t("chatRow.outsideWorkspace"))}
+								<span className="font-bold">{t(verbKey)}</span>
+							</div>
+							<div className="bg-code border border-editor-group-border overflow-hidden rounded-xs py-[9px] px-2.5">
+								<span className="ph-no-capture font-medium break-all">{tool.command ?? tool.path}</span>
+								{tool.cwd && <div className="opacity-70 text-xs mt-1 break-all">{tool.cwd}</div>}
+								{tool.note && <div className="opacity-70 text-xs mt-1">{tool.note}</div>}
+							</div>
+							{tool.content && (
+								<div className="pt-2">
+									<MarkdownRow markdown={tool.content} />
+								</div>
+							)}
+						</div>
+					)
+				}
 				default:
 					return <InvisibleSpacer />
 			}

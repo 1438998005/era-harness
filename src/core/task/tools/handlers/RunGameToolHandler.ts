@@ -19,6 +19,8 @@ import { getExtraWorkspaceRoots } from "@core/era/workspace-extra-roots"
 import { formatResponse } from "@core/prompts/responses"
 import { readTextFile } from "@eraharness/encoding/encoding"
 import { parseLog } from "@eraharness/log/parser"
+import { showApprovalNotification } from "@integrations/notifications"
+import type { ClineSayTool } from "@shared/ExtensionMessage"
 import { getReadablePath, isLocatedInWorkspace } from "@utils/path"
 import { telemetryService } from "@/services/telemetry"
 import { formatBytes, truncateContent } from "@/shared/content-limits"
@@ -37,6 +39,22 @@ const MAX_LOG_READ_BYTES = 8 * 1024 * 1024
 const DEFAULT_WAIT_SECONDS = 12
 const MIN_WAIT_SECONDS = 3
 const MAX_WAIT_SECONDS = 120
+
+/**
+ * 一次 `run_game` 调用的「计划」：只描述会发生什么，不产生任何副作用。
+ * `planRun` 产出它，审批读它，`runEngine` / `stopEngines` 消费它（#111）。
+ */
+type RunPlan =
+	| { kind: "message"; text: string }
+	| {
+			kind: "run"
+			engine: EngineCandidate
+			candidates: readonly EngineCandidate[]
+			args: string[]
+			waitSeconds: number
+			keepAlive: boolean
+	  }
+	| { kind: "stop"; targets: readonly RunningGame[]; exited: readonly RunningGame[] }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {
 	if (raw === undefined || raw.trim() === "") {
@@ -148,47 +166,51 @@ export class RunGameToolHandler implements IFullyManagedTool {
 		const rawAction = (block.params.action || "run").trim().toLowerCase()
 		const action = rawAction === "status" || rawAction === "stop" ? rawAction : "run"
 
+		// 子代理没有审批通道（`ToolResultUtils.askApprovalAndPushFeedback` 对子代理直接放行），
+		// 让它调 run_game 等于无人确认就拉起 GUI 进程并重写游戏目录里的引擎产物。
+		if (config.isSubagentExecution) {
+			return formatResponse.toolError("run_game 需要用户当面确认，不能在子代理里使用。请回到主对话执行。")
+		}
+
 		try {
-			let body: string
+			// ── 阶段一：只读探查。此阶段没有任何副作用，失败也无所谓 ──────────────
+			const plan = await this.planRun(config, block, action)
 
-			if (action === "status") {
-				body = `## 进程\n${formatProcessList(listRunningGames())}`
-			} else if (action === "stop") {
-				const games = listRunningGames()
-				if (games.length === 0) {
-					body = "本扩展还没有启动过引擎，没有可结束的进程。"
-				} else {
-					const lines = games.map((run) => {
-						const name = path.basename(run.exePath)
-						if (run.exited) {
-							return `- ${name}：已经退出，无需操作`
-						}
-						const stopped = stopEngine(run)
-						return `- ${name}：${stopped ? "已结束" : "结束失败（可能已经退出）"}`
-					})
-					body = `## 结束结果\n${lines.join("\n")}\n\n> 强制结束不会保存游戏进度。`
-				}
-			} else {
-				body = await this.runEngine(config, block)
+			if (plan.kind === "message") {
+				const text = truncateContent(plan.text, MAX_OUTPUT_BYTES)
+				await config.callbacks.say("tool", JSON.stringify(await this.buildPayload(config, plan, text)))
+				config.taskState.consecutiveMistakeCount = 0
+				return text
 			}
 
-			const result = truncateContent(body, MAX_OUTPUT_BYTES)
-			const sharedMessageProps = {
-				tool: "readFile",
-				path: getReadablePath(config.cwd, "."),
-				content: result,
-				operationIsLocatedInWorkspace: await isLocatedInWorkspace("."),
-			}
-			const completeMessage = JSON.stringify(sharedMessageProps)
-
-			if (await config.callbacks.shouldAutoApproveToolWithPath(block.name, ".")) {
-				await config.callbacks.say("tool", completeMessage, undefined, undefined, false)
-			} else {
-				const didApprove = await ToolResultUtils.askApprovalAndPushFeedback("tool", completeMessage, config)
+			// ── 阶段二：审批。必须在任何副作用之前（#111）──────────────────────
+			// 原来这里是先跑 runEngine / stopEngine 再审批：用户点「拒绝」时进程已经起过一轮
+			// （写掉了 sav/ 与懒加载索引），或者游戏已经被强杀、进度丢失。
+			const approvalBody = JSON.stringify(await this.buildPayload(config, plan))
+			const autoApprovePath = plan.kind === "run" ? plan.engine.filePath : config.cwd
+			if (!(await config.callbacks.shouldAutoApproveToolWithPath(block.name, autoApprovePath))) {
+				void showApprovalNotification(
+					{
+						message:
+							plan.kind === "run"
+								? `era harness 想要启动 ${plan.engine.fileName}`
+								: `era harness 想要结束 ${plan.targets.length} 个游戏进程`,
+						requiresExplicitApproval: true,
+					},
+					config.autoApprovalSettings.enableNotifications,
+				)
+				await config.callbacks.removeLastPartialMessageIfExistsWithType("say", "tool")
+				const didApprove = await ToolResultUtils.askApprovalAndPushFeedback("tool", approvalBody, config)
 				if (!didApprove) {
 					return formatResponse.toolDenied()
 				}
 			}
+
+			// ── 阶段三：执行。从这里开始才允许产生副作用 ──────────────────────
+			const body = plan.kind === "run" ? await this.runEngine(config, plan) : this.stopEngines(plan)
+
+			const result = truncateContent(body, MAX_OUTPUT_BYTES)
+			await config.callbacks.say("tool", JSON.stringify(await this.buildPayload(config, plan, result)))
 
 			telemetryService.captureToolUsage(
 				config.ulid,
@@ -209,40 +231,108 @@ export class RunGameToolHandler implements IFullyManagedTool {
 			config.taskState.consecutiveMistakeCount = 0
 			return result
 		} catch (error) {
+			// 用户点「停止」会让 ask 抛这个错——那是正常中止，不能报成「启动引擎失败」
+			if (error instanceof Error && error.message === "Cline instance aborted") {
+				throw error
+			}
 			config.taskState.consecutiveMistakeCount++
 			const errorMessage = error instanceof Error ? error.message : String(error)
 			return formatResponse.toolError(`启动引擎失败：${errorMessage}`)
 		}
 	}
 
-	private async runEngine(config: TaskConfig, block: ToolUse): Promise<string> {
+	/** 审批卡片与结果卡片共用的载荷。`content` 只有结果阶段才有。 */
+	private async buildPayload(config: TaskConfig, plan: RunPlan, content?: string): Promise<ClineSayTool> {
+		const withContent = content === undefined ? {} : { content }
+		if (plan.kind === "message") {
+			return {
+				tool: "runGame",
+				action: "status",
+				path: getReadablePath(config.cwd, "."),
+				operationIsLocatedInWorkspace: true,
+				...withContent,
+			}
+		}
+		if (plan.kind === "stop") {
+			return {
+				tool: "runGame",
+				action: "stop",
+				path: getReadablePath(config.cwd, "."),
+				command: plan.targets.map((run) => path.basename(run.exePath)).join(", "),
+				operationIsLocatedInWorkspace: true,
+				note: plan.targets.map((run) => `PID ${run.pid ?? "未知"}`).join(", "),
+				...withContent,
+			}
+		}
+		return {
+			tool: "runGame",
+			action: "run",
+			path: getReadablePath(config.cwd, plan.engine.filePath),
+			command: [plan.engine.fileName, ...plan.args].join(" "),
+			cwd: path.dirname(plan.engine.filePath).replace(/\\/g, "/"),
+			operationIsLocatedInWorkspace: await isLocatedInWorkspace(plan.engine.filePath),
+			note: `等待 ${plan.waitSeconds} 秒${plan.keepAlive ? "，报告后保留窗口" : "，报告后自动关闭"}`,
+			...withContent,
+		}
+	}
+
+	/**
+	 * 只读探查：算出「这次调用会发生什么」，不产生任何副作用。
+	 *
+	 * 与执行拆开是为了让审批能挡在副作用之前（#111）——原来 `runEngine` 一边查一边起进程，
+	 * 审批只能放在它之后，用户点「拒绝」时进程已经跑过一轮（写掉了 sav/ 与懒加载索引）。
+	 */
+	private async planRun(config: TaskConfig, block: ToolUse, action: "run" | "status" | "stop"): Promise<RunPlan> {
+		if (action === "status") {
+			return { kind: "message", text: `## 进程\n${formatProcessList(listRunningGames())}` }
+		}
+
+		if (action === "stop") {
+			const games = listRunningGames()
+			if (games.length === 0) {
+				return { kind: "message", text: "本扩展还没有启动过引擎，没有可结束的进程。" }
+			}
+			const targets = games.filter((run) => !run.exited)
+			const exited = games.filter((run) => run.exited)
+			if (targets.length === 0) {
+				return {
+					kind: "message",
+					text: `## 结束结果\n${exited
+						.map((run) => `- ${path.basename(run.exePath)}：已经退出，无需操作`)
+						.join("\n")}\n\n> 强制结束不会保存游戏进度。`,
+				}
+			}
+			return { kind: "stop", targets, exited }
+		}
+
 		const extraRoots = await getExtraWorkspaceRoots(config.cwd)
 		const candidates = await listEngineCandidates(config.cwd, extraRoots)
 
 		if (candidates.length === 0) {
-			return [
-				"## 没有找到引擎",
-				"已在探测到的工程根下按 `Emuera*.exe` 查找，没有匹配。请确认：",
-				"- 引擎 exe 确实在工程根或其一层子目录里；",
-				"- 文件名以 Emuera 开头（部分整合包会改名，需要手动指定时用 exe 参数给出完整路径）。",
-			].join("\n")
+			return {
+				kind: "message",
+				text: [
+					"## 没有找到引擎",
+					"已在探测到的工程根下按 `Emuera*.exe` 查找，没有匹配。请确认：",
+					"- 引擎 exe 确实在工程根或其一层子目录里；",
+					"- 文件名以 Emuera 开头（部分整合包会改名，需要手动指定时用 exe 参数给出完整路径）。",
+				].join("\n"),
+			}
 		}
 
 		const preferred = (block.params.exe || "").trim()
 		const engine = pickEngine(candidates, preferred || undefined)
 		if (!engine) {
-			return [
-				`## 找到 ${candidates.length} 个引擎，但「${preferred}」无法唯一匹配`,
-				candidates.map(formatCandidate).join("\n"),
-				"",
-				"用 exe 参数指定其中一个的文件名（或更精确的片段）再试。",
-			].join("\n")
+			return {
+				kind: "message",
+				text: [
+					`## 找到 ${candidates.length} 个引擎，但「${preferred}」无法唯一匹配`,
+					candidates.map(formatCandidate).join("\n"),
+					"",
+					"用 exe 参数指定其中一个的文件名（或更精确的片段）再试。",
+				].join("\n"),
+			}
 		}
-
-		const debug = parseBool(block.params.debug, true)
-		const waitSeconds = parseWaitSeconds(block.params.wait_seconds)
-		const keepAlive = parseBool(block.params.keep_alive, false)
-		const args = debug ? ["-Debug"] : []
 
 		// 同一个 exe 已经有活着的实例时不能再起一个：
 		// ① 注册表按 exe 路径索引，新实例会覆盖旧条目，旧进程从此无法 stop（孤儿进程）；
@@ -252,13 +342,45 @@ export class RunGameToolHandler implements IFullyManagedTool {
 			(run) => !run.exited && run.exePath.replace(/\\/g, "/").toLowerCase() === normalizedExe,
 		)
 		if (alive) {
-			return [
-				"## 已有实例在运行",
-				`${engine.fileName} 已经在跑（PID ${alive.pid ?? "未知"}，已运行 ${((Date.now() - alive.startedAt) / 60000).toFixed(1)} 分钟）。`,
-				"",
-				"同一个引擎不能同时跑两份（会互相抢写存档与懒加载索引）。请先用 `action=stop` 结束它，再重新启动。",
-			].join("\n")
+			return {
+				kind: "message",
+				text: [
+					"## 已有实例在运行",
+					`${engine.fileName} 已经在跑（PID ${alive.pid ?? "未知"}，已运行 ${((Date.now() - alive.startedAt) / 60000).toFixed(1)} 分钟）。`,
+					"",
+					"同一个引擎不能同时跑两份（会互相抢写存档与懒加载索引）。请先用 `action=stop` 结束它，再重新启动。",
+				].join("\n"),
+			}
 		}
+
+		const debug = parseBool(block.params.debug, true)
+		return {
+			kind: "run",
+			engine,
+			candidates,
+			args: debug ? ["-Debug"] : [],
+			waitSeconds: parseWaitSeconds(block.params.wait_seconds),
+			keepAlive: parseBool(block.params.keep_alive, false),
+		}
+	}
+
+	/** 结束进程。只在审批通过后被调用。 */
+	private stopEngines(plan: Extract<RunPlan, { kind: "stop" }>): string {
+		const lines = [
+			...plan.targets.map((run) => {
+				const name = path.basename(run.exePath)
+				const stopped = stopEngine(run)
+				return `- ${name}：${stopped ? "已结束" : "结束失败（可能已经退出）"}`
+			}),
+			...plan.exited.map((run) => `- ${path.basename(run.exePath)}：已经退出，无需操作`),
+		]
+		return `## 结束结果\n${lines.join("\n")}\n\n> 强制结束不会保存游戏进度。`
+	}
+
+	/** 真正启动引擎。只在审批通过后被调用。 */
+	private async runEngine(config: TaskConfig, plan: Extract<RunPlan, { kind: "run" }>): Promise<string> {
+		const { engine, candidates, args, waitSeconds, keepAlive } = plan
+		const extraRoots = await getExtraWorkspaceRoots(config.cwd)
 
 		// 启动前先记住当前最新日志，之后靠它区分「新写的」和「原本就有的」
 		const before = await findNewestLog(config.cwd, extraRoots)
