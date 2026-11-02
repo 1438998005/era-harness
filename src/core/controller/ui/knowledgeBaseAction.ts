@@ -13,9 +13,10 @@ import {
 	trashKnowledgeBase,
 	updateKnowledgeBaseBuild,
 } from "@eraharness/gamekb/index"
-import type { KnowledgeBaseAction, KnowledgeBaseActionResult } from "@shared/knowledgeBase"
+import { type KnowledgeBaseAction, type KnowledgeBaseActionResult, normalizeKnowledgeBaseBuildMode } from "@shared/knowledgeBase"
 import type { String as StringMessage, StringRequest } from "@shared/proto/cline/common"
 import { String as StringValue } from "@shared/proto/cline/common"
+import { Logger } from "@shared/services/Logger"
 import * as vscode from "vscode"
 import { HostProvider } from "@/hosts/host-provider"
 import { openKnowledgeBaseTask } from "@/hosts/vscode/knowledgeBaseTask"
@@ -78,7 +79,13 @@ export async function knowledgeBaseAction(controller: Controller, request: Strin
 			gameRoot = undefined
 		}
 
-		const mode = action.mode === "blank" ? "blank" : "full"
+		// 08 #107：未知/旧值一律走 blank（最便宜、可逆），绝不再折叠成 full。
+		// `store.ts` 里 `options.mode ?? 'full'` 是**内部调用方未指定**时的默认，与本处「外部
+		// JSON 传来一个不认识的值」不是一回事——那条保持不动。
+		const { mode, fellBack } = normalizeKnowledgeBaseBuildMode(action.mode)
+		if (fellBack) {
+			Logger.warn(`[knowledge-base] 未知的建库方式 ${String(action.mode)}，按 blank 处理（避免误开全量建库）`)
+		}
 		const manifest = await createKnowledgeBase(workspaceRoot, {
 			name,
 			now: new Date(),

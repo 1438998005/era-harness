@@ -2,6 +2,7 @@ import type { ClineMessage } from "@shared/ExtensionMessage"
 import type React from "react"
 import { useMemo } from "react"
 import ChatRow from "@/components/chat/ChatRow"
+import { KnowledgeBaseUpdateRow } from "@/components/chat/KnowledgeBaseUpdateRow"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { cn } from "@/lib/utils"
 import type { MessageHandlers } from "../../types/chatTypes"
@@ -109,6 +110,8 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({
 				responseStarted={reasoningData.responseStarted}
 				sendMessageFromChatRow={messageHandlers.handleSendMessage}
 			/>
+			{/* 08 #175：只在最后一条、且 AI 已经回复完等你时给「更新知识库」入口 */}
+			{isLastMessage && <KnowledgeBaseUpdateRow message={messageOrGroup} onHeightChange={onHeightChange} />}
 		</div>
 	)
 }

@@ -26,6 +26,39 @@ const MIN_FILES_FOR_HINT = 3
 const hintedTasks = new Set<string>()
 const MAX_TRACKED_TASKS = 200
 
+type KnowledgeBaseEntries = Awaited<ReturnType<typeof listKnowledgeBases>>
+
+/**
+ * 给 `listKnowledgeBases` 套一层按工作区根隔离的 TTL 缓存（08 #108）。
+ *
+ * 为什么只缓存这一条路径、不改 `listKnowledgeBases` 本体：它还被设置页与提示词小节使用，
+ * 全局缓存会带来「刚建完库读不到」的陈旧风险；而这条提示只需要 `buildStatus`，
+ * 容忍 60 秒的陈旧。
+ *
+ * 依赖注入（`list` / `now` / `ttlMs`）是为了让测试能钉住「TTL 内只扫一次」。
+ */
+export function createKnowledgeBaseListCache(deps: {
+	list: (root: string) => Promise<KnowledgeBaseEntries>
+	ttlMs?: number
+	now?: () => number
+}): (root: string) => Promise<KnowledgeBaseEntries> {
+	const ttlMs = deps.ttlMs ?? 60_000
+	const now = deps.now ?? Date.now
+	const cache = new Map<string, { at: number; entries: KnowledgeBaseEntries }>()
+	return async (root: string) => {
+		const hit = cache.get(root)
+		const current = now()
+		if (hit && current - hit.at < ttlMs) {
+			return hit.entries
+		}
+		const entries = await deps.list(root)
+		cache.set(root, { at: current, entries })
+		return entries
+	}
+}
+
+const listKnowledgeBasesCached = createKnowledgeBaseListCache({ list: listKnowledgeBases })
+
 /**
  * 任务完成后调用。满足条件时发一条 `info`，否则静默返回。
  *
@@ -46,7 +79,7 @@ export async function maybeSuggestKnowledgeBaseIncrement(config: TaskConfig): Pr
 			return
 		}
 
-		const entries = await listKnowledgeBases(workspaceRoot)
+		const entries = await listKnowledgeBasesCached(workspaceRoot)
 		// `draft`（空白建库的骨架）与 `ready`（已可用）都可以继续补；
 		// `building` 正在跑、`failed` 需要先「继续构建」，都不该被这条提示引导去开第二个对话。
 		const usable = entries.filter((entry) => entry.buildStatus === "draft" || entry.buildStatus === "ready")
@@ -90,7 +123,8 @@ export async function maybeSuggestKnowledgeBaseIncrement(config: TaskConfig): Pr
 			}
 		}
 
-		const message = `本任务涉及 ${touched.size} 个工程文件；可在「设置 → 专属知识库」点「续写」把新语义补进库。`
+		// 08 #175：入口已经移到对话里（回复下方的「更新知识库」按钮），文案跟着指过去
+		const message = `本任务涉及 ${touched.size} 个工程文件；点下方「更新知识库」可把新语义补进库。`
 		await config.callbacks.say("info", message)
 	} catch (error) {
 		Logger.warn(`[knowledge-base] 续写提示失败（已忽略）：${error}`)

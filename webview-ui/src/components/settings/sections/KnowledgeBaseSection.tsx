@@ -1,6 +1,7 @@
 import type { KnowledgeBaseAction, KnowledgeBaseActionResult, KnowledgeBaseListItem } from "@shared/knowledgeBase"
 import { VSCodeButton, VSCodeCheckbox, VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
 import { useCallback, useEffect, useState } from "react"
+import { InlineCode } from "@/components/common/InlineCode"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { UiServiceClient } from "@/services/grpc-client"
 import Section from "../Section"
@@ -131,13 +132,20 @@ const KnowledgeBaseSection = ({ renderSectionHeader }: KnowledgeBaseSectionProps
 		<div>
 			{renderSectionHeader("knowledge")}
 			<Section>
-				<div className="text-xs text-description">
-					这里是**给具体游戏**的专属知识库：函数含义、常量与变量槽位、CSV 表结构、机制与坑。它不是内置的——
-					点「新建知识库」会开一场对话，让 AI 读当前工作区，把结果写成
-					<code className="mx-1">.era-harness/knowledge/</code>
+				{/*
+				 * 08 #173：这段以前直接写裸 `**加粗**` 与无样式的 `<code>`——星号原样显示，
+				 * code 只有全局背景色没有前景/内边距，深色主题下像一块黑块盖住正文。
+				 * 现在：加粗走 <strong>（必须带 text-xs，否则被 `* { text-base }` 顶大），
+				 * 行内代码统一走 <InlineCode>。
+				 */}
+				<div className="text-xs text-description leading-relaxed">
+					这里是<strong className="text-xs font-semibold">给具体游戏</strong>的专属知识库：函数含义、常量与变量槽位、
+					CSV 表结构、机制与坑。它不是内置的——点「新建知识库」会开一场对话，让 AI 读当前工作区，把结果写成
+					<InlineCode>.era-harness/knowledge/</InlineCode>
 					下的一组文档（总索引 + 分片）。
 					<br />
-					载入后它只作为**参考**进对话：与代码冲突时以代码为准；发现不符请点「更新」让 AI 重新核对。
+					载入后它只作为<strong className="text-xs font-semibold">参考</strong>
+					进对话：与代码冲突时以代码为准；发现不符请点「更新」 让 AI 重新核对。
 				</div>
 
 				{error && (
@@ -388,7 +396,7 @@ const KnowledgeBaseSection = ({ renderSectionHeader }: KnowledgeBaseSectionProps
 								{confirmDelete === item.slug && (
 									<div className="flex flex-wrap items-center gap-2 mt-1">
 										<span className="text-xs" style={{ color: "var(--vscode-errorForeground)" }}>
-											删除会把这个库挪到 <code>.trash/</code>（可手动找回）。确定？
+											删除会把这个库挪到 <InlineCode>.trash/</InlineCode>（可手动找回）。确定？
 										</span>
 										<VSCodeButton
 											disabled={busySlug === item.slug}
@@ -447,7 +455,8 @@ const KnowledgeBaseSection = ({ renderSectionHeader }: KnowledgeBaseSectionProps
 								</div>
 								<div className="text-xs">
 									💰 实测：一次失控的完整建库消耗 102 元（5 个子代理，其中一个 1936
-									次工具调用）。本版已加预算上限（单子代理 ¥3 / 单次调用 ¥10 / 10 分钟），但仍建议先看余额。
+									次工具调用）。本版已加预算上限（单子代理 30 轮 / 150 次工具调用 / 10 分钟；90
+									秒无响应即中止），但仍建议先看余额。
 								</div>
 								<div className="text-xs">
 									🧠 建议使用智能程度高的模型；弱模型写出的分片质量差、更容易半途跑偏。

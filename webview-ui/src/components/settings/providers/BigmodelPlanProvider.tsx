@@ -9,6 +9,7 @@ import {
 import { Mode } from "@shared/storage/types"
 import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
+import { InlineCode } from "@/components/common/InlineCode"
 import { Button } from "@/components/ui/button"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { UiServiceClient } from "@/services/grpc-client"
@@ -84,7 +85,7 @@ export const BigmodelPlanProvider = ({ showModelOptions, isPopup, currentMode }:
 			<p className="text-xs m-0 mt-2" style={{ color: "var(--vscode-descriptionForeground)" }}>
 				这里要填<b>套餐 Key</b>（在「个人编程套餐 / 团队编程套餐」页里新建），不是按量付费的 API Key——官方明确
 				<b>个人 / 团队 / 按量三种 Key 互不通用</b>，填错会直接报鉴权失败。端点固定为
-				<code className="mx-1">{BIGMODEL_PLAN_BASE_URL}</code>。
+				<InlineCode>{BIGMODEL_PLAN_BASE_URL}</InlineCode>。
 			</p>
 
 			<div className="flex flex-wrap items-center gap-2 mt-2">

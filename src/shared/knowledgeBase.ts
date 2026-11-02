@@ -84,3 +84,42 @@ export interface KnowledgeBaseActionResult {
 	/** create 成功时回传新库的 slug，便于前端立刻高亮 */
 	slug?: string
 }
+
+/**
+ * 把外部传来的 `mode` 归一成合法值（08 #107）。
+ *
+ * 未知/旧值走 `blank`，而不是 `full`：后者会立刻开一场可能几十元的全量建库任务。
+ * 失败安全的方向必须是「少花钱、可逆」——建错了还能续写补，钱花出去回不来。
+ */
+export function normalizeKnowledgeBaseBuildMode(raw: unknown): { mode: KnowledgeBaseBuildMode; fellBack: boolean } {
+	if (raw === "full" || raw === "blank") {
+		return { mode: raw, fellBack: false }
+	}
+	return { mode: "blank", fellBack: true }
+}
+
+/**
+ * 可用于「一键更新」的知识库（08 #175）。
+ *
+ * 口径与注入保持一致（`knowledgeBaseSection.ts` 的 usable + `resolveBuildStatus === "ready"`）：
+ * 没启用的、损坏的、没索引的、空白/构建中/失败的都不出现——要么没内容可续，要么正在跑。
+ */
+export function pickKnowledgeBaseUpdateTargets(items: KnowledgeBaseListItem[]): KnowledgeBaseListItem[] {
+	return items.filter((item) => item.enabled && !item.broken && item.hasIndex && item.buildStatus === "ready")
+}
+
+/**
+ * 这条消息是否代表「AI 回复完、轮到你」（08 #175）。
+ *
+ * 只在这几种收尾态给按钮：工具确认之类的 ask 说明任务还在跑，此时点更新会被
+ * `isConversationBusy` 拒掉，按钮等于骗人。
+ */
+export function isKnowledgeBaseUpdateTurnEnd(message: { say?: string; ask?: string; partial?: boolean }): boolean {
+	if (message.partial === true) {
+		return false
+	}
+	if (message.say === "completion_result") {
+		return true
+	}
+	return message.ask === "completion_result" || message.ask === "followup" || message.ask === "plan_mode_respond"
+}
