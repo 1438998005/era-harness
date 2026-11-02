@@ -101,6 +101,15 @@ export interface ModelInfo {
 	}[]
 	temperature?: number
 	apiFormat?: ApiFormat // The API format used by this model
+	/**
+	 * 仅用于「更新合并」的劝退提示：老一代模型（08 #178）。
+	 *
+	 * ⛔ 不是能力断言、不参与排序、不影响任何运行时行为——只决定合并前要不要多问一句。
+	 * 判弱**只看目录里这一位**（外加「价格全 0 = 免费款」这条自动判据），
+	 * 不再按 id 里的 flash / air / turbo 词根一刀切：2026 年的 flash 档绝对性能足以胜任合并。
+	 * 改档时跟着改这里；新增模型漏标不会报错，但也不会被提醒。
+	 */
+	mergeWeak?: boolean
 }
 
 export interface OpenAiCompatibleModelInfo extends ModelInfo {
@@ -818,6 +827,8 @@ export const bigmodelModels = {
 		cacheReadsPrice: 1.5,
 		cacheWritesPrice: 6,
 		outputPrice: 22,
+		// 08 #178：GLM-5.0 及以下 = 老一代（用户裁定只保留这条 + 免费款判据）
+		mergeWeak: true,
 	},
 	"glm-5-turbo": {
 		...glm53BaseInfo,
@@ -826,6 +837,7 @@ export const bigmodelModels = {
 		cacheReadsPrice: 1.8,
 		cacheWritesPrice: 7,
 		outputPrice: 26,
+		mergeWeak: true,
 	},
 	"glm-4-long": {
 		...glm53BaseInfo,
@@ -834,6 +846,7 @@ export const bigmodelModels = {
 		cacheReadsPrice: 0.5,
 		cacheWritesPrice: 1,
 		outputPrice: 1,
+		mergeWeak: true,
 	},
 	// 免费款（旧一代，价格全 0）
 	"glm-4.7-flash": {

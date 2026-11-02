@@ -80,8 +80,8 @@ import {
 	isClaude4PlusModelFamily,
 	isGPT5ModelFamily,
 	isLocalModel,
-	isNextGenModelFamily,
 	isParallelToolCallingEnabled,
+	supportsAutoCondense,
 } from "@utils/model-utils"
 import { arePathsEqual, getDesktopDir } from "@utils/path"
 import { filterExistingFiles } from "@utils/tabFiltering"
@@ -2146,7 +2146,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			this.taskState.conversationHistoryDeletedRange,
 			previousApiReqIndex,
 			await ensureTaskDirectoryExists(this.taskId),
-			this.stateManager.getGlobalSettingsKey("useAutoCondense") && isNextGenModelFamily(this.api.getModel().id),
+			this.stateManager.getGlobalSettingsKey("useAutoCondense") && supportsAutoCondense(this.api.getModel().id),
 		)
 
 		if (contextManagementMetadata.updatedConversationHistoryDeletedRange) {
@@ -2731,7 +2731,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		let shouldCompact = false
 		const useAutoCondense = this.stateManager.getGlobalSettingsKey("useAutoCondense")
 
-		if (useAutoCondense && isNextGenModelFamily(this.api.getModel().id)) {
+		if (useAutoCondense && supportsAutoCondense(this.api.getModel().id)) {
 			// When we initially trigger context cleanup, we increase the context window size, so we need state `currentlySummarizing`
 			// to track if we've already started the context summarization flow. After summarizing, we increment
 			// conversationHistoryDeletedRange to mask out the summarization-trigger user & assistant response messages

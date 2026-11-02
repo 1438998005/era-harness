@@ -20,7 +20,7 @@ import { HostRegistryInfo } from "@/registry"
 import { ClineError, ClineErrorType } from "@/services/error"
 import { ApiFormat } from "@/shared/proto/cline/models"
 import { calculateApiCostAnthropic } from "@/utils/cost"
-import { isNextGenModelFamily } from "@/utils/model-utils"
+import { supportsAutoCondense } from "@/utils/model-utils"
 import { TaskState } from "../../TaskState"
 import { ToolExecutorCoordinator } from "../ToolExecutorCoordinator"
 import { ToolValidator } from "../ToolValidator"
@@ -978,7 +978,7 @@ export class SubagentRunner {
 	): boolean {
 		const { contextWindow, maxAllowedSize } = getContextWindowInfo(api)
 		const useAutoCondense = this.baseConfig.services.stateManager.getGlobalSettingsKey("useAutoCondense")
-		if (useAutoCondense && isNextGenModelFamily(modelId)) {
+		if (useAutoCondense && supportsAutoCondense(modelId)) {
 			const autoCondenseThreshold = 0.75
 			const roundedThreshold = autoCondenseThreshold ? Math.floor(contextWindow * autoCondenseThreshold) : maxAllowedSize
 			const thresholdTokens = Math.min(roundedThreshold, maxAllowedSize)

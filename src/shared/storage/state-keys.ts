@@ -153,7 +153,10 @@ const USER_SETTINGS_FIELDS = {
 	hooksEnabled: { default: false as boolean },
 	yoloModeToggled: { default: false as boolean },
 	autoApproveAllToggled: { default: false as boolean },
-	useAutoCondense: { default: false as boolean },
+	// 08 #176（2026-11-02 用户裁定）：自动压缩默认开——默认关时长对话走的是
+	// quarter/half 程序化截断（直接把历史砍掉），而不是摘要式压缩；用户不会自己去开。
+	// 显式关过的存量用户不受影响：state-helpers 只在值为 undefined 时套这里的默认。
+	useAutoCondense: { default: true as boolean },
 	subagentsEnabled: { default: false as boolean },
 	clineWebToolsEnabled: { default: true as boolean },
 	worktreesEnabled: { default: false as boolean },

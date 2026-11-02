@@ -207,7 +207,8 @@ export const ExtensionStateContextProvider: React.FC<{
 		strictPlanModeEnabled: false,
 		yoloModeToggled: false,
 		customPrompt: undefined,
-		useAutoCondense: false,
+		// 08 #176：与 state-keys.ts 的单源默认保持一致（扩展回包前的占位值）
+		useAutoCondense: true,
 		subagentsEnabled: false,
 		clineWebToolsEnabled: { user: true, featureFlag: false },
 		worktreesEnabled: { user: true, featureFlag: false },

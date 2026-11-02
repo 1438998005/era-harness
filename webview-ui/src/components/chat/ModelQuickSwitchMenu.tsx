@@ -137,7 +137,9 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			badgeFg: "#FFFFFF",
 			priceText: "套餐内不计费",
 			priceColor: "var(--vscode-descriptionForeground, #9D9D9D)",
-			hint: "GLM Coding Plan 订阅额度，与按量 Key 不通用",
+			// 08 #180：这里以前挂了一句 23 字的 hint（「GLM Coding Plan 订阅额度，与按量 Key 不通用」），
+			// 菜单行没有为长句设计——右侧信息列不收缩，把主名挤成 0 宽，整行溢出被裁。
+			// 菜单行不放长句：「与按量 Key 不通用」在设置页套餐面板里已有（BigmodelPlanProvider），不重复。
 		},
 		{
 			provider: "openai",
@@ -257,7 +259,7 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 											</span>
 										)}
 									</span>
-									<span className="flex shrink-0 items-center gap-1.5">
+									<span className="flex shrink-0 items-center gap-1.5 max-w-[55%] overflow-hidden">
 										{entry.hint && <HintText>{entry.hint}</HintText>}
 										<span
 											className="text-[11px]"
@@ -326,6 +328,10 @@ const EntryRow = styled.button<{ isActive: boolean }>`
 `
 
 const HintText = styled.span`
+	max-width: 110px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-size: 10px;
 	color: ${textColor};
 	opacity: 0.85;

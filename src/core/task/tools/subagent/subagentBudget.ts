@@ -9,6 +9,12 @@
  *
  * 阈值集中在这里（只写一份）：调大/调小时改这一个文件，
  * `SubagentRunner`（执行期）与 `SubagentToolHandler`（调用期总预算）都引用它。
+ *
+ * 08 #174（2026-11-02 用户裁定）：**费用与 token 两个维度默认关**。
+ * 理由：按「花多少钱」限制不合理——同样的钱在贵 API 下几轮就爆、便宜 API 下永远打不满，
+ * 而且会让用户误以为「花钱」是主要风险。主导闸是轮次 / 工具调用次数 / 墙钟 / 空闲四项，
+ * 它们与单价无关。费用与 token 判据保留为可选维度（`SUBAGENT_BUDGET_DIMENSIONS`），
+ * 将来要开只需改那一处，不必重写逻辑。
  */
 
 /** 单个子代理的硬预算 */
@@ -24,16 +30,16 @@ export const SUBAGENT_BUDGET = {
 	 * 而价格表的单位随 provider 漂移——DeepSeek / BigModel 的条目是「元 / 百万 tokens」
 	 * （`src/shared/api.ts` 里逐条注明），Anthropic 的 `3.0 / 15.0` 才是美元。
 	 * 全项目展示层又统一按元显示（`getPriceCurrency()` 恒返 CNY），所以这里沿用元。
-	 * 后果：走美元标价的 provider 时，这个阈值实际放宽约 7 倍。真正的兜底是下面的 token 判据。
+	 *
+	 * 08 #174：该维度**默认关**（见 `SUBAGENT_BUDGET_DIMENSIONS`），阈值只为将来开启时保留。
 	 */
 	maxCostCny: 3,
 	/**
 	 * 累计 token 上限（`input + output`，**不含 cacheReads**）。
 	 *
-	 * 为什么必须有：套餐类 provider（如 BigModel coding plan）把价格全置 0，
-	 * `chunk.totalCost` 返回的是 **0 而不是 undefined**，`??` 不会回退到计价公式，
-	 * 于是 `cost` / `callCost` 两个分支永不触发——用户以为买了止损，其实只剩轮次和工具数两道闸。
-	 * 用 token 总量兜底，与单价无关。
+	 * 为什么保留：套餐类 provider（如 BigModel coding plan）把价格全置 0，
+	 * `chunk.totalCost` 返回的是 **0 而不是 undefined**，费用判据永不触发。
+	 * 08 #174 起该维度同样**默认关**——主导止损交给轮次 / 工具数 / 墙钟 / 空闲。
 	 */
 	maxTotalTokens: 2_000_000,
 	/** 墙钟上限（从 run() 开始算） */
@@ -48,6 +54,32 @@ export const SUBAGENT_CALL_BUDGET = {
 	/** 同上：价格未知时按 token 总量兜底（5 个子代理合计） */
 	maxTotalTokens: 6_000_000,
 } as const
+
+/**
+ * 预算维度开关（08 #174，2026-11-02 用户裁定）。
+ *
+ * `cost` / `tokens` 默认关：按「花多少钱」限制不合理——贵 API 几轮就爆、便宜 API 永远打不满，
+ * 还会让用户误以为花钱是主要风险。主导闸是轮次 / 工具调用次数 / 墙钟 / 空闲。
+ *
+ * ⚠️ 关掉之后，套餐 provider（`chunk.totalCost` 恒 0）不再有任何金额类兜底，
+ * 止损只靠 30 轮 / 150 次 / 10 分钟 / 90 秒空闲——这是明确的取舍，不是遗漏。
+ */
+export const SUBAGENT_BUDGET_DIMENSIONS: Required<SubagentBudgetDimensions> = {
+	cost: false,
+	tokens: false,
+}
+
+export interface SubagentBudgetDimensions {
+	cost?: boolean
+	tokens?: boolean
+}
+
+function resolveDimensions(options?: SubagentBudgetDimensions): Required<SubagentBudgetDimensions> {
+	return {
+		cost: options?.cost ?? SUBAGENT_BUDGET_DIMENSIONS.cost,
+		tokens: options?.tokens ?? SUBAGENT_BUDGET_DIMENSIONS.tokens,
+	}
+}
 
 export type SubagentBudgetReason =
 	| "turns"
@@ -78,8 +110,14 @@ export interface SubagentBudgetSnapshot {
 /**
  * 判定是否超预算。顺序刻意固定：先墙钟/空闲（与模型行为无关的硬止损），
  * 再轮次/工具数，最后费用——这样错误文案能指出最贴近事实的那一条。
+ *
+ * `options` 只用于**测试与将来开启**：不传时取 `SUBAGENT_BUDGET_DIMENSIONS`（费用/token 默认关）。
  */
-export function checkSubagentBudget(snapshot: SubagentBudgetSnapshot): SubagentBudgetReason | undefined {
+export function checkSubagentBudget(
+	snapshot: SubagentBudgetSnapshot,
+	options?: SubagentBudgetDimensions,
+): SubagentBudgetReason | undefined {
+	const dimensions = resolveDimensions(options)
 	if (snapshot.elapsedMs > SUBAGENT_BUDGET.maxWallMs) {
 		return "wall"
 	}
@@ -92,13 +130,39 @@ export function checkSubagentBudget(snapshot: SubagentBudgetSnapshot): SubagentB
 	if (snapshot.toolCalls > SUBAGENT_BUDGET.maxToolCalls) {
 		return "toolCalls"
 	}
-	if (snapshot.costCny > SUBAGENT_BUDGET.maxCostCny) {
+	if (dimensions.cost && snapshot.costCny > SUBAGENT_BUDGET.maxCostCny) {
 		return "cost"
 	}
 	// 费用恒为 0 说明「拿不到单价」（套餐 provider 把价格置 0，或该模型没有价格条目）。
 	// 此时只能按用量兜底——否则这道闸等于不存在。
-	if (snapshot.costCny === 0 && snapshot.totalTokens > SUBAGENT_BUDGET.maxTotalTokens) {
+	if (dimensions.tokens && snapshot.costCny === 0 && snapshot.totalTokens > SUBAGENT_BUDGET.maxTotalTokens) {
 		return "tokens"
+	}
+	return undefined
+}
+
+/** 一次 `use_subagents` 调用的合计用量（5 个子代理累加） */
+export interface SubagentCallTotals {
+	totalCostCny: number
+	totalTokens: number
+}
+
+/**
+ * 调用级总预算判定（08 #174 从 `SubagentToolHandler` 的内联逻辑搬来）。
+ *
+ * 搬过来的理由：阈值只在本文件写一份（文件头契约），且费用/token 维度要跟单代理共用同一个开关。
+ */
+export function checkSubagentCallBudget(
+	totals: SubagentCallTotals,
+	options?: SubagentBudgetDimensions,
+): "callCost" | "callTokens" | undefined {
+	const dimensions = resolveDimensions(options)
+	if (dimensions.cost && totals.totalCostCny >= SUBAGENT_CALL_BUDGET.maxTotalCostCny) {
+		return "callCost"
+	}
+	// 套餐 provider 把价格置 0 → 费用这一层永不触发，只能按用量兜底（#98）
+	if (dimensions.tokens && totals.totalCostCny === 0 && totals.totalTokens >= SUBAGENT_CALL_BUDGET.maxTotalTokens) {
+		return "callTokens"
 	}
 	return undefined
 }

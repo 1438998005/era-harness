@@ -18,7 +18,7 @@ import type { ToolResponse } from "../../index"
 import { showNotificationForApproval } from "../../utils"
 import { AgentConfigLoader } from "../subagent/AgentConfigLoader"
 import { SubagentRunner, type SubagentRunResult } from "../subagent/SubagentRunner"
-import { budgetMessage, SUBAGENT_BUDGET, SUBAGENT_CALL_BUDGET } from "../subagent/subagentBudget"
+import { budgetMessage, checkSubagentCallBudget, SUBAGENT_BUDGET } from "../subagent/subagentBudget"
 import type { IFullyManagedTool } from "../ToolExecutorCoordinator"
 import type { TaskConfig } from "../types/TaskConfig"
 import type { StronglyTypedUIHelpers } from "../types/UIHelpers"
@@ -312,20 +312,19 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 				}
 
 				// 调用级总预算：任一子代理烧钱过快时，把还没跑完的一并停掉。
-				// 单代理预算能拦住 96 元，这一层拦的是「5 个各 3 元」的合计上限。
+				// 08 #174 起费用/token 维度默认关（见 subagentBudget.ts 的 SUBAGENT_BUDGET_DIMENSIONS），
+				// 主导止损是单代理的轮次 / 工具数 / 墙钟 / 空闲；这里保留接线，将来开维度即生效。
 				if (!callBudgetReason) {
-					const totalCost = entries.reduce((acc, entry) => acc + (entry.totalCost || 0), 0)
-					if (totalCost >= SUBAGENT_CALL_BUDGET.maxTotalCostCny) {
-						abortRemaining("callCost", totalCost)
-					} else if (totalCost === 0) {
-						// 套餐 provider 把价格置 0 → 费用这一层永不触发，只能按用量兜底（#98）
-						const totalTokens = entries.reduce(
+					const totals = {
+						totalCostCny: entries.reduce((acc, entry) => acc + (entry.totalCost || 0), 0),
+						totalTokens: entries.reduce(
 							(acc, entry) => acc + (entry.inputTokens || 0) + (entry.outputTokens || 0),
 							0,
-						)
-						if (totalTokens >= SUBAGENT_CALL_BUDGET.maxTotalTokens) {
-							abortRemaining("callTokens", totalCost)
-						}
+						),
+					}
+					const reason = checkSubagentCallBudget(totals)
+					if (reason) {
+						abortRemaining(reason, totals.totalCostCny)
 					}
 				}
 

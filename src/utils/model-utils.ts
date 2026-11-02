@@ -227,6 +227,20 @@ export function isNextGenModelFamily(id: string): boolean {
 	)
 }
 
+/**
+ * 摘要式上下文压缩（`useAutoCondense`）的生效范围：next-gen ∪ MiMo ∪ GLM-5 系。
+ *
+ * 为什么不直接复用 `isNextGenModelFamily`：它同时决定提示词变体与原生工具调用，
+ * 往里加 MiMo / GLM 会牵连一大片；这里只回答「这个模型能不能走摘要压缩」。
+ *
+ * 为什么 GLM 只放 `glm-5` 而不是整个 `isGLMModelFamily`：GLM-4.x 免费款上下文
+ * 只有 16K–200K，且是弱摘要器——让它们去摘要只会把上下文压坏（08 #176）。
+ */
+export function supportsAutoCondense(id: string): boolean {
+	const modelId = normalize(id)
+	return isNextGenModelFamily(modelId) || isMimoModelFamily(modelId) || modelId.includes("glm-5")
+}
+
 export function isLocalModel(providerInfo: ApiProviderInfo): boolean {
 	const localProviders = ["lmstudio", "ollama"]
 	return localProviders.includes(normalize(providerInfo.providerId))

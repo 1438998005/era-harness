@@ -15,8 +15,11 @@
  *
  * 「智力水平」没有客观标量，所以这里只做两件有依据的事：
  * - 每家标一个**推荐**（目录里的旗舰款，人写死，改档时跟着改）；
- * - 按两个**客观特征**判「弱」：价格全 0（免费款）、id 里带 flash / air（目录里的小号）。
- *   ⛔ 不要按价格排序冒充智力排序——贵不等于会写代码。
+ * - 按两个**客观特征**判「弱」：① 价格全 0（免费款）；② 目录里显式标了 `mergeWeak`
+ *   （只给老一代 GLM-5.0 及以下，08 #178 用户裁定）。
+ *   ⛔ 不再按 id 里的 flash / flashx / air / turbo 词根判弱——2026 年的 flash 档绝对性能
+ *   足以胜任任何性质的工作，按名字一票否决是启发式冒充实测。
+ *   ⛔ 也不要按价格排序冒充智力排序——贵不等于会写代码。
  */
 
 import { type ApiProvider, bigmodelModels, deepSeekModels, type ModelInfo, mimoModels } from "@shared/api"
@@ -33,7 +36,7 @@ export interface MergeModelOption {
 	/** 展开后的说明 */
 	detail: string
 	recommended: boolean
-	/** 弱模型（免费或小号）——选中要给二次确认 */
+	/** 弱模型（免费款或目录里标了 mergeWeak 的老一代）——选中要给二次确认 */
 	weak: boolean
 }
 
@@ -54,9 +57,6 @@ const MERGE_CATALOGS: MergeCatalog[] = [
 	{ provider: "mimo", providerLabel: "Xiaomi MiMo", models: mimoModels, recommended: "mimo-v2.6-pro" },
 	{ provider: "bigmodel", providerLabel: "智谱 BigModel", models: bigmodelModels, recommended: "glm-5.3" },
 ]
-
-/** 目录里的小号命名（判「弱」的客观特征之一） */
-const WEAK_MODEL_SEGMENT = /(^|-)(flash|flashx|air|turbo)(-|$)/i
 
 function isFreeModel(info: ModelInfo): boolean {
 	const known = [info.inputPrice, info.outputPrice, info.cacheReadsPrice, info.cacheWritesPrice].filter(
@@ -81,7 +81,7 @@ export function mergeModelOptions(): MergeModelOption[] {
 	for (const catalog of MERGE_CATALOGS) {
 		for (const [modelId, info] of Object.entries(catalog.models)) {
 			const recommended = modelId === catalog.recommended
-			const weak = isFreeModel(info) || WEAK_MODEL_SEGMENT.test(modelId)
+			const weak = isFreeModel(info) || info.mergeWeak === true
 			const price = describePrice(info)
 			options.push({
 				provider: catalog.provider,
@@ -143,10 +143,10 @@ export function describeWeakMergeModel(option: MergeModelOption): {
 	change: string
 } {
 	return {
-		title: `「${option.label}」不适合用来合并`,
+		title: `「${option.label}」用来合并可能不太稳`,
 		detail: [
-			"这一款是免费款或小号模型，写代码、改剧本不是它的强项。",
-			"更新时要它把你改过的文件和社区的新版本合到一块儿，模型不好可能合错——你的口上会变乱，而且不报错。",
+			"这一款是免费款或老一代模型——不是不能用，是合错了不报错。",
+			"更新时要它把你改过的文件和社区的新版本合到一块儿，模型跟不上可能合错——你的口上会变乱，而且不报错。",
 			"",
 			"要稳妥就换一款标了「推荐」的；坚持用它也能继续，冲突文件会先备份。",
 		].join("\n"),

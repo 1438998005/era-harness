@@ -398,7 +398,8 @@ const FeatureSettingsSection = ({ renderSectionHeader }: FeatureSettingsSectionP
 												subagentsLocked ? (
 													<>
 														{baseDescription}
-														<div>当前免费模型下不可用；切回其它模型后自动恢复。</div>
+														{/* 08 #177：与运行时拦截文案（src/shared/subagents.ts）逐字一致，由测试钉住 */}
+														<div>{t("featureSettings.subagentsFreeUnavailable")}</div>
 													</>
 												) : (
 													baseDescription
