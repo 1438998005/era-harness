@@ -70,7 +70,9 @@ function App() {
 					setPercent(null)
 				}
 				if (data.message) {
-					setLog((prev) => [...prev.slice(-200), data.message as string])
+					// 08 #181：心跳会周期性重发同一句话，连续重复不追加（防刷屏）
+					const next = data.message as string
+					setLog((prev) => (prev[prev.length - 1] === next ? prev : [...prev.slice(-200), next]))
 				}
 				return
 			}

@@ -42,6 +42,7 @@ import {
 } from "@core/update/mergeModel"
 import { resolveConflictsViaWorkbench } from "@core/update/mergeResolve"
 import { planFingerprint } from "@core/update/plan"
+import { describeMergeHeartbeat, describeWorkbenchProgress, stageText } from "@core/update/progressText"
 import type { MergeReaders, RunUpdateResult, UpdateEvent, UpdateSourceInput } from "@core/update/service"
 import { runUpdate } from "@core/update/service"
 import type { ConflictGroup, UpdatePlan } from "@core/update/types"
@@ -53,40 +54,15 @@ import { createUpdatePanel, panelEventPayload } from "./updatePanel"
 
 const PROGRESS_TITLE = "正在更新 eraTW"
 
-/** 阶段 → 人话（不出现 download/scan/apply 这类词） */
-function stageText(event: UpdateEvent): string {
-	switch (event.stage) {
-		case "check":
-			return "正在看看社区有没有新版本…"
-		case "download":
-			return "正在下载社区版本…"
-		case "snapshot":
-			return "正在读取文件清单…"
-		case "scan":
-			return "正在扫描本地的游戏文件…"
-		case "labels":
-			return "正在建函数索引（查有没有人调被删掉的函数）…"
-		case "plan":
-			return "正在比对哪些文件要更新…"
-		case "merge":
-			return event.message ? `正在合并 ${event.message}…` : "正在合并你改过的文件…"
-		case "apply":
-			if (!event.message) {
-				return "正在备份并写入…"
-			}
-			// 删旧文件时不能说"正在写入"——用户会以为刚删掉的又被写回来了
-			return event.action === "delete" ? `正在清理 ${event.message}…` : `正在写入 ${event.message}…`
-		case "verify":
-			return "正在检查有没有写对…"
-	}
-}
-
 /**
  * 把 `UpdateEvent` 翻译成进度条文案，**只在文案变化时上报**。
  *
  * 扫描 16906 个文件会发上万次事件，每次都 `progress.report` 会让通知区不停重绘
  * （真机验收时观察到同一句话被上报上万次）。`apply` / `merge` 阶段文案里带文件名，
  * 会自然变化，所以仍然逐个显示"正在写入 xxx"。
+ *
+ * ⚠️ 必须**只创建一次**再反复调用：`stageReporter(progress)(event)` 每次都会新建闭包，
+ * `last` 永远重置，等于没有去重（08 #181 修的就是这个）。
  */
 function stageReporter(progress: vscode.Progress<{ message?: string }>): (event: UpdateEvent) => void {
 	let last = ""
@@ -548,6 +524,11 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		askBatch: ({ groups, files }) => askBatchConflict(groups, files),
 		askOne: askOneGroup,
 	})
+	// F5：「eraTW 更新中心」面板——更新全程的可视镜像（阶段/进度/当前文件/取消/结果）。
+	// 增量旁路设计：确认与执行仍走既有模态框（安全闸门不变），面板加载失败自动降级为纯通知。
+	// 08 #181：面板要在 resolveConflicts 之前建好——合并心跳要往它里面写。
+	const panel = await createUpdatePanel(root)
+
 	const resolveConflicts =
 		mode === "conversation" && controller
 			? (plan: UpdatePlan, readers: MergeReaders) =>
@@ -558,21 +539,28 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 						...readers,
 						shouldMerge,
 						runTask: (prompt, layout) =>
-							runMergeConversation(controller, root, prompt, layout, mergeModel ?? undefined),
+							runMergeConversation(controller, root, prompt, layout, mergeModel ?? undefined, (info) => {
+								// 合并阶段唯一的活性信号：面板明细 + 通知区各写一条
+								const text = describeMergeHeartbeat(info.elapsedMs, info.lastText)
+								panel?.post({ type: "event", stage: "merge", message: text })
+							}),
+						// 这条通道早就铺好了，之前没接 → 合并期间面板一行都不动
+						onProgress: (progress) => {
+							panel?.post({ type: "event", stage: "merge", message: describeWorkbenchProgress(progress) })
+						},
 						maxAttempts: 2,
 					})
 			: undefined
 
-	// F5：「eraTW 更新中心」面板——更新全程的可视镜像（阶段/进度/当前文件/取消/结果）。
-	// 增量旁路设计：确认与执行仍走既有模态框（安全闸门不变），面板加载失败自动降级为纯通知。
-	const panel = await createUpdatePanel(root)
 	const UPDATE_CANCELLED = "UPDATE_CANCELLED"
 	let result: RunUpdateResult
 	try {
 		result = await vscode.window.withProgress(
 			{ location: vscode.ProgressLocation.Notification, title: PROGRESS_TITLE, cancellable: false },
-			(progress) =>
-				runUpdate({
+			(progress) => {
+				// 只建一次：每次事件新建闭包会让 `last` 重置，去重形同虚设
+				const reportStage = stageReporter(progress)
+				return runUpdate({
 					root,
 					source: planned.source,
 					confirm: (rebuilt) => confirmRebuiltPlan(rebuilt, planned.result.plan),
@@ -603,14 +591,15 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 								},
 					resolveConflicts,
 					onEvent: (event) => {
-						stageReporter(progress)(event)
+						reportStage(event)
 						panel?.post(panelEventPayload(event))
 						if (panel?.cancelled) {
 							// 取消在下一个事件边界生效：写入阶段的取消会触发 apply.ts 的整体回滚
 							throw new Error(UPDATE_CANCELLED)
 						}
 					},
-				}),
+				})
+			},
 		)
 	} catch (error) {
 		if (error instanceof Error && error.message === UPDATE_CANCELLED) {

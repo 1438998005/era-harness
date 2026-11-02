@@ -185,6 +185,12 @@
 				"icon": "$(cloud-download)"
 			},
 			{
+				"command": "era-harness.returnToUpdate",
+				"title": "era harness: 回到进行中的更新",
+				"category": "era harness",
+				"icon": "$(sync~spin)"
+			},
+			{
 				"command": "era-harness.openDiagnosticsFolder",
 				"title": "era harness: 打开诊断日志目录",
 				"category": "era harness",

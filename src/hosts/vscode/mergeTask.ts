@@ -31,9 +31,11 @@ import { scanLocal } from "@core/update/manifest"
 import type { MergeModelOption } from "@core/update/mergeModel"
 import { mergeModelOverride } from "@core/update/mergeModel"
 import type { UnexpectedChange, WorkbenchLayout, WorkbenchRunOutcome } from "@core/update/mergeWorkbench"
+import { describeMergeHeartbeat } from "@core/update/progressText"
 import type { RelPath } from "@core/update/types"
 import { Logger } from "@shared/services/Logger"
 import * as vscode from "vscode"
+import { beginUpdateSession, endUpdateSession } from "./updateSession"
 
 export type { UnexpectedChange, WorkbenchRunOutcome }
 
@@ -45,6 +47,8 @@ const START_GRACE_MS = 15_000
 const MAX_CONVERSATION_MS = 30 * 60 * 1000
 /** 报告里最多列几个异常改动，全列会刷屏。 */
 const MAX_LISTED_CHANGES = 20
+/** 合并对话期间的心跳间隔（08 #181）：再长用户就会以为卡死了 */
+const HEARTBEAT_INTERVAL_MS = 10_000
 
 /** 这个环境能不能开对话（测试替身的 controller 没有 initTask） */
 export function canRunMergeConversation(controller?: Controller): boolean {
@@ -192,6 +196,7 @@ export async function runMergeConversation(
 	prompt: string,
 	layout: WorkbenchLayout,
 	model?: MergeModelOption,
+	onHeartbeat?: (info: { elapsedMs: number; lastText?: string }) => void,
 ): Promise<WorkbenchRunOutcome> {
 	if (isConversationBusy(controller)) {
 		return { status: "busy", detail: "现在有一个对话正在跑。等它结束或取消之后，再点更新合并。" }
@@ -243,6 +248,8 @@ export async function runMergeConversation(
 		return { status: "failed", detail: "开对话没成功（没有拿到任务号）。" }
 	}
 	Logger.log(`[update] 合并对话已开启：${started}（工作台 ${layout.root}）`)
+	// 08 #179：记下这场对话，误关侧栏/切走之后还能回来。落盘失败不影响更新。
+	await beginUpdateSession({ taskId: started, root })
 
 	// 这里是 withProgress 的**中间态**形状（不含 unexpected——最后由 { ...wait, unexpected } 补上），
 	// 不能直接标成 WorkbenchRunOutcome（completed 变体要求带 unexpected）。
@@ -257,6 +264,7 @@ export async function runMergeConversation(
 			async (progress, token) => {
 				const began = Date.now()
 				let sawBusy = false
+				let lastHeartbeatAt = began
 				for (;;) {
 					if (token.isCancellationRequested) {
 						await controller.task?.abortTask?.()
@@ -279,6 +287,16 @@ export async function runMergeConversation(
 							detail: `这次合并对话跑了超过 ${Math.round(MAX_CONVERSATION_MS / 60000)} 分钟，已停下。冲突文件全部保留你的版本。`,
 						}
 					}
+					// 08 #181：模型思考/流式输出期间没有任何事件进面板，靠心跳让用户看见「在干活」。
+					// 只写通知区与面板明细，不走 onEvent——不破坏 stageReporter 的防重绘契约。
+					const now = Date.now()
+					if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
+						lastHeartbeatAt = now
+						const elapsedMs = now - began
+						const lastText = controller.task?.messageStateHandler.getClineMessages().at(-1)?.text
+						progress.report({ message: describeMergeHeartbeat(elapsedMs, lastText) })
+						onHeartbeat?.({ elapsedMs, lastText })
+					}
 					await sleep(POLL_INTERVAL_MS)
 				}
 			},
@@ -296,6 +314,9 @@ export async function runMergeConversation(
 		}
 		wait = { status: "failed", detail: "等待合并对话时出错，已停止等待。冲突文件全部保留你的版本。" }
 	}
+	// 08 #179：对话结束（成功/失败/取消/异常）都清掉登记，避免「回到现场」指向一场已结束的对话。
+	// 放在这里而不是 finally：下面还有 diffTree/还原，那些与「对话是否还活着」无关。
+	await endUpdateSession(started)
 
 	let unexpected: UnexpectedChange[] = []
 	try {

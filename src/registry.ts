@@ -25,6 +25,7 @@ const ClineCommands = {
 	AbortCommit: prefix + ".abortGitCommitMessage",
 	ReconstructTaskHistory: prefix + ".reconstructTaskHistory",
 	UpdateGame: prefix + ".updateGame",
+	ReturnToUpdate: prefix + ".returnToUpdate",
 	CheckForUpdates: prefix + ".checkForUpdates",
 	OpenDiagnosticsFolder: prefix + ".openDiagnosticsFolder",
 	ExportDiagnostics: prefix + ".exportDiagnostics",

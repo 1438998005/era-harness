@@ -536,6 +536,11 @@ ${ctx.cellJson || "{}"}
 			const { updateGameCommand } = await import("./hosts/vscode/updateGame")
 			await updateGameCommand(webview.controller)
 		}),
+		// 08 #179：更新跑在侧栏对话里，误关之后要能回去（状态栏项与命令面板共用这一条）
+		vscode.commands.registerCommand(commands.ReturnToUpdate, async () => {
+			const { returnToUpdateCommand } = await import("./hosts/vscode/updateSession")
+			await returnToUpdateCommand(webview.controller)
+		}),
 	)
 
 	// 检查插件自更新（只检查；安装需用户再点「下一步」；启动时不联网检查）
