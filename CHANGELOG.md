@@ -3,6 +3,69 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.96.0 — 2026-11-02
+
+> 本版把 `知识库/08-待修复清单.md` 当时挂着的 11 项一次做完（#173–#181 新登记 + 遗留 #107/#108）：
+> 3 项新能力 + 8 项修复。最要紧的三件：**对话内可一键更新知识库**、**更新对话被误关后能回到现场**、
+> **自动压缩默认开启并覆盖 GLM / MiMo**。
+> 逐项根因与落点见知识库 `08-待修复清单.md` 2026-11-02 销项记录。
+
+### 新增 · 对话内一键更新知识库（#175）
+
+- AI 回复收尾后，最后一条消息下方出现「更新知识库」按钮：只有一个可用库时直接进入，多库时先弹选择器。
+- 走增量更新（`scope: recent`），**不做后台自动更新**—后台建任务会在用户没预期时消耗额度并打断当前对话。
+- 该行只在收尾态（`isKnowledgeBaseUpdateTurnEnd`，非流式）出现，不会在工具循环中途反复闪烁。
+
+### 新增 · 更新进行中可回到现场（#179）
+
+- 更新任务运行期间状态栏出现「更新进行中」，并注册命令 `era-harness.returnToUpdate`（命令面板兜底）。
+- 更新对话被误关后可一键回去，且**不会把正在跑的任务重置掉**：`focus` 分支排在 `reinitExistingTaskFromId` 之前（顺序反了等于点「回去」把更新 abort 掉）。
+- sidecar 记录随 `mergeTask` 起止成对登记与清理；重载窗口后仍能识别「已中断」，不会把残留记录当成活任务。
+
+### 变更 · 自动压缩默认开启，并覆盖 GLM / MiMo（#176）
+
+- `useAutoCondense` 默认值由关改为**开**（`state-keys.ts` 与 `ExtensionStateContext` 两处单源），老用户升级后立即生效，可在设置里关闭。
+- 生效范围改由 `supportsAutoCondense` 判定：next-gen ∪ MiMo ∪ GLM-5 系。**没有**把它们塞进 `isNextGenModelFamily`—那个函数同时决定提示词变体与原生工具调用，混用会连带换掉整套提示词。
+
+### 修复 · 子代理预算不再按费用额度限制（#174）
+
+- 主导闸改为轮次 / 工具调用次数 / 墙钟 / 无响应中止；费用与 token 两个维度**默认关**（`SUBAGENT_BUDGET_DIMENSIONS`），高单价 API 跑子任务不再因费用提前中止。
+- 阈值判定收归 `checkSubagentCallBudget` 单源；设置页文案去掉 ¥3 / ¥10，改为「30 轮 / 150 次工具调用 / 10 分钟墙钟 / 90 秒无响应中止」。
+
+### 修复 · 合并模型「弱」判定不再按 id 后缀一刀切（#178）
+
+- 删除 `WEAK_MODEL_SEGMENT` 正则。判弱只剩两条客观特征：**免费款**（价格全 0）与 **`ModelInfo.mergeWeak` 目录显式标记**（当前仅 `glm-5` / `glm-5-turbo` / `glm-4-long`）。
+- `describeWeakMergeModel` 从「能力断言」改为提示语气，并写明判定依据；DeepSeek V4.1 Flash / MiMo V2.6 Flash / glm-5.3-flashx 等不再被误判。
+
+### 修复 · 子智能体「免费模型不可用」提示（#177）
+
+- 置灰与提示逻辑原本已存在，问题是硬编码中文 + 两套口径。现改走 i18n key，取值**逐字复用** `SUBAGENTS_UNAVAILABLE_FREE_PROVIDER_MESSAGE`，并有测试钉住两者相等。
+
+### 修复 · 设置页知识库说明的深色黑块（#173）
+
+- 真因不是 markdown：行内 `<code>` 只吃全局 `bg-code`（= 编辑器背景）+ `* { @apply text-base }` 把字号撑到 14px。
+- 新建 `components/common/InlineCode.tsx`（显式前景 / 背景 / 边框 / 字号），替换 `KnowledgeBaseSection` 两处与 `BigmodelPlanProvider` 一处手写 `<code>`；两处裸 `**加粗**` 改 `<strong>`。
+
+### 修复 · 模型切换菜单套餐条目溢出（#180）
+
+- 套餐条目不再在菜单行内塞长句提示（设置页套餐面板保留原文案）；右侧列 `shrink-0`，提示文本限宽省略，主名不再被挤掉。
+
+### 修复 · 合并阶段长时间零活动（#181）
+
+- 合并期间每 10 秒一次心跳（带最后一行输出片段）；把早已铺好但未接线的 `WorkbenchProgress` 通道接上；更新面板提前到合并之前创建；面板明细去重相邻重复。
+- 顺带修掉 `stageReporter(progress)(event)` 每次新建闭包导致 `last` 去重失效。
+- 阶段文案抽到 `core/update/progressText.ts`（`stageText` / `describeMergeHeartbeat` / `describeWorkbenchProgress`）。
+
+### 修复 · 建库失败安全与提示重复扫盘（#107 / #108）
+
+- **#107**：`normalizeKnowledgeBaseBuildMode` 遇未知值一律降级为 `blank`（最便宜、可逆）并记 `Logger.warn`，不再「非 blank 即 full」把用户带进最贵的模式。
+- **#108**：新增 `createKnowledgeBaseListCache`（依赖注入 `list` / `now` / `ttlMs`，默认 60 秒、按工作区根隔离），每次 `attempt_completion` 不再全量扫库；`listKnowledgeBases` 本体不动，设置页不会读到陈旧数据；扫盘抛错不写缓存。
+
+### 测试与验证
+
+- 新增 4 个 spec / 36 条用例并登记进 `SPECS`：`auto-condense`（#176）、`knowledge-base-ui`（#107/#108/#173/#175）、`update-session`（#179）、`update-progress`（#181）；改写 `subagent-budget` / `merge-model` / `subagent-wiring` / `subagents-availability`。
+- 回归：`test:update` **790/790**、`test:free` 26/26、`test:toolcall` 56/56；`check-types` 宿主 + webview 双端通过；`lint` 1144 文件无 error；`build:webview` 与 `esbuild --production` 通过。
+
 ## 3.95.3 — 2026-11-01
 
 > 本版是**连续六轮发布前 review 的修复合集**（2026-10-31 至 11-01，#110–#172 共 63 项：13 Critical + 33 Warning + 其余 Low/建议全修）。
