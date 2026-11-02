@@ -89,6 +89,11 @@ const SPECS = [
 	"apply-patch-guard.spec.ts",
 	"hardening-guards.spec.ts",
 	"hardening2-guards.spec.ts",
+	// 08 批（#107 / #108 / #173–#181）
+	"auto-condense.spec.ts",
+	"knowledge-base-ui.spec.ts",
+	"update-session.spec.ts",
+	"update-progress.spec.ts",
 ]
 
 const aliasResolverPlugin = {

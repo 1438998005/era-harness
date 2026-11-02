@@ -56,7 +56,10 @@ test("#98 onProgress 的 rejection 必须被接住（中止后 say 会抛）", (
 test("#100 嵌套子代理有两道守卫：运行时拦截 + 允许工具集过滤", () => {
 	const handler = read("src/core/task/tools/handlers/SubagentToolHandler.ts")
 	assert.ok(handler.includes("config.isSubagentExecution"), "Handler 必须拒绝在子代理里再开子代理")
-	assert.ok(handler.includes("SUBAGENT_CALL_BUDGET.maxTotalTokens"), "调用级预算必须有 token 兜底（套餐 provider 下费用恒 0）")
+	assert.ok(
+		handler.includes("checkSubagentCallBudget("),
+		"调用级预算必须走 subagentBudget 的单源函数（08 #174 起费用/token 默认关，但接线不能断）",
+	)
 
 	const builder = read("src/core/task/tools/subagent/SubagentBuilder.ts")
 	assert.ok(builder.includes("ClineDefaultTool.USE_SUBAGENTS"), "允许工具集必须显式摘掉 use_subagents")

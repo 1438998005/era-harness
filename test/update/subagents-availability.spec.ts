@@ -13,6 +13,8 @@
  *    否则切回付费模型就再也恢复不了（用户会以为设置被吃了）。
  */
 import assert from "node:assert/strict"
+import fs from "node:fs"
+import path from "node:path"
 import test from "node:test"
 import {
 	providerSupportsSubagents,
@@ -68,4 +70,25 @@ test("#94 免费判定写死在一处：将来新增 provider 只需改 provider
 	// 三个调用点都只读 resolveSubagentsEnabled / providerSupportsSubagents
 	assert.equal(SUBAGENTS_UNAVAILABLE_FREE_PROVIDER_MESSAGE.includes("免费模型"), true)
 	assert.equal(SUBAGENTS_UNAVAILABLE_FREE_PROVIDER_MESSAGE.includes("自动恢复"), true)
+})
+
+test("#177 设置页提示与运行时拦截文案逐字一致（单一口径）", () => {
+	const localePath = path.join(process.cwd(), "webview-ui/src/locales/zh-CN/settings.json")
+	const settings = JSON.parse(fs.readFileSync(localePath, "utf8")) as {
+		featureSettings?: Record<string, string>
+	}
+	assert.equal(
+		settings.featureSettings?.subagentsFreeUnavailable,
+		SUBAGENTS_UNAVAILABLE_FREE_PROVIDER_MESSAGE,
+		"设置页文案必须与宿主拦截文案完全相同，否则用户会看到两种说法",
+	)
+})
+
+test("#177 设置页不得再硬编码那句中文（英文界面会露馅）", () => {
+	const source = fs.readFileSync(
+		path.join(process.cwd(), "webview-ui/src/components/settings/sections/FeatureSettingsSection.tsx"),
+		"utf8",
+	)
+	assert.equal(source.includes("当前免费模型下不可用"), false, "硬编码中文必须改成 t()")
+	assert.ok(source.includes('t("featureSettings.subagentsFreeUnavailable")'), "必须走 i18n key")
 })

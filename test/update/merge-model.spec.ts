@@ -44,22 +44,36 @@ test("#64 免费池不列（用户选不了具体哪款，与「用最强」相�
 	)
 })
 
-test("#64 「弱」只按两个客观特征判：价格全 0、id 带 flash/air", () => {
-	// 免费款 → 弱
+test("#178 「弱」只看免费款与目录显式标记，不按 id 词根一刀切", () => {
+	// 免费款 → 弱（价格全 0，自动判据）
 	const free = OPTIONS.find((option) => option.modelId === "glm-4.7-flash")
 	assert.ok(free)
 	assert.equal(free.weak, true)
 
-	// 小号命名 → 弱（哪怕收费）
-	const flash = OPTIONS.find((option) => option.modelId === "glm-5.3-flash")
-	assert.ok(flash)
-	assert.equal(flash.weak, true)
-	assert.notEqual(flash.description, "免费")
+	// 老一代 GLM（目录里标了 mergeWeak）→ 弱，哪怕收费
+	const legacy = OPTIONS.find((option) => option.modelId === "glm-5")
+	assert.ok(legacy)
+	assert.equal(legacy.weak, true)
+	assert.notEqual(legacy.description, "免费")
+
+	// 2026 年的 flash 档不再被判弱——用户裁定：绝对性能足以胜任任何性质的工作
+	for (const modelId of ["deepseek-flash", "deepseek-v4-flash", "mimo-v2.6-flash", "glm-5.3-flash", "glm-5.3-flashx"]) {
+		const option = OPTIONS.find((o) => o.modelId === modelId)
+		assert.ok(option, `候选里应有 ${modelId}`)
+		assert.equal(option.weak, false, `${modelId} 不该因为名字带 flash 被判弱`)
+	}
 
 	// 旗舰款 → 不弱
 	for (const option of OPTIONS.filter((o) => o.recommended)) {
 		assert.equal(option.weak, false, `${option.modelId} 是推荐款，不该被判弱`)
 	}
+})
+
+test("#178 目录里只有老一代 GLM 带 mergeWeak 标记（改档时这条会红）", () => {
+	const marked = OPTIONS.filter((option) => option.weak && option.description !== "免费")
+		.map((option) => option.modelId)
+		.sort()
+	assert.deepEqual(marked, ["glm-4-long", "glm-5", "glm-5-turbo"])
 })
 
 test("#64 默认项 = 当前在用的那款，而不是推荐款（⛔ 别偷偷换家花钱）", () => {
