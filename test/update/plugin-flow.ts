@@ -70,6 +70,11 @@ async function main(): Promise<void> {
 		if (call.items.includes("开始更新")) {
 			return apply ? "开始更新" : "以后再说"
 		}
+		// 2026-11-03：游戏根环境疑点提醒。默认回「取消」（安全侧），--apply 才放行——
+		// 放行后下一个闸门仍是「开始更新」确认框，想看后续序列时用它观察。
+		if (call.items.includes("仍要更新")) {
+			return apply ? "仍要更新" : "取消"
+		}
 		if (call.items.includes("撤销这次更新")) {
 			return "知道了"
 		}

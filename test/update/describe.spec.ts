@@ -7,7 +7,14 @@
 
 import assert from "node:assert/strict"
 import test from "node:test"
-import { describeFreeModelRisk, describeGroup, describePlan, describeResult } from "../../src/core/update/describe"
+import {
+	describeFreeModelRisk,
+	describeGroup,
+	describePlan,
+	describeResult,
+	describeRootSuspicionShort,
+	describeRootTrustWarning,
+} from "../../src/core/update/describe"
 import type { PlanEntry, UpdatePlan } from "../../src/core/update/types"
 
 function entry(path: string, action: PlanEntry["action"], reason: PlanEntry["reason"]): PlanEntry {
@@ -213,4 +220,38 @@ test("文案：已经是最新时不能说「社区有新版本」", () => {
 	assert.ok(!narrative.text.includes("自动备份"), "没活要干时不必提备份")
 	assert.match(narrative.text, /1 个文件/)
 	assertNoJargon(narrative.text)
+})
+
+test("文案：计划确认里亮出更新目标路径（2026-11-03 事故补充）", () => {
+	const narrative = describePlan(plan([entry("ERB/a.ERB", "write", "clean-update")]), {
+		root: "D:\\games\\eratw",
+	})
+	assert.equal(narrative.lines[0], "更新目标：D:\\games\\eratw")
+	assert.match(narrative.text, /更新目标：D:\\games\\eratw/)
+})
+
+test("文案：没给 root 时不出现更新目标行", () => {
+	const narrative = describePlan(plan([entry("ERB/a.ERB", "write", "clean-update")]))
+	assert.ok(!narrative.text.includes("更新目标"))
+})
+
+test("文案：游戏根疑点提醒点名目标路径与疑点，且无术语", () => {
+	const warning = describeRootTrustWarning({ path: "D:\\games\\eratw\\ERB\\口上工程A" }, [
+		{ kind: "nested-in-game", dir: "D:\\games\\eratw", name: "eratw" },
+		{ kind: "kojo-path", dir: "D:\\games\\eratw\\ERB\\口上工程A", name: "口上工程A" },
+	])
+	assert.equal(warning.title, "没能确认当前工作区对应的 eraTW 游戏")
+	assert.ok(warning.detail.includes("D:\\games\\eratw\\ERB\\口上工程A"), "要让用户一眼看到目标是谁")
+	assert.match(warning.detail, /嵌套的游戏副本/)
+	assert.match(warning.detail, /口上工程而不是游戏本体/)
+	assert.match(warning.detail, /备份被塞进错误的文件夹/)
+	assertNoJargon(warning.detail)
+})
+
+test("文案：疑点短标注一行说清，无疑点不出声", () => {
+	assert.equal(
+		describeRootSuspicionShort([{ kind: "inside-script-tree", dir: "D:\\x\\ERB", name: "ERB" }]),
+		"⚠ 环境可疑：住在脚本目录里，先确认是不是真游戏",
+	)
+	assert.equal(describeRootSuspicionShort([]), undefined)
 })

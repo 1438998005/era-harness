@@ -10,7 +10,13 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { defaultSelection, describeCandidate, discoverGameRoots, readNowVersion } from "../../src/core/update/discover"
+import {
+	assessRootSuspicion,
+	defaultSelection,
+	describeCandidate,
+	discoverGameRoots,
+	readNowVersion,
+} from "../../src/core/update/discover"
 
 interface GameOptions {
 	version?: string
@@ -116,19 +122,17 @@ test("空壳 ERB/CSV 目录不算候选，直接选中里层真游戏", async ()
 
 test("嵌套候选被标出来，且默认不选", async () => {
 	await withTempWorkspace(async (root) => {
-		// 外层自己也有脚本（低置信候选，会被继续下钻），里层是完整游戏
+		// 外层有引擎配置但没有引擎本体（半套壳：仍算候选，但会继续下钻），里层是完整游戏。
+		// 2026-11-03 起纯脚本壳不再算候选（见下方硬门槛用例），所以这里必须给引擎配置。
 		const outer = path.join(root, "outer")
-		await fs.mkdir(outer, { recursive: true })
-		for (let i = 0; i < 24; i++) {
-			await fs.writeFile(path.join(outer, `f${i}.erb`), "; x\n", "utf8")
-		}
-		await makeGame(path.join(outer, "inner"))
+		await makeGame(outer, { exe: false })
+		await makeGame(path.join(outer, "inner"), { version: "20260727" })
 
 		const candidates = await discoverGameRoots(root)
 		const inner = candidates.find((c) => c.relPath === "outer/inner")
 		const outerCandidate = candidates.find((c) => c.relPath === "outer")
 
-		assert.ok(outerCandidate, "外层有脚本，应被识别为候选")
+		assert.ok(outerCandidate, "外层有引擎配置，应被识别为候选")
 		assert.ok(inner)
 		assert.equal(inner.nestedUnder, outerCandidate?.path)
 		assert.deepEqual(
@@ -238,5 +242,104 @@ test("本体 + 备份副本并存：默认只选本体，备份列出来但不�
 			["本体"],
 			"备份副本不能抢默认选中",
 		)
+	})
+})
+
+test("候选硬门槛：纯脚本口上工程根（≥20 个本层脚本、没有引擎）不算候选", async () => {
+	await withTempWorkspace(async (root) => {
+		const kojo = path.join(root, "口上工程A")
+		await fs.mkdir(kojo, { recursive: true })
+		for (let i = 0; i < 24; i++) {
+			await fs.writeFile(path.join(kojo, `f${i}.erb`), "; x\n", "utf8")
+		}
+		// 光脚本就能堆到 4 分以上，但没有引擎本体/配置：不能当更新目标（13.9.1 的本意）
+		assert.equal((await discoverGameRoots(kojo)).length, 0)
+	})
+})
+
+test("候选硬门槛：脚本 + CSV 过了分数线但没有引擎，也不算候选", async () => {
+	await withTempWorkspace(async (root) => {
+		const kojo = path.join(root, "口上包")
+		await fs.mkdir(kojo, { recursive: true })
+		for (let i = 0; i < 5; i++) {
+			await fs.writeFile(path.join(kojo, `f${i}.erb`), "; x\n", "utf8")
+		}
+		await fs.writeFile(path.join(kojo, "VariableSize.csv"), "a\n", "utf8")
+		assert.equal((await discoverGameRoots(kojo)).length, 0)
+	})
+})
+
+test("高分脚本壳挡不住往下钻：壳里捆着的真游戏能被找到", async () => {
+	await withTempWorkspace(async (root) => {
+		// 壳：本层 20+ 脚本 + CSV + 子目录 20+ 脚本 = 8 分，旧逻辑会停在它这层
+		const shell = path.join(root, "整合壳")
+		await fs.mkdir(path.join(shell, "子目录"), { recursive: true })
+		for (let i = 0; i < 24; i++) {
+			await fs.writeFile(path.join(shell, `f${i}.erb`), "; x\n", "utf8")
+			await fs.writeFile(path.join(shell, "子目录", `g${i}.erb`), "; x\n", "utf8")
+		}
+		await fs.writeFile(path.join(shell, "VariableSize.csv"), "a\n", "utf8")
+		// 壳里捆着一份完整游戏（口上工程带游戏的常见打包形态）
+		await makeGame(path.join(shell, "游戏"), { version: "20261102" })
+
+		const candidates = await discoverGameRoots(shell)
+		assert.deepEqual(
+			candidates.map((c) => c.relPath),
+			["游戏"],
+			"壳不能当候选，也不能挡住发现里面的真游戏",
+		)
+	})
+})
+
+test("疑点：候选嵌在疑似游戏目录 + 脚本树 + 口上路径里（2026-11-02 事故形态）", async () => {
+	await withTempWorkspace(async (root) => {
+		await makeGame(path.join(root, "本体"))
+		// 口上工程文件夹里捆着一份游戏副本，打分稳过线，可能恰好是唯一候选
+		const bundled = path.join(root, "本体", "ERB", "口上相关", "口上工程A")
+		await makeGame(bundled, { version: "20261102" })
+
+		const suspicions = await assessRootSuspicion(bundled)
+		assert.ok(
+			suspicions.some((s) => s.kind === "nested-in-game"),
+			`上级的本体游戏应触发嵌套疑点：${JSON.stringify(suspicions)}`,
+		)
+		assert.ok(
+			suspicions.some((s) => s.kind === "inside-script-tree"),
+			"上级的 ERB 目录应触发脚本树疑点",
+		)
+		assert.ok(
+			suspicions.some((s) => s.kind === "kojo-path"),
+			"口上路径应触发口上疑点",
+		)
+	})
+})
+
+test("疑点：路径里有「口上」就提醒（口上工程捆带游戏时的第一眼信号）", async () => {
+	await withTempWorkspace(async (root) => {
+		const kojo = path.join(root, "口上工程A")
+		await fs.mkdir(kojo, { recursive: true })
+		const suspicions = await assessRootSuspicion(kojo)
+		assert.equal(suspicions.length, 1)
+		assert.equal(suspicions[0]?.kind, "kojo-path")
+		assert.equal(suspicions[0]?.dir, kojo)
+	})
+})
+
+test("疑点：候选住在 ERB 目录里（游戏本体不会长在脚本树中间）", async () => {
+	await withTempWorkspace(async (root) => {
+		const nested = path.join(root, "ERB", "inner")
+		await fs.mkdir(nested, { recursive: true })
+		const suspicions = await assessRootSuspicion(nested)
+		assert.equal(suspicions.length, 1)
+		assert.equal(suspicions[0]?.kind, "inside-script-tree")
+		assert.equal(suspicions[0]?.name, "ERB")
+	})
+})
+
+test("疑点：正常布局（工作区就是游戏，上级没有别的游戏）没有疑点", async () => {
+	await withTempWorkspace(async (root) => {
+		await makeGame(root)
+		// 这条同时验证向上探测能安全走到盘符根并停下
+		assert.deepEqual(await assessRootSuspicion(root), [])
 	})
 })

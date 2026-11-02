@@ -11,6 +11,7 @@
  * 覆盖 → 「替换」；上游 → 「社区」；基线 → 「上次更新的记录」。
  */
 
+import type { GameRootCandidate, RootSuspicion, RootSuspicionKind } from "./discover"
 import type { ConflictGroup, PlanEntry, UpdatePlan } from "./types"
 
 export interface PlanNarrative {
@@ -31,6 +32,12 @@ export interface DescribePlanOptions {
 	fromVersion?: string | null
 	/** 社区最新版本号，读不到传 null */
 	toVersion?: string | null
+	/**
+	 * 更新目标目录的绝对路径。给了就在明细第一行亮出来。
+	 * 2026-11-03 事故补充：更新被写进口上文件夹时，用户从头到尾没见过
+	 * 「要更新谁」——确认弹窗必须自带目标路径，让人有机会一眼看出不对。
+	 */
+	root?: string | null
 }
 
 function countByReason(entries: PlanEntry[]): Map<string, number> {
@@ -77,6 +84,10 @@ export function describePlan(plan: UpdatePlan, opts: DescribePlanOptions = {}): 
 	}
 
 	const title = from && to && from !== to ? `社区有新版本（${from} → ${to}）` : to ? `社区有新版本（${to}）` : "社区有新版本"
+
+	if (opts.root) {
+		lines.push(`更新目标：${opts.root}`)
+	}
 
 	if (plan.mode === "first-sync") {
 		lines.push("这是第一次更新，我会靠文件时间分辨哪些是你自己改的。")
@@ -334,6 +345,61 @@ export function describeFreeModelRisk(): { title: string; detail: string } {
 			"下一步会让你选这次合并用哪一款——选一款标了「推荐」的，这条风险就不成立。",
 			"建议：更新前先把游戏文件夹整个复制一份留着；更新后进游戏确认没问题，再删掉那份复制。",
 			"更新自己也会自动备份，但手动复制多一层保险——万一合错了又跑了几轮，也能整个退回去。",
+		].join("\n"),
+	}
+}
+
+/** 疑点类别 → 一句话（确认弹窗明细用） */
+function describeRootSuspicionLine(suspicion: RootSuspicion): string {
+	switch (suspicion.kind) {
+		case "nested-in-game":
+			return `它嵌在另一个疑似游戏目录（${suspicion.dir}）里面，可能是嵌套的游戏副本`
+		case "inside-script-tree":
+			return `它住在名为「${suspicion.name}」的脚本目录里面——游戏本体不会住在脚本目录中间`
+		case "kojo-path":
+			return `它的路径里有「口上」/kojo 字样（${suspicion.dir}），可能是口上工程而不是游戏本体`
+	}
+}
+
+/** 疑点类别 → 多候选选择框里的短标注（一行放得下） */
+const SUSPICION_SHORT: Record<RootSuspicionKind, string> = {
+	"nested-in-game": "嵌在疑似游戏目录里",
+	"inside-script-tree": "住在脚本目录里",
+	"kojo-path": "路径像口上工程",
+}
+
+/** 多候选 quick pick 的疑点短标注；无疑点返回 undefined（不给选择框添噪音） */
+export function describeRootSuspicionShort(suspicions: RootSuspicion[]): string | undefined {
+	if (suspicions.length === 0) {
+		return undefined
+	}
+	return `⚠ 环境可疑：${suspicions.map((s) => SUSPICION_SHORT[s.kind]).join("、")}，先确认是不是真游戏`
+}
+
+/**
+ * 游戏根环境疑点提醒（2026-11-03 用户需求）。
+ *
+ * 事故形态：口上工程文件夹里捆着一份完整游戏副本，打分稳过线，又恰好是唯一候选，
+ * 零确认被自动选用 → 整个更新连备份一起落进口上文件夹。发现层的打分只能看这一层
+ * 有什么，看不出它处在什么环境里；疑点由 `discover.ts#assessRootSuspicion` 给出，
+ * 这里负责把话说清楚。放在计划确认**之前**——用户该在看到改动清单之前就知道
+ * 「目标本身可能就是错的」。
+ */
+export function describeRootTrustWarning(
+	candidate: Pick<GameRootCandidate, "path">,
+	suspicions: RootSuspicion[],
+): { title: string; detail: string } {
+	return {
+		title: "没能确认当前工作区对应的 eraTW 游戏",
+		detail: [
+			"插件在当前工作区里找到的游戏目录是：",
+			candidate.path,
+			"",
+			"但这个目录有可疑之处：",
+			...suspicions.map((s) => `· ${describeRootSuspicionLine(s)}`),
+			"",
+			"继续更新可能出异常：备份被塞进错误的文件夹（比如口上文件夹）、游戏文件写错位置等。",
+			"建议：先用编辑器打开游戏所在的文件夹，再点「更新 eraTW」。",
 		].join("\n"),
 	}
 }

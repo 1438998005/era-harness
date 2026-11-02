@@ -221,6 +221,8 @@ interface Probe {
 	score: number
 	/** 这一层有没有引擎可执行文件：有就说明已经是游戏根，不用再往里钻 */
 	hasEngine: boolean
+	/** 这一层有没有引擎配置文件（emuera*.config/.json）：没有 exe 时的兜底引擎证据 */
+	hasEngineConfig: boolean
 }
 
 /** 按特征打分；不依赖目录名，所以改名的整合包也能认出来 */
@@ -232,7 +234,7 @@ async function probeGameRoot(dir: string): Promise<Probe> {
 	try {
 		entries = await fs.readdir(dir, { withFileTypes: true })
 	} catch {
-		return { markers, score, hasEngine: false }
+		return { markers, score, hasEngine: false, hasEngineConfig: false }
 	}
 
 	let ownCsv = 0
@@ -301,7 +303,7 @@ async function probeGameRoot(dir: string): Promise<Probe> {
 		score += 1
 	}
 
-	return { markers, score, hasEngine: engineExe !== "" }
+	return { markers, score, hasEngine: engineExe !== "", hasEngineConfig: engineConfig !== "" }
 }
 
 function toConfidence(score: number): Confidence {
@@ -359,10 +361,13 @@ export async function discoverGameRoots(workspaceRoot: string, opts: DiscoverOpt
 
 	const walk = async (dir: string, depth: number, inBackup: boolean): Promise<void> => {
 		const probe = await probeGameRoot(dir)
-		if (probe.score >= 4) {
+		// 候选硬门槛（2026-11-03）：光靠脚本数堆分不算数，必须有引擎本体或引擎配置。
+		// 知识库 13.9.1 的本意就是「只有 ERB/ 的口上包不算候选」——真游戏一定带引擎，
+		// 纯脚本的口上工程根打分再高（本层脚本 ≥20 一项就 +4）也不能当更新目标。
+		if (probe.score >= 4 && (probe.hasEngine || probe.hasEngineConfig)) {
 			found.push({ abs: dir, probe, inBackup })
-			// 已经到游戏根了（有引擎本体或分数够高），再往里扫只会扫出 ERB/ 这种子目录
-			if (probe.hasEngine || probe.score >= 8) {
+			// 已经到游戏根了（有引擎本体），再往里扫只会扫出 ERB/ 这种子目录
+			if (probe.hasEngine) {
 				return
 			}
 		}
@@ -466,4 +471,68 @@ export function describeCandidate(candidate: GameRootCandidate): string {
 	const version = candidate.nowVersion ? `eratw ${candidate.nowVersion}` : "eratw（版本未知）"
 	const backup = candidate.isBackupCopy ? " · 备份副本" : ""
 	return `${version} · ${candidate.relPath}${backup}`
+}
+
+/** 疑点类别；文案与短标注在 `describe.ts`，这里只给结构化事实 */
+export type RootSuspicionKind = "nested-in-game" | "inside-script-tree" | "kojo-path"
+
+export interface RootSuspicion {
+	kind: RootSuspicionKind
+	/** 触发疑点的目录：kojo-path 可能是候选自身，其余是某级祖先的绝对路径 */
+	dir: string
+	/** 触发疑点的目录名（inside-script-tree 时是「ERB」这类名字，其余同 dir 的末段） */
+	name: string
+}
+
+/** 脚本树目录名：游戏本体不会住在别人的 ERB/ERH 目录里 */
+const SCRIPT_TREE_DIR_RE = /^(erb|erh)$/i
+
+/** 口上工程的路径特征（2026-11-02 事故：口上工程里捆着游戏副本被当成游戏根） */
+const KOJO_NAME_RE = /口上|kojo/i
+
+/** 向上最多看几层：游戏目录不会埋得太深，到顶就停 */
+const MAX_SUSPICION_ANCESTORS = 10
+
+/**
+ * 候选的环境疑点检查：打分只看这一层目录里有什么，看不出这一层**处在什么环境里**。
+ *
+ * 真实事故（2026-11-02 用户报告）：口上工程文件夹里捆着一份完整游戏副本，
+ * 打分稳过线，又恰好是唯一候选 → 零确认被自动选用 → 整个更新（含 `_备份`）
+ * 全部落进口上文件夹。这里从候选往**上**看，抓三类环境信号：
+ * - 嵌在另一个疑似游戏目录里（可能是嵌套副本，用户真正想更新的也许是外层）
+ * - 嵌在名为 ERB/ERH 的脚本目录里（游戏本体不会住在脚本树中间）
+ * - 路径里有「口上」/kojo 字样（口上工程捆带游戏，正是事故形态）
+ *
+ * 只读操作；读不了的目录（无权限等）一律忽略。每类疑点只记**最近**的一处。
+ */
+export async function assessRootSuspicion(root: string): Promise<RootSuspicion[]> {
+	const suspicions: RootSuspicion[] = []
+	const hasKind = (kind: RootSuspicionKind): boolean => suspicions.some((s) => s.kind === kind)
+
+	const baseName = path.basename(root)
+	if (KOJO_NAME_RE.test(baseName)) {
+		suspicions.push({ kind: "kojo-path", dir: root, name: baseName })
+	}
+
+	let dir = path.dirname(root)
+	for (let depth = 0; depth < MAX_SUSPICION_ANCESTORS; depth++) {
+		// 盘符根（或 Unix 根）再往上没有信息量
+		if (path.dirname(dir) === dir) {
+			break
+		}
+		const name = path.basename(dir)
+		if (!hasKind("inside-script-tree") && SCRIPT_TREE_DIR_RE.test(name)) {
+			suspicions.push({ kind: "inside-script-tree", dir, name })
+		} else if (!hasKind("kojo-path") && KOJO_NAME_RE.test(name)) {
+			suspicions.push({ kind: "kojo-path", dir, name })
+		} else if (!hasKind("nested-in-game")) {
+			const probe = await probeGameRoot(dir)
+			if (probe.score >= 4) {
+				suspicions.push({ kind: "nested-in-game", dir, name })
+			}
+		}
+		dir = path.dirname(dir)
+	}
+
+	return suspicions
 }

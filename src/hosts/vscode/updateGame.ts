@@ -22,8 +22,11 @@ import {
 	describeMergeCost,
 	describePlan,
 	describeResult,
+	describeRootSuspicionShort,
+	describeRootTrustWarning,
 } from "@core/update/describe"
 import {
+	assessRootSuspicion,
 	defaultSelection,
 	describeCandidate,
 	discoverGameRoots,
@@ -106,16 +109,24 @@ async function mergeAsk(controller?: Controller, model?: MergeModelOption) {
 
 async function pickRoots(candidates: GameRootCandidate[]): Promise<GameRootCandidate[] | null> {
 	const preselected = new Set(defaultSelection(candidates).map((c) => c.path))
-	const items = candidates.map((candidate) => {
-		const duplicate = candidate.duplicateOf
-		return {
-			label: candidate.duplicateOf ? `$(copy) ${candidate.relPath}` : candidate.relPath,
-			description: describeCandidate(candidate),
-			detail: duplicate ? `和 ${duplicate} 是同一份安装的副本` : undefined,
-			picked: preselected.has(candidate.path) && !duplicate,
-			candidate,
-		}
-	})
+	const items = await Promise.all(
+		candidates.map(async (candidate) => {
+			const duplicate = candidate.duplicateOf
+			// 多候选也标注环境疑点（嵌套副本/口上工程），让用户挑的时候看得见风险；
+			// 是用户自己勾的，勾完不再重复弹窗。
+			const suspicionNote = describeRootSuspicionShort(await assessRootSuspicion(candidate.path))
+			const notes = [duplicate ? `和 ${duplicate} 是同一份安装的副本` : undefined, suspicionNote].filter(
+				(note): note is string => note !== undefined,
+			)
+			return {
+				label: candidate.duplicateOf ? `$(copy) ${candidate.relPath}` : candidate.relPath,
+				description: describeCandidate(candidate),
+				detail: notes.length > 0 ? notes.join("；") : undefined,
+				picked: preselected.has(candidate.path) && !duplicate,
+				candidate,
+			}
+		}),
+	)
 
 	const picked = await vscode.window.showQuickPick(items, {
 		title: "找到好几个 eraTW，要更新哪个？",
@@ -479,6 +490,7 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 	const narrative = describePlan(planned.result.plan, {
 		fromVersion: localVersion,
 		toVersion: upstreamVersion,
+		root,
 	})
 
 	const confirmed = await vscode.window.showInformationMessage(
@@ -765,12 +777,38 @@ export async function updateGameCommand(controller?: Controller): Promise<void> 
 
 	if (candidates.length === 0) {
 		await vscode.window.showErrorMessage(
-			"当前工作区里没找到 eraTW 的游戏目录。可以打开游戏所在的文件夹，或打开它的上层目录（插件会自己往下找）再试。",
+			"当前工作区里没找到 eraTW 的游戏目录。如果现在打开的是口上工程，游戏本体不在工作区里——请打开游戏所在的文件夹（或它的上层目录，插件会自己往下找），再点更新。",
 		)
 		return
 	}
 
-	const roots = candidates.length === 1 ? candidates : await pickRoots(candidates)
+	if (candidates.length === 1) {
+		const only = candidates[0]
+		if (!only) {
+			return
+		}
+		// 2026-11-02 用户报告的事故：口上工程里捆着一份游戏副本，恰好是唯一候选，
+		// 零确认被自动选用，整个更新连 `_备份` 一起落进了口上文件夹。
+		// 所以唯一候选也要过环境疑点检查：可疑就把话说清楚，再让人决定。
+		// 「取消」放在第一个按钮：这个提醒的风险（写错目录）比别的提醒更硬，回车要落在安全的一侧。
+		const suspicions = await assessRootSuspicion(only.path)
+		if (suspicions.length > 0) {
+			const warn = describeRootTrustWarning(only, suspicions)
+			const proceed = await vscode.window.showWarningMessage(
+				warn.title,
+				{ modal: true, detail: warn.detail },
+				"取消",
+				"仍要更新",
+			)
+			if (proceed !== "仍要更新") {
+				return
+			}
+		}
+		await updateOne(only.path, controller)
+		return
+	}
+
+	const roots = await pickRoots(candidates)
 	if (!roots) {
 		return
 	}
