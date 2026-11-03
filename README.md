@@ -124,6 +124,16 @@ npm test
 - 使用者需自行确认所处理内容的合法性与授权范围，并对自己的操作负责。
 - 本项目基于 Apache-2.0 许可的上游项目改造，上游版权归其原作者所有（详见下文与 `LICENSE` 附录）。
 
+## 贡献者与鸣谢
+
+- **Mishu** — 项目开发（QQ 1438998005 ｜ 邮箱 1438998005@qq.com / a1438998005@gmail.com）
+- **qrchen** — 项目开发 / 知识库提供
+- **March3** — 赞助
+
+以及所有提交 issue、参与测试与反馈的社区贡献者。
+
+交流群：QQ 1129762718（[点击加入](https://qm.qq.com/q/YjcKauGzK4)）
+
 ---
 
 > 上游血缘：[Cline](https://github.com/cline/cline) → [Cline Chinese](https://github.com/SSYCloud/cline-chinese)。

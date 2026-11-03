@@ -10,6 +10,17 @@ interface AboutSectionProps {
 	renderSectionHeader: (tabId: string) => JSX.Element | null
 }
 
+/** 贡献者名单：新增/调整在此加一行即可；contact 为可选的联系方式行 */
+const CONTRIBUTORS: { name: string; role: string; contact?: string }[] = [
+	{
+		name: "Mishu",
+		role: "项目开发",
+		contact: "QQ：1438998005 ｜ 邮箱：1438998005@qq.com / a1438998005@gmail.com",
+	},
+	{ name: "qrchen", role: "项目开发 / 知识库提供" },
+	{ name: "March3", role: "赞助" },
+]
+
 const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 	const { t } = useTranslation("settings")
 	const { setShowWelcome } = useExtensionState()
@@ -109,6 +120,24 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 					<p className="m-0">
 						无账号、无登录、无遥测、无插件市场。模型提供方保留 DeepSeek、Xiaomi MiMo 与 OpenAI
 						兼容端点，密钥只存在本机。
+					</p>
+
+					<h3 className="text-md font-semibold mt-2">作者 / 贡献者 / 鸣谢</h3>
+					<ul className="m-0 pl-4">
+						{CONTRIBUTORS.map((c) => (
+							<li key={c.name}>
+								<span className="font-medium">{c.name}</span>
+								{"（"}
+								{c.role}
+								{"）"}
+								{c.contact && <div className="text-xs text-description">{c.contact}</div>}
+							</li>
+						))}
+					</ul>
+					<p className="m-0 text-xs text-description">以及所有提交 issue、参与测试与反馈的社区贡献者。</p>
+					<p className="m-0">
+						交流群：QQ 1129762718（
+						<VSCodeLink href="https://qm.qq.com/q/YjcKauGzK4">点击加入</VSCodeLink>）
 					</p>
 
 					<h3 className="text-md font-semibold mt-2">上游血缘</h3>
