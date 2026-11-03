@@ -217,8 +217,8 @@ export interface ClineSayTool {
 	/** Inclusive line range actually returned by read_file (for UI summaries). */
 	readLineStart?: number
 	readLineEnd?: number
-	/** `runGame` 专用：这次调用是启动 / 结束 / 只看状态 */
-	action?: "run" | "stop" | "status"
+	/** `runGame` 专用：这次调用是启动 / 结束 / 只看状态 / 验证（era_verify） */
+	action?: "run" | "stop" | "status" | "verify"
 	/** `runGame` 专用：展示用的命令行，如 `Emuera_skiaV16_x64.exe -Debug` */
 	command?: string
 	/** `runGame` 专用：引擎工作目录（= exe 所在目录） */

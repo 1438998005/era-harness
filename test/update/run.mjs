@@ -48,6 +48,8 @@ const SPECS = [
 	"describe.spec.ts",
 	"reference.spec.ts",
 	"game-runner.spec.ts",
+	"clidebug.spec.ts",
+	"project-profile-prune.spec.ts",
 	"shell-notice.spec.ts",
 	"reasoning-support.spec.ts",
 	"global-memory.spec.ts",

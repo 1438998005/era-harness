@@ -736,14 +736,25 @@ export const ChatRowContent = memo(
 					// 审批卡片与结果卡片共用这个分支：ask 阶段没有 content，say 阶段带报告。
 					// 不写这个 case 会命中下面的 default → <InvisibleSpacer/>，卡片完全不可见（#111）。
 					const isAsk = message.type === "ask"
+					// status 是纯只读查询（不起进程），动词必须单列，不能落进「启动」桶（review 批 B5）
+					const isStatus = tool.action === "status"
 					const isStop = tool.action === "stop"
-					const verbKey = isStop
+					const isVerify = tool.action === "verify"
+					const verbKey = isStatus
 						? isAsk
-							? "chatRow.wantsToStopGame"
-							: "chatRow.stoppedGame"
-						: isAsk
-							? "chatRow.wantsToRunGame"
-							: "chatRow.ranGame"
+							? "chatRow.wantsToCheckGame"
+							: "chatRow.checkedGame"
+						: isStop
+							? isAsk
+								? "chatRow.wantsToStopGame"
+								: "chatRow.stoppedGame"
+							: isVerify
+								? isAsk
+									? "chatRow.wantsToVerifyGame"
+									: "chatRow.verifiedGame"
+								: isAsk
+									? "chatRow.wantsToRunGame"
+									: "chatRow.ranGame"
 					return (
 						<div>
 							<div className={HEADER_CLASSNAMES}>

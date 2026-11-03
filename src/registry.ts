@@ -27,6 +27,9 @@ const ClineCommands = {
 	UpdateGame: prefix + ".updateGame",
 	ReturnToUpdate: prefix + ".returnToUpdate",
 	CheckForUpdates: prefix + ".checkForUpdates",
+	RunGame: prefix + ".runGame",
+	RunGameDebug: prefix + ".runGameDebug",
+	StopGame: prefix + ".stopGame",
 	OpenDiagnosticsFolder: prefix + ".openDiagnosticsFolder",
 	ExportDiagnostics: prefix + ".exportDiagnostics",
 	// Jupyter Notebook commands

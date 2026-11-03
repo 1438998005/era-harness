@@ -198,7 +198,9 @@ export function diffEngineArtifacts(before: ReadonlyMap<string, number>, after: 
 const runningGames = new Map<string, RunningGame>()
 
 function keyOf(exePath: string): string {
-	return exePath.toLowerCase()
+	// 与 clidebug.keyOfExe 同一口径（斜杠归一 + 小写）：互斥查询两边都用这个形状比对，
+	// 只 toLowerCase 的话反斜杠/正斜杠混用会产生查不到的孤儿条目（review 批 B7）
+	return exePath.replace(/\\/g, "/").toLowerCase()
 }
 
 /** 启动引擎。返回的对象会持续更新 exited / exitCode，调用方据此判断是否崩溃。 */

@@ -8,6 +8,7 @@ import { attempt_completion_variants } from "./attempt_completion"
 import { era_knowledge_variants } from "./era_knowledge"
 import { era_reference_variants } from "./era_reference"
 import { era_symbols_variants } from "./era_symbols"
+import { era_verify_variants } from "./era_verify"
 import { execute_command_variants } from "./execute_command"
 import { focus_chain_variants } from "./focus_chain"
 import { generate_explanation_variants } from "./generate_explanation"
@@ -46,6 +47,7 @@ export function registerClineToolSets(): void {
 		...era_knowledge_variants,
 		...era_reference_variants,
 		...era_symbols_variants,
+		...era_verify_variants,
 		...focus_chain_variants,
 		...generate_explanation_variants,
 		...global_memory_variants,

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import type { ToolUse } from "@core/assistant-message"
+import { type BlockingRun, findBlockingRun } from "@core/era/clidebug"
 import {
 	diffEngineArtifacts,
 	type EngineArtifact,
@@ -117,6 +118,12 @@ function describeExit(run: RunningGame): string {
 	}
 	const code = run.exitCode === null || run.exitCode === undefined ? "无" : String(run.exitCode)
 	const signal = run.exitSignal ? `，signal ${run.exitSignal}` : ""
+	// 退出码 0 多半是引擎正常退出或用户手动关了窗口，不能套「无法启动」的帽子（review 批 B8）
+	if (run.exitCode === 0) {
+		// signal 信息一并展示（Windows 上 0 码 + signal 几乎不可能，纯展示完整性，复审批 F5）
+		const zeroSignal = run.exitSignal ? `，signal ${run.exitSignal}` : ""
+		return `- 状态：已自行退出（退出码 0${zeroSignal}，启动后 ${elapsed.toFixed(1)} 秒）——进程正常结束，可能是用户关闭了窗口。`
+	}
 	return `- 状态：已退出（退出码 ${code}${signal}，启动后 ${elapsed.toFixed(1)} 秒）\n- 这通常意味着引擎无法启动：被安全软件拦截、缺少 DLL、配置损坏，或者脚本加载阶段直接崩了。`
 }
 
@@ -207,6 +214,24 @@ export class RunGameToolHandler implements IFullyManagedTool {
 			}
 
 			// ── 阶段三：执行。从这里开始才允许产生副作用 ──────────────────────
+			// 审批（可能长达数分钟）期间状态可能已变：用户手动点了快捷启动、另一路
+			// era_verify 先占上了。执行前复查互斥；冲突时按 message 管道收场（卡片动词
+			// 不会显示「已启动」、遥测不记成功）——复查放在 runEngine 里会让冲突文本
+			// 混进「启动成功」管道（复审批 F3，与 EraVerifyToolHandler 的复查块同款）。
+			if (plan.kind === "run") {
+				const blocking = findBlockingRun(plan.engine.filePath)
+				if (blocking) {
+					const text = truncateContent(this.blockingRunMessage(blocking, plan.engine), MAX_OUTPUT_BYTES)
+					const payload = await this.buildPayload(config, { kind: "message", text }, text)
+					// message 载荷默认 command="action=status"；这里标注真实意图与未执行原因
+					await config.callbacks.say(
+						"tool",
+						JSON.stringify({ ...payload, command: "action=run（未执行）", note: plan.engine.fileName }),
+					)
+					config.taskState.consecutiveMistakeCount = 0
+					return text
+				}
+			}
 			const body = plan.kind === "run" ? await this.runEngine(config, plan) : this.stopEngines(plan)
 
 			const result = truncateContent(body, MAX_OUTPUT_BYTES)
@@ -248,6 +273,8 @@ export class RunGameToolHandler implements IFullyManagedTool {
 			return {
 				tool: "runGame",
 				action: "status",
+				// 卡片正文显示 command ?? path；status 没有进程可列，不补就只会显示一个「.」（review 批 B5）
+				command: "action=status",
 				path: getReadablePath(config.cwd, "."),
 				operationIsLocatedInWorkspace: true,
 				...withContent,
@@ -334,23 +361,12 @@ export class RunGameToolHandler implements IFullyManagedTool {
 			}
 		}
 
-		// 同一个 exe 已经有活着的实例时不能再起一个：
+		// 同一个 exe 不能再起一个（互斥，统一走 findBlockingRun 的归一化判定）：
 		// ① 注册表按 exe 路径索引，新实例会覆盖旧条目，旧进程从此无法 stop（孤儿进程）；
 		// ② Emuera 同时开两份会互相抢写 sav/ 与懒加载索引。
-		const normalizedExe = engine.filePath.replace(/\\/g, "/").toLowerCase()
-		const alive = listRunningGames().find(
-			(run) => !run.exited && run.exePath.replace(/\\/g, "/").toLowerCase() === normalizedExe,
-		)
-		if (alive) {
-			return {
-				kind: "message",
-				text: [
-					"## 已有实例在运行",
-					`${engine.fileName} 已经在跑（PID ${alive.pid ?? "未知"}，已运行 ${((Date.now() - alive.startedAt) / 60000).toFixed(1)} 分钟）。`,
-					"",
-					"同一个引擎不能同时跑两份（会互相抢写存档与懒加载索引）。请先用 `action=stop` 结束它，再重新启动。",
-				].join("\n"),
-			}
+		const blocking = findBlockingRun(engine.filePath)
+		if (blocking) {
+			return { kind: "message", text: this.blockingRunMessage(blocking, engine) }
 		}
 
 		const debug = parseBool(block.params.debug, true)
@@ -377,7 +393,26 @@ export class RunGameToolHandler implements IFullyManagedTool {
 		return `## 结束结果\n${lines.join("\n")}\n\n> 强制结束不会保存游戏进度。`
 	}
 
-	/** 真正启动引擎。只在审批通过后被调用。 */
+	/** 互斥冲突的用户可读消息。plan 阶段与执行前复查共用（review 批 B2）。 */
+	private blockingRunMessage(blocking: BlockingRun, engine: EngineCandidate): string {
+		if (blocking.kind === "verify") {
+			return [
+				"## era_verify 正在运行",
+				`${engine.fileName} 正在被 era_verify 驱动（解析/启动验证），跑完会自动关闭。`,
+				"",
+				"同一个引擎不能同时两路驱动。等验证结束再启动。",
+			].join("\n")
+		}
+		const run = blocking.run
+		return [
+			"## 已有实例在运行",
+			`${engine.fileName} 已经在跑（PID ${run.pid ?? "未知"}，已运行 ${((Date.now() - run.startedAt) / 60000).toFixed(1)} 分钟）。`,
+			"",
+			"同一个引擎不能同时跑两份（会互相抢写存档与懒加载索引）。请先用 `action=stop` 结束它，再重新启动。",
+		].join("\n")
+	}
+
+	/** 真正启动引擎。只在审批通过后被调用（互斥复查在 execute 阶段三入口做，见复审批 F3）。 */
 	private async runEngine(config: TaskConfig, plan: Extract<RunPlan, { kind: "run" }>): Promise<string> {
 		const { engine, candidates, args, waitSeconds, keepAlive } = plan
 		const extraRoots = await getExtraWorkspaceRoots(config.cwd)

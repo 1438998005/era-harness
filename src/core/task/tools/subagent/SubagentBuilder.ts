@@ -38,11 +38,13 @@ const SUBAGENT_FORBIDDEN_TOOLS = new Set<ClineDefaultTool>([
 	// - MCP：等价于把「能起进程/写盘」的服务端交给无审批通道的子代理（#112 同源通道）
 	// - NEW_TASK / ASK：会向真实用户弹窗（新建任务 / 追问），子代理没有这个通道
 	// - RUN_GAME：拉起 GUI 进程并重写游戏目录引擎产物（handler 里另有硬拒兜底）
+	// - ERA_VERIFY：同 RUN_GAME（--CliDebug 驱动引擎进程，handler 里另有硬拒兜底）
 	ClineDefaultTool.MCP_USE,
 	ClineDefaultTool.MCP_ACCESS,
 	ClineDefaultTool.NEW_TASK,
 	ClineDefaultTool.ASK,
 	ClineDefaultTool.RUN_GAME,
+	ClineDefaultTool.ERA_VERIFY,
 ])
 
 export const SUBAGENT_SYSTEM_SUFFIX = `\n\n# Subagent Execution Mode

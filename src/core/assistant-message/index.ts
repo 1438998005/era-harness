@@ -65,6 +65,8 @@ export const toolParamNames = [
 	"debug",
 	"wait_seconds",
 	"keep_alive",
+	"target",
+	"timeout_seconds",
 	"entry_id",
 	"key",
 	"tags",

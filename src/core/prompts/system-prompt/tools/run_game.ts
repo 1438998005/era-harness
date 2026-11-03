@@ -8,10 +8,10 @@ import { TASK_PROGRESS_PARAMETER } from "../types"
 const id = ClineDefaultTool.RUN_GAME
 
 const DESCRIPTION_EN =
-	"Launch the Emuera engine found in this workspace, wait for it to settle, and report process state plus load evidence (whether the lazyloading index was rebuilt) and any freshly written log diagnostics. Use this to verify an edit actually loads. The engine does not write game logs while sitting on the title screen, so 'no new log' is not a failure by itself - read the load evidence section. This starts a real game window and causes the engine to rewrite its own files in the game folder. Only run it when the user asked for a live test; do not use it as a substitute for reading code."
+	"Launch the Emuera engine found in this workspace, wait for it to settle, and report process state plus load evidence (whether the lazyloading index was rebuilt) and any freshly written log diagnostics. Use this to verify an edit actually loads. The engine does not write game logs while sitting on the title screen, so 'no new log' is not a failure by itself - read the load evidence section. This starts a real game window and causes the engine to rewrite its own files in the game folder. Only run it when the user asked for a live test; do not use it as a substitute for reading code. To capture errors unattended, prefer era_verify instead - it drives the engine via its CLI protocol and closes it automatically; use run_game when the user wants a real game window to look at."
 
 const DESCRIPTION_ZH_CN =
-	"启动工作区里探测到的 Emuera 引擎，等它加载完，然后报告进程状态、加载痕迹（lazyloading 索引有没有重建）以及本次新写出的日志诊断。用来验证改动是否真能加载。引擎停在标题画面时不会写游戏日志，所以「日志没变」本身不代表失败，要看加载痕迹那一节。这会真实弹出游戏窗口，并让引擎重写游戏目录里它自己的文件。只在用户要求实测时使用，不要拿它代替读代码。"
+	"启动工作区里探测到的 Emuera 引擎，等它加载完，然后报告进程状态、加载痕迹（lazyloading 索引有没有重建）以及本次新写出的日志诊断。用来验证改动是否真能加载。引擎停在标题画面时不会写游戏日志，所以「日志没变」本身不代表失败，要看加载痕迹那一节。这会真实弹出游戏窗口，并让引擎重写游戏目录里它自己的文件。只在用户要求实测时使用，不要拿它代替读代码。要无人值守抓报错请改用 era_verify——它走引擎的 CLI 协议跑完自动关闭；run_game 只在用户要一个真的游戏窗口看效果时用。"
 
 const INSTRUCTION_ACTION_EN = "One of: run (default), status, stop."
 const INSTRUCTION_ACTION_ZH_CN = "取值：run（默认）、status、stop。"

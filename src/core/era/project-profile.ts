@@ -378,12 +378,16 @@ function isContainerOnly(item: DirProbe): boolean {
  * 另一个场景：工作区根只是装着多个游戏的容器。
  */
 function pruneContained(found: DirProbe[]): DirProbe[] {
-	return found.filter((candidate) => {
+	// 第一遍：删掉「只装着别的工程的容器」（自己没有脚本/CSV，纯粹是外层壳）
+	const survivors = found.filter((candidate) => {
 		const hasDescendantCandidate = found.some((other) => other !== candidate && isStrictlyInside(candidate.dir, other.dir))
-		if (isContainerOnly(candidate) && hasDescendantCandidate) {
-			return false
-		}
-		return !found.some(
+		return !(isContainerOnly(candidate) && hasDescendantCandidate)
+	})
+	// 第二遍：只在**幸存者**里删「被分数不低于自己的幸存祖先包住」的目录。
+	// 不能对原数组求值——被第一遍删掉的容器会继续行使支配权，把子候选也剪掉，
+	// 两条件叠加可把候选全部剪空，usable[0]! 直接 TypeError（review 批 B4）。
+	return survivors.filter((candidate) => {
+		return !survivors.some(
 			(other) => other !== candidate && other.score >= candidate.score && isStrictlyInside(other.dir, candidate.dir),
 		)
 	})
@@ -524,7 +528,10 @@ function buildProfile(startRoots: string[], cwd: string | undefined): EraProject
 	}
 
 	found.sort((a, b) => b.score - a.score || a.dir.localeCompare(b.dir))
-	const usable = pruneContained(found)
+	const pruned = pruneContained(found)
+	// 兜底：剪枝再出幺蛾子也不能剪空（found 此处保证非空），退回排序结果而不是
+	// 让 usable[0]! 抛 TypeError 炸穿 profile 构建（review 批 B4）
+	const usable = pruned.length > 0 ? pruned : found
 	const best = usable[0]!
 
 	const baseForRelative = cwd || startRoots[0] || ""

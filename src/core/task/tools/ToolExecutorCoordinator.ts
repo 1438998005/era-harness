@@ -11,6 +11,7 @@ import { CondenseHandler } from "./handlers/CondenseHandler"
 import { EraKnowledgeToolHandler } from "./handlers/EraKnowledgeToolHandler"
 import { EraReferenceToolHandler } from "./handlers/EraReferenceToolHandler"
 import { EraSymbolsToolHandler } from "./handlers/EraSymbolsToolHandler"
+import { EraVerifyToolHandler } from "./handlers/EraVerifyToolHandler"
 import { ExecuteCommandToolHandler } from "./handlers/ExecuteCommandToolHandler"
 import { GenerateExplanationToolHandler } from "./handlers/GenerateExplanationToolHandler"
 import { GlobalMemoryToolHandler } from "./handlers/GlobalMemoryToolHandler"
@@ -117,6 +118,7 @@ export class ToolExecutorCoordinator {
 		[ClineDefaultTool.ERA_KNOWLEDGE]: (v: ToolValidator) => new EraKnowledgeToolHandler(v),
 		[ClineDefaultTool.SETTING_HELP]: (v: ToolValidator) => new SettingHelpToolHandler(v),
 		[ClineDefaultTool.RUN_GAME]: (v: ToolValidator) => new RunGameToolHandler(v),
+		[ClineDefaultTool.ERA_VERIFY]: (v: ToolValidator) => new EraVerifyToolHandler(v),
 		[ClineDefaultTool.GLOBAL_MEMORY]: (v: ToolValidator) => new GlobalMemoryToolHandler(v),
 	}
 

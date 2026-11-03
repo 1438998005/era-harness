@@ -551,6 +551,22 @@ ${ctx.cellJson || "{}"}
 		}),
 	)
 
+	// 08 #187：快捷启动游戏（用户亲手点的直启入口，无审批卡片；调试启动对齐 DEBUG_MODE.bat 的 -Debug）
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.RunGame, async () => {
+			const { runGameCommand } = await import("./hosts/vscode/runGameCommands")
+			await runGameCommand(false)
+		}),
+		vscode.commands.registerCommand(commands.RunGameDebug, async () => {
+			const { runGameCommand } = await import("./hosts/vscode/runGameCommands")
+			await runGameCommand(true)
+		}),
+		vscode.commands.registerCommand(commands.StopGame, async () => {
+			const { stopGameCommand } = await import("./hosts/vscode/runGameCommands")
+			await stopGameCommand()
+		}),
+	)
+
 	// 诊断：打开审计日志目录 / 导出诊断包（供用户发一个 txt 就能排障）
 	context.subscriptions.push(
 		vscode.commands.registerCommand(commands.OpenDiagnosticsFolder, async () => {

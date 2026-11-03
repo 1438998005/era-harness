@@ -82,6 +82,7 @@ export const config = createVariant(ModelFamily.GENERIC)
 		ClineDefaultTool.GLOBAL_MEMORY,
 		ClineDefaultTool.SETTING_HELP,
 		ClineDefaultTool.RUN_GAME,
+		ClineDefaultTool.ERA_VERIFY,
 	)
 	.placeholders({
 		MODEL_FAMILY: "generic",

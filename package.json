@@ -209,6 +209,24 @@
 				"icon": "$(cloud-download)"
 			},
 			{
+				"command": "era-harness.runGame",
+				"title": "era harness: 启动游戏",
+				"category": "era harness",
+				"icon": "$(play)"
+			},
+			{
+				"command": "era-harness.runGameDebug",
+				"title": "era harness: 以调试模式启动游戏",
+				"category": "era harness",
+				"icon": "$(debug-alt)"
+			},
+			{
+				"command": "era-harness.stopGame",
+				"title": "era harness: 结束游戏",
+				"category": "era harness",
+				"icon": "$(stop-circle)"
+			},
+			{
 				"command": "eraHarness.erabasic.yieldToSasami",
 				"title": "让位给 sasami.erabasic（把 .erb/.erh 交给它高亮）",
 				"category": "era harness",
@@ -293,8 +311,18 @@
 					"when": "view == era-harness.SidebarProvider"
 				},
 				{
-					"command": "era-harness.settingsButtonClicked",
+					"command": "era-harness.runGame",
+					"group": "navigation@5",
+					"when": "view == era-harness.SidebarProvider"
+				},
+				{
+					"command": "era-harness.runGameDebug",
 					"group": "navigation@6",
+					"when": "view == era-harness.SidebarProvider"
+				},
+				{
+					"command": "era-harness.settingsButtonClicked",
+					"group": "navigation@7",
 					"when": "view == era-harness.SidebarProvider"
 				}
 			],
