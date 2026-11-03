@@ -3,6 +3,38 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.99.0 — 2026-11-04
+
+> 本版补齐「改完 → 验证 → 修」闭环的最后两块：**AI 自主验证游戏报错的新工具 `era_verify`**（#188，
+> 底座是引擎 15.0.0+ 自带的 `--CliDebug` JSONL 协议）与**侧栏快捷启动游戏的三条命令**（#187）；
+> 同时把免费模型池从 17 项扩到 21 项（Inkling 回归、Beam/Glyph/Flint/Nemotron VL/Xing 加入，
+> Laguna 移除、Gemma 降位）。随附两轮 review 修复批（#189–#196、#197–#201）。
+
+### 新增 · era_verify 无人值守验证工具（#188）
+
+- `mode=parse`：`--CliDebug <目标>` 强制编译 ERB/目录，警告全量走 stdout、落 exe 目录 `Analysis.log`（旧文件按 mtime 标 `stale`，不当本次结果）；完成标志「文件解析完成」即收尾。
+- `mode=boot`：完整启动到标题画面，`log` 命令取回控制台缓冲全文（被开头字符画刷掉的报错也在），模态 `dialog` 事件单列——「窗口里报了错但没有日志」场景的正路；结束 `quit` 干净退出并刷日志。
+- 与 `run_game` 同款三段式审批（plan→approve→act），autoApprove 对两者都是硬闸（yolo 不可绕过）；子代理禁用；引擎 <15.0.0 时降级提示。
+
+### 新增 · 快捷启动命令（#187）
+
+- 侧栏标题菜单三条：`era-harness.runGame`（普通）/ `runGameDebug`（`-Debug`，对齐 DEBUG_MODE.bat）/ `stopGame`（模态确认，不保存进度）。
+- 单候选直启、多候选 QuickPick；与 run_game / era_verify 同一互斥判据（同一 exe 不双开）。
+
+### 新增 · 免费池 17→21 项（2026-11-04 Kilo/OVH listing 实证）
+
+- 新增：Beam 1.0（#2，SWE-V 80.9）、Glyph Cluster（#3，stealth 槽位无基准分，低置信）、Flint（#6）、Nemotron 3.5 Super VL（#10，vision）、Xing4.0（#11）。
+- Gemma 4 31B #2→#13（社区实测覆盖基准分：SWE-V 52.0 vs Qwen3.6 的 73.4）；Laguna S 2.1 移除（listing 整行消失）；Ling 3.1 Flash 未加（免费档已终止）；OVH 全 10 项存活。
+
+### 修复 · 两轮 review 批（#189–#201）
+
+- 互斥三处收口：spawn 即登记（握手 30s 窗口不双开）、审批后执行前复查（`findBlockingRun` 统一归一判据）、CliDebug 会话撞键即抛 + 注销所有权检查。
+- `setExited` 唤醒全部等待者：引擎启动即崩时 boot 观察立即收场（原干等满 90 秒），挂起的 request 不再烧满超时。
+- `pruneContained` 两遍剪枝 + 剪空兜底：特殊布局不再把工程画像候选剪空导致 TypeError 炸穿系统提示词构建。
+- `run_game action=status` 卡片动词改「查询游戏进程」；冲突复查走 message 管道（不误报「已启动」、不记成功遥测）；干净退出（退出码 0）不再误报「无法启动」。
+
+**回归**：`test:update` **831/831**（clidebug 17 例、工程画像剪枝 3 例为新）、`test:free` **26/26**、双端 `check-types` 通过、宿主与 webview 双产物重打并逐项验证。
+
 ## 3.98.0 — 2026-11-03
 
 > 本版修「诊断包」的两个盲区（#184/#185，用户反馈）：**导出内容从留存期起点累加**、
