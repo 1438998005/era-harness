@@ -10,19 +10,38 @@
  *   maxOutput 端点未登记 → 保守估值，handler 的 FREE_REQUEST_MAX_OUTPUT 截断兜底。
  * - vision 以 zen-gate 实测探测口径为准（未验证不声明，保守 false）。
  *
- * 池顺序（2026-10-24 修订：以 Artificial Analysis Coding Index 为骨架，用 SWE-bench Verified/Pro、
- * Terminal-Bench 2.1、DeepSWE 等独立基准与 OpenRouter 社区用量补位/破平；纯按编程能力降序，未加隐私权重）：
- * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Laguna S 2.1(kilo) → Dots3-Note(kilo) → Qwen3.5-397B(ovh) →
- * Nemotron 3 Ultra(kilo) → North Mini Code(kilo) → gpt-oss-120b(ovh) → Mistral Small 3.2(ovh) →
+ * 池顺序（2026-11-04 修订：以 Artificial Analysis / SWE-bench / Terminal-Bench 等编码与工程基准为骨架，
+ * 社区实测评价覆盖基准分（用户裁定：社区口碑 > 自报分 > 合成指数）；纯按编码能力降序，未加隐私权重）：
+ * Inkling(kilo) → Beam 1.0(kilo) → Glyph Cluster(kilo) → Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Flint(kilo) →
+ * Dots3-Note(kilo) → Qwen3.5-397B(ovh) → Nemotron 3 Ultra(kilo) → Nemotron 3.5 Super VL(kilo) →
+ * Xing4.0-29B(kilo) → North Mini Code(kilo) → Gemma 4 31B(kilo) → gpt-oss-120b(ovh) → Mistral Small 3.2(ovh) →
  * gpt-oss-20b(ovh) → Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) → Qwen2.5-VL-72B(ovh) → Mistral Nemo(ovh) →
  * LFM 2.5 2.6B(kilo)。
- * （共 15 项：OVH 10 + Kilo 5；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，门控判据见 free-lanes.ts。
+ * （共 21 项：OVH 10 + Kilo 11；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，门控判据见 free-lanes.ts。
  * 逐模型出处与用户裁定以本文件为准（开发期编号知识库已退役，无在册副本）；纯能力序不加隐私权重。
- * 用户裁定（最高优先级）：Dots3-Note 自报 SWE-V 池内最高但实测 < Inkling → 排其后；Qwen3.6-27B 实测 > Laguna → 升 #2。
- * 2026-10-24 移除（修订，原 17 项）：Inkling Small（Kilo 免费版 2026-10-23 终止，listing 仅存付费行）、
- * Ling 3.0 Flash Sante（Kilo 彻底下线，listing 无行、模型页 404；基础版 ling-3.0-flash 为付费行，补位不成立）。
- * 移除后 Dots3-Note 顺升为 vision 链首选。Mistral Small 3.2 / Nemo 已被 OVH 列入退役表（2026-11-04 移除），
- * 届时须复检移除。）
+ * 2026-11-04 修订（用户发起：Gemma 社区口碑降位 + 7 个攻略站候选核实 + 全池存活复检）：
+ * ① Gemma 4 31B 从 #2 降至 #13——社区实测编码远逊基准分：r/LocalLLaMA 共识 Qwen 编码「大幅胜出」、
+ *    SWE-V 73.4(Qwen3.6) vs 52.0(Gemma)、agentic 对比 Qwen3.5 胜 5/8（towardsdeeplearning.com 实测文）；
+ *    教训与 Dots3-Note 同款：**合成基准分系统性高估 Gemma 系编码，社区口碑优先**。
+ * ② 新增 5 个 Kilo 免费行（listing 2026-11-04 实证）：
+ *    Beam 1.0 = reflection/beam-free（1M/131_072；Reflection AI 501B-A23B，SWE-V 80.9~81.6 > Inkling 77.6、
+ *      TB 2.1 80.1、SWE-Pro-Hard 77.2、对标 GLM-5.2 → #2）；
+ *    Glyph Cluster = stealth/glyph-cluster（256K/256K；Kilo/Vercel 双渠道 stealth 槽位，tokenizer 疑似
+ *      Microsoft，Kilo 自家榜用量 11.3%，无任何基准分 → #3 **低置信**，仅凭用量+疑似一线，随时可调）；
+ *    Flint = recursive/flint-v1.0:free（262_144/235_929；Recursive 39.8B-A2.5B 编码特化，自报 SWE-Pro v2
+ *      89.7% 打折，Wired 实测「小模型里出奇地稳」但「不是最强」→ #6）；
+ *    Nemotron 3.5 Super VL = nvidia/nemotron-3.5-super-vl:free（1M/131_072，vision；120B-A12B 通用代理，
+ *      r/opencode 有「失望」帖 → 排 3 Ultra 之后 #10）；
+ *    Xing4.0 = xingchen-agi/xing4.0-29b-a4b:free（262_144/235_929；中国电信 29B-A4B，自报胜 Gemma4/Qwen3.6
+ *      打折，4B 活跃 → #11）。
+ * ③ Ling 3.1 Flash **未加入**：listing 实证 `inclusionai/ling-3.1-flash` 为付费行（isFree=false，免费档已
+ *    终止）——与 2026-10-23 Inkling Small 同款情形，宁缺毋滥。
+ * ④ Laguna S 2.1 **移除**：listing 实证 `poolside/laguna-s-2.1:free` 整行消失（连付费行都不剩）。
+ * ⑤ OVH 侧全 10 项存活（含 Mistral Small 3.2 / Nemo——11-04 退役表生效日实测未下架，继续保留观察）。
+ * ⑥ Glyph Cluster 无 `:free` 后缀但 isFree=true，注意 id 匹配是逐字相等；stealth 期 prompt 会被上游留存
+ *    （Kilo 渠道级 collectsData=true 已覆盖，无新增恶化）。
+ * 2026-11-03 修订：Inkling（完整版免费回归）与 Gemma 4 31B 加入；2026-10-24 修订：移除 Inkling Small /
+ * Ling 3.0 Flash Sante。历史裁定详见 git 与 KB 07 §7.9。）
  *
  * 设计要点：
  * - 顺序 = 真实编程能力优先级，依次尝试直到成功；
@@ -69,8 +88,40 @@ export interface FreeCandidate {
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 真实编程能力优先级（2026-10-24 修订，15 项跨两渠道，裁定记录见本文件头部注释） */
+/** 单一候选池：顺序 = 真实编码能力优先级（2026-11-04 修订，21 项跨两渠道，裁定记录见本文件头部注释） */
 export const FREE_POOL: readonly FreeCandidate[] = [
+	{
+		id: "thinkingmachines/inkling:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Inkling",
+		contextWindow: 1_048_576, // Kilo listing 实证（2026-11-03）
+		maxOutput: 262_144,
+		vision: true, // listing input_modalities 含 image
+	},
+	{
+		id: "reflection/beam-free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Beam 1.0",
+		contextWindow: 1_048_576, // Kilo listing 实证（2026-11-04）
+		maxOutput: 131_072,
+		vision: false, // listing input_modalities 仅 text
+		// Reflection AI 501B-A23B（Apache 2.0）：SWE-V 80.9~81.6（> Inkling 77.6）、TB 2.1 80.1、
+		// SWE-Pro-Hard 77.2、对标 GLM-5.2；注意 id 无 `:free` 后缀，逐字匹配
+	},
+	{
+		id: "stealth/glyph-cluster",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Glyph Cluster",
+		contextWindow: 256_000, // Kilo listing 实证（2026-11-04）
+		maxOutput: 256_000,
+		vision: false,
+		// Kilo/Vercel 双渠道 stealth 槽位（接替 Pixel Canary），tokenizer 疑似 Microsoft，无任何基准分；
+		// 排位依据仅 Kilo 自家榜用量 11.3% + 疑似一线定位 → **低置信，随时可调**。
+		// stealth 期 prompt 被上游留存：Kilo 渠道级 collectsData=true 已覆盖
+	},
 	{
 		id: "Qwen3.8-27B",
 		lane: "ovh",
@@ -90,13 +141,16 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		vision: false,
 	},
 	{
-		id: "poolside/laguna-s-2.1:free",
+		id: "recursive/flint-v1.0:free",
 		lane: "kilo",
 		wire: "chat",
-		displayName: "Laguna S 2.1",
-		contextWindow: 262_144, // Kilo listing 实证
-		maxOutput: 32_768,
+		displayName: "Flint",
+		contextWindow: 262_144, // Kilo listing 实证（2026-11-04）
+		maxOutput: 235_929,
 		vision: false,
+		// Recursive 39.8B-A2.5B 编码特化（Apache 2.0，AI 辅助构建的「RSI 实验」模型）：
+		// 自报 SWE-Pro v2 89.7% 按 Dots3 先例打折；Wired 实测「小模型里出奇地稳」、
+		// eesel 3.5/5「笔记本上最快，但不是最强」→ 排 Qwen3.6 之后
 	},
 	{
 		id: "dots-studio/dots-3-note-preview:free",
@@ -105,7 +159,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "Dots3-Note Preview",
 		contextWindow: 512_000, // Kilo listing 实证
 		maxOutput: 460_800,
-		vision: true, // 2026-10-24 起 Kilo 侧唯一 vision 候选（Inkling Small 免费版已终止）
+		vision: true, // vision 链第 2 位（#1 Inkling 之后；2026-11-04 起池内排位最高的小尺寸 vision 候选）
 	},
 	{
 		id: "Qwen3.5-397B-A17B",
@@ -126,6 +180,27 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		vision: false,
 	},
 	{
+		id: "nvidia/nemotron-3.5-super-vl:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Nemotron 3.5 Super VL (120B-A12B)",
+		contextWindow: 1_000_000, // Kilo listing 实证（2026-11-04）
+		maxOutput: 131_072,
+		vision: true, // listing input_modalities 含 image+video；vision 链第 3 位
+		// NVIDIA 通用代理模型（编码/搜索/工具/文档），r/opencode 有「失望」帖 → 排 3 Ultra 之后
+	},
+	{
+		id: "xingchen-agi/xing4.0-29b-a4b:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Xing4.0 29B A4B",
+		contextWindow: 262_144, // Kilo listing 实证（2026-11-04）
+		maxOutput: 235_929,
+		vision: false,
+		// 中国电信 TeleAI（XingChen-AGI，昇腾训练，Apache 2.0，256K 原生）：自报胜 Gemma4/Qwen3.6
+		// 打折处理；4B 活跃 → 编码中段，排 North 之前
+	},
+	{
 		id: "cohere/north-mini-code:free",
 		lane: "kilo",
 		wire: "chat",
@@ -133,6 +208,18 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 256_000, // Kilo listing 实证
 		maxOutput: 64_000,
 		vision: false,
+	},
+	{
+		id: "google/gemma-4-31b-it:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Gemma 4 31B",
+		contextWindow: 262_144, // Kilo listing 实证（2026-11-03）
+		maxOutput: 32_768,
+		vision: true, // listing input_modalities 含 image+video；vision 链第 4 位
+		// 2026-11-04 从 #2 降至 #13（用户纠正 + 社区实测覆盖基准分）：SWE-V 52.0 vs Qwen3.6 的 73.4、
+		// r/LocalLLaMA 共识「Qwen 编码大幅胜出」、agentic 对比 Qwen3.5 胜 5/8——
+		// AA 编码指数 43.4 被证明系统性高估 Gemma 系编码；通用任务仍强，编码中下
 	},
 	{
 		id: "gpt-oss-120b",
@@ -187,7 +274,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "Qwen2.5 VL 72B",
 		contextWindow: 32_768, // OVH 端点实证
 		maxOutput: 8_192,
-		vision: true, // VL = 视觉语言模型（vision 候选，但排序靠后：Dots3-Note 为 vision 链首选）
+		vision: true, // VL = 视觉语言模型（vision 候选，但排序靠后：vision 链首选是池首的 Inkling）
 	},
 	{
 		id: "Mistral-Nemo-Instruct-2407",

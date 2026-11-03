@@ -51,8 +51,9 @@ const FreePoolTable: React.FC<{ candidates: FreeCandidate[]; excludeCollecting: 
 }) => {
 	const { t } = useTranslation("settings")
 	return (
-		// 池已收敛为两渠道 15 项，取消固定 300px 内滚：整表自然展开、由设置页外层滚动容器
-		// （TabContent flex-1 overflow-auto）兜底，避免「下方大片空白 + 表内滚动条」并存。
+		// 池为两渠道动态规模（2026-11-04 时点 21 项；数字不写死在逻辑里，仅注释备查），取消固定 300px 内滚：
+		// 整表自然展开、由设置页外层滚动容器（TabContent flex-1 overflow-auto）兜底，
+		// 避免「下方大片空白 + 表内滚动条」并存。
 		<div className="overflow-x-hidden">
 			<table className="w-full text-xs border-collapse">
 				<thead>
