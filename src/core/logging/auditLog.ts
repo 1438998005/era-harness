@@ -26,8 +26,11 @@ import {
 	compareAuditFilesDesc,
 	type DiagnosticsHeader,
 	diagnosticsFileName,
+	exportWindowStart,
+	filterLinesWithinWindow,
 	foldEventsForExport,
 	parseAuditFileDate,
+	parseExportMarker,
 	serializeAuditEntry,
 	summarizeErrorEvents,
 } from "./audit-log-format"
@@ -35,6 +38,26 @@ import {
 /** `<globalStorage>/diagnostics` —— 用户只需要发这一个目录里的东西。 */
 export function getDiagnosticsDir(): string {
 	return path.join(HostProvider.get().globalStorageFsPath, "diagnostics")
+}
+
+/** #184：导出水位的落点文件。命名刻意不匹配 `audit-*.jsonl`，不会被当成审计文件读走/清掉。 */
+const EXPORT_MARKER_FILE = "last-export.json"
+
+async function readExportMarker(dir: string): Promise<Date | undefined> {
+	try {
+		return parseExportMarker(await fs.readFile(path.join(dir, EXPORT_MARKER_FILE), "utf8"))
+	} catch {
+		return undefined
+	}
+}
+
+async function writeExportMarker(dir: string, at: Date): Promise<void> {
+	try {
+		await fs.writeFile(path.join(dir, EXPORT_MARKER_FILE), JSON.stringify({ iso: at.toISOString() }), "utf8")
+	} catch (error) {
+		// 水位写失败只影响「下次导出从哪算」，不该让导出本身报错
+		Logger.warn("[audit] 记录导出水位失败（已忽略）:", error instanceof Error ? error.message : error)
+	}
 }
 
 let writeChain: Promise<void> = Promise.resolve()
@@ -129,8 +152,8 @@ async function pruneAuditLogsOnce(dir: string): Promise<void> {
 	}
 }
 
-/** 按日期倒序读取最近 `limit` 行审计（跨天文件拼接）。 */
-export async function readRecentAuditLines(limit = AUDIT_EXPORT_LINE_LIMIT): Promise<string[]> {
+/** 按日期倒序读取最近 `limit` 行审计（跨天文件拼接）。给了 `sinceMs` 就只取窗口内的行。 */
+export async function readRecentAuditLines(limit = AUDIT_EXPORT_LINE_LIMIT, sinceMs?: number): Promise<string[]> {
 	const dir = getDiagnosticsDir()
 	let files: string[]
 	try {
@@ -142,24 +165,41 @@ export async function readRecentAuditLines(limit = AUDIT_EXPORT_LINE_LIMIT): Pro
 	// 按「日期 + 分片号」降序，不能依赖文件名排序（见 compareAuditFilesDesc 注释）
 	files.sort(compareAuditFilesDesc)
 	const contents: string[] = []
-	let seenLines = 0
+
+	if (sinceMs === undefined) {
+		let seenLines = 0
+		for (const name of files) {
+			if (seenLines >= limit) {
+				break
+			}
+			try {
+				const content = await fs.readFile(path.join(dir, name), "utf8")
+				contents.push(content)
+				// 与 collectRecentLines 同口径（\r?\n + 丢弃空行）：行尾换行会让 split("\n") 多计一行，
+				// 累计后会提前 break，导致导出少于 limit 行。
+				seenLines += content.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+			} catch {
+				// 单个分片读失败不影响导出其余部分
+			}
+		}
+		return collectRecentLines(contents, limit)
+	}
+
+	// #184 窗口模式：凑行数的提前 break 不能用——行要按 ts 过滤后才计数，
+	// 较老的文件里可能还有窗口内的行。只跳过「整天都在窗口前」的文件兜住 IO。
+	const dayMs = 24 * 60 * 60 * 1000
 	for (const name of files) {
-		if (seenLines >= limit) {
-			break
+		const dayEnd = (parseAuditFileDate(name)?.getTime() ?? 0) + dayMs
+		if (dayEnd <= sinceMs) {
+			continue
 		}
 		try {
-			const content = await fs.readFile(path.join(dir, name), "utf8")
-			contents.push(content)
-			// 与 collectRecentLines 同口径（\r?\n + 丢弃空行）：行尾换行会让 split("\n") 多计一行，
-			// 累计后会提前 break，导致导出少于 limit 行。
-			seenLines += content.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+			contents.push(await fs.readFile(path.join(dir, name), "utf8"))
 		} catch {
 			// 单个分片读失败不影响导出其余部分
 		}
 	}
-
-	// 合并与截取交给纯函数（锁住「最新事件必须在包里」）
-	return collectRecentLines(contents, limit)
+	return collectRecentLines(filterLinesWithinWindow(contents, sinceMs), limit)
 }
 
 export interface DiagnosticsExportResult {
@@ -176,9 +216,11 @@ export interface DiagnosticsExportResult {
 export async function exportDiagnostics(header: DiagnosticsHeader): Promise<DiagnosticsExportResult> {
 	const dir = getDiagnosticsDir()
 	await fs.mkdir(dir, { recursive: true })
-	// D5（2026-10-25）：多读一倍再折叠高频事件（update / error）——它们在 500 条窗口里
-	// 挤占排障事件额度（实测一轮装机 17 条 update），折叠后窗口让给 tool/api/parse。
-	const rawLines = await readRecentAuditLines(AUDIT_EXPORT_LINE_LIMIT * 2)
+	// #184：窗口从「上次导出的水位」起算；没有水位（首次导出/标记丢失）退回最近 24 小时。
+	// 多读一倍再折叠高频事件（update / error）的既有策略不变。
+	const now = new Date()
+	const auditWindow = exportWindowStart(await readExportMarker(dir), now)
+	const rawLines = await readRecentAuditLines(AUDIT_EXPORT_LINE_LIMIT * 2, auditWindow.sinceMs)
 	const lines = foldEventsForExport(rawLines, AUDIT_EXPORT_LINE_LIMIT)
 
 	// #63：统计口径是**包内**（折叠之后）——头部说几条，正文就得能数出几条。
@@ -186,14 +228,21 @@ export async function exportDiagnostics(header: DiagnosticsHeader): Promise<Diag
 	const errorStats = summarizeErrorEvents(lines)
 
 	const body = [
-		buildDiagnosticsHeader({ ...header, errorStats }),
+		buildDiagnosticsHeader({
+			...header,
+			generatedAt: now,
+			errorStats,
+			auditWindow: { sinceIso: new Date(auditWindow.sinceMs).toISOString(), source: auditWindow.source },
+		}),
 		"",
 		`最近审计事件（最多 ${AUDIT_EXPORT_LINE_LIMIT} 条，JSONL）:`,
 		lines.length > 0 ? lines.join("\n") : "(暂无记录)",
 		"",
 	].join("\n")
 
-	const filePath = path.join(dir, diagnosticsFileName(new Date()))
+	const filePath = path.join(dir, diagnosticsFileName(now))
 	await fs.writeFile(filePath, body, "utf8")
+	// 包写成功后才推水位：导出失败时下次还能把这段窗口完整带走
+	await writeExportMarker(dir, now)
 	return { filePath, auditLineCount: lines.length, errorCount: errorStats.total }
 }

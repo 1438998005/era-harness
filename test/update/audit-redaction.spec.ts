@@ -7,6 +7,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+	AUDIT_EXPORT_DEFAULT_WINDOW_MS,
 	AUDIT_MAX_TEXT_CHARS,
 	auditFileChunkIndex,
 	auditFileName,
@@ -16,8 +17,11 @@ import {
 	collectRecentLines,
 	compareAuditFilesDesc,
 	diagnosticsFileName,
+	exportWindowStart,
+	filterLinesWithinWindow,
 	foldEventsForExport,
 	parseAuditFileDate,
+	parseExportMarker,
 	sanitizeAuditEntry,
 	scrubSecrets,
 	serializeAuditEntry,
@@ -30,6 +34,8 @@ import {
 	outcomeFromToolResponse,
 	TOOL_DENIED_TEXT,
 } from "../../src/core/task/tool-outcome"
+import { planAuditDetail } from "../../src/core/update/describe"
+import type { UpdatePlan } from "../../src/core/update/types"
 
 test("只保留白名单字段：未知键（含正文/参数）一律丢弃", () => {
 	const dirty = {
@@ -658,4 +664,153 @@ test("#95 子代理审计同样不能把正文带出去", () => {
 		1,
 	)!
 	assert.equal(line.includes("角色台词"), false, "file_content 正文块必须被剥掉")
+})
+
+// —— #184（2026-11-03）：诊断包导出窗口（不再每次从留存期起点累加） ——
+
+test("#184 导出水位：last-export.json 内容解析，损坏返回 undefined", () => {
+	const ok = parseExportMarker(JSON.stringify({ iso: "2026-11-03T11:46:12.275Z" }))
+	assert.equal(ok?.getTime(), Date.parse("2026-11-03T11:46:12.275Z"))
+	assert.equal(parseExportMarker("not json"), undefined)
+	assert.equal(parseExportMarker("{}"), undefined)
+	assert.equal(parseExportMarker(JSON.stringify({ iso: "abc" })), undefined)
+})
+
+test("#184 窗口起点：有水位跟水位，没有走默认 24h；未来水位视为损坏", () => {
+	const now = new Date("2026-11-03T12:00:00.000Z")
+	const marker = new Date("2026-11-01T08:00:00.000Z")
+
+	const withMarker = exportWindowStart(marker, now)
+	assert.equal(withMarker.sinceMs, marker.getTime())
+	assert.equal(withMarker.source, "last-export")
+
+	const fallback = exportWindowStart(undefined, now)
+	assert.equal(fallback.sinceMs, now.getTime() - AUDIT_EXPORT_DEFAULT_WINDOW_MS)
+	assert.equal(fallback.source, "default")
+
+	// 时钟回拨：水位在未来 = 损坏，走默认窗口而不是给出一个空包
+	const future = exportWindowStart(new Date("2026-11-04T00:00:00.000Z"), now)
+	assert.equal(future.source, "default")
+})
+
+test("#184 窗口过滤：只留 ts 在窗口内的行，解析不了的行保守保留", () => {
+	const lines = [
+		JSON.stringify({ ts: 1000, event: "tool" }),
+		JSON.stringify({ ts: 2000, event: "updateGame", action: "plan" }),
+		"not json", // 半行：可能是崩溃现场，宁多勿丢
+		JSON.stringify({ event: "tool" }), // 没 ts：无法判定，保守保留
+	]
+	const kept = filterLinesWithinWindow([lines.join("\n")], 1500)
+	const all = kept.flatMap((chunk) => chunk.split("\n"))
+	assert.equal(all.length, 3)
+	// 「not json」行会保留但不能拿去 parse——只验证可解析行的窗口判定
+	const parsed = all
+		.map((l) => {
+			try {
+				return JSON.parse(l) as { ts?: number }
+			} catch {
+				return undefined
+			}
+		})
+		.filter((p): p is { ts?: number } => p !== undefined)
+	assert.equal(
+		parsed.some((p) => p.ts === 1000),
+		false,
+		"窗口前的行必须被滤掉",
+	)
+	assert.equal(
+		parsed.some((p) => p.ts === 2000),
+		true,
+		"窗口内的行必须保留",
+	)
+})
+
+test("#184 头部：记录窗口明写进包（自上次导出 / 默认 24h 两种措辞），不传不输出", () => {
+	const sinceIso = "2026-11-01T08:00:00.000Z"
+	const fromMarker = buildDiagnosticsHeader({
+		extensionVersion: "3.97.0",
+		auditWindow: { sinceIso, source: "last-export" },
+	})
+	assert.match(fromMarker, /记录窗口: 2026-11-01T08:00:00\.000Z 起（自上次导出）\n/)
+
+	const fromDefault = buildDiagnosticsHeader({
+		extensionVersion: "3.97.0",
+		auditWindow: { sinceIso, source: "default" },
+	})
+	assert.match(fromDefault, /记录窗口: .*起（默认最近 24 小时，未找到上次导出记录）\n/)
+
+	// 不传不输出（老调用方零改动）
+	assert.equal(buildDiagnosticsHeader({ extensionVersion: "3.97.0" }).includes("记录窗口"), false)
+})
+
+// —— #185（2026-11-03）：updateGame 事件与 detail 字段进白名单 ——
+
+test("#185 updateGame 是合法事件类型；detail 进白名单且脱敏/截断", () => {
+	const line = serializeAuditEntry(
+		{
+			event: "updateGame",
+			action: "plan",
+			target: "d:/R18/游戏/eratw-sub-modding-develop纯净版",
+			outcome: "info",
+			detail: "mode=first-sync; conflict=15; conflictBy=first-sync-human:15",
+		},
+		1_700_000_000_000,
+	)!
+	const parsed = JSON.parse(line) as Record<string, unknown>
+	assert.equal(parsed.event, "updateGame")
+	assert.equal(parsed.action, "plan")
+	assert.equal(parsed.detail, "mode=first-sync; conflict=15; conflictBy=first-sync-human:15")
+
+	// detail 里的密钥形态照样要擦
+	const dirty = serializeAuditEntry({ event: "updateGame", detail: "key=sk-abcdef0123456789abcdef" }, 1)!
+	assert.equal(dirty.includes("sk-abcdef"), false, "detail 里的密钥必须被擦")
+
+	// 超长截断到 300+省略号（用中文构造长文本，避免被当成长密钥整段擦除）
+	const long = serializeAuditEntry({ event: "updateGame", detail: "路径/片段 ".repeat(60) }, 1)!
+	const parsedLong = JSON.parse(long) as { detail: string }
+	assert.ok(parsedLong.detail.length <= 301)
+})
+
+test("#185 updateGame 事件不参与导出折叠（折叠只针对 update/error）", () => {
+	const lines = Array.from({ length: 600 }, (_, i) =>
+		JSON.stringify({ ts: 1_700_000_000_000 + i, event: "updateGame", action: "plan" }),
+	)
+	const folded = foldEventsForExport(lines, 500)
+	assert.equal(folded.length, 500, "超限只按时间序截断")
+	assert.equal(folded.filter((l) => l.includes('"action":"folded"')).length, 0, "不允许出现折叠摘要行")
+})
+
+test("#185 planAuditDetail：模式/计数/警告/基线/reason 分布都在一行里", () => {
+	const plan: UpdatePlan = {
+		mode: "first-sync",
+		entries: [
+			{ path: "a", action: "conflict", reason: "first-sync-human" },
+			{ path: "b", action: "conflict", reason: "first-sync-human" },
+			{ path: "c", action: "write", reason: "first-sync-bulk" },
+			{ path: "d", action: "keep", reason: "local-only" },
+		],
+		groups: [],
+		summary: { write: 1, delete: 0, keep: 1, conflict: 2, unchanged: 5000, keepByReason: {} },
+		warnings: ["first-sync", "first-sync-unreliable"],
+	}
+	const detail = planAuditDetail(plan)
+	assert.match(detail, /mode=first-sync/)
+	assert.match(detail, /write=1/)
+	assert.match(detail, /conflict=2/)
+	assert.match(detail, /unchanged=5000/)
+	assert.match(detail, /warnings=first-sync,first-sync-unreliable/)
+	assert.match(detail, /baseline=none/)
+	assert.match(detail, /conflictBy=first-sync-human:2/)
+	assert.match(detail, /keepBy=local-only:1/)
+
+	// 增量模式带基线：level 如实出现
+	const incremental = planAuditDetail({
+		...plan,
+		mode: "incremental",
+		warnings: [],
+		baseline: { level: "suspect", sample: 2000, agreement: 0.5, coverage: 0.6 },
+	})
+	assert.match(incremental, /mode=incremental/)
+	assert.match(incremental, /baseline=suspect/)
+	assert.equal(incremental.includes("warnings="), false, "没有警告就不出 warnings 键")
 })

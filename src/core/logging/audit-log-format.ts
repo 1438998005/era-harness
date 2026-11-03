@@ -10,7 +10,7 @@
  * 2. **脱敏**：所有字符串字段先截断再擦除形如 `sk-...` / `Bearer ...` / 长哈希的片段。
  */
 
-export type AuditEventKind = "tool" | "task" | "memory" | "update" | "api" | "parse" | "error"
+export type AuditEventKind = "tool" | "task" | "memory" | "update" | "updateGame" | "api" | "parse" | "error"
 
 export type AuditOutcome = "ok" | "error" | "denied" | "cancelled" | "info"
 
@@ -42,6 +42,8 @@ export interface AuditEntry {
 	model?: string
 	/** 短说明（错误信息等，截断 + 脱敏）；绝不写消息正文 */
 	message?: string
+	/** 结构化摘要（key=value，如更新计划的统计）；截断 + 脱敏，绝不写正文 */
+	detail?: string
 	/**
 	 * 报错现场的参数快照（dialect-guard 产出；仅 outcome=error 的工具调用携带）。
 	 * 已排除 content/diff/command 正文类参数；外发前再过 scrubSecrets。
@@ -217,7 +219,18 @@ function cleanRange(value: unknown): [number, number] | undefined {
 	return [start, end]
 }
 
-const EVENT_KINDS = new Set<AuditEventKind>(["tool", "task", "memory", "update", "api", "parse", "error"])
+const EVENT_KINDS = new Set<AuditEventKind>([
+	"tool",
+	"task",
+	"memory",
+	"update",
+	// #185（2026-11-03）：游戏更新流程的事件。刻意与插件自升级的 "update" 分开——
+	// 折叠逻辑只折 update/error，游戏更新一次只产生几条粗粒度事件，折叠只会把它藏起来。
+	"updateGame",
+	"api",
+	"parse",
+	"error",
+])
 const OUTCOMES = new Set<AuditOutcome>(["ok", "error", "denied", "cancelled", "info"])
 
 /**
@@ -282,6 +295,10 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 
 	const message = cleanAuditMessage(entry.message)
 	if (message) record.message = message
+
+	// 结构化摘要（key=value）：更新流程的统计走这里，不挤 80 字的 message
+	const detail = cleanAuditText(entry.detail, 300)
+	if (detail) record.detail = detail
 
 	// 报错现场快照：cap 放宽到 1000（排障要看到残片完整形状），scrub 仍走 cleanAuditText
 	const snapshot = cleanAuditText(entry.snapshot, 1000)
@@ -385,6 +402,75 @@ export function collectRecentLines(fileContentsNewestFirst: string[], limit: num
 	return collected.slice(-limit)
 }
 
+/** 首次导出（找不到上次导出记录时）的回退窗口：只带最近 24 小时。 */
+export const AUDIT_EXPORT_DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/**
+ * #184（2026-11-03）：诊断包的记录窗口。
+ *
+ * 累加问题：导出永远取「留存期内最新 500 条」，每次导出都把几天前的老事件原样带上
+ * （用户 11-03 导出，内容仍从 10-29 算起）。改为：有上次导出记录 → 只带那之后的事件
+ *（逐次导出互不重复，更早的历史在上一份包文件里）；没有记录（首次导出/标记丢失）
+ * → 回退最近 24 小时。
+ */
+export interface ExportWindow {
+	sinceMs: number
+	/** last-export = 跟着上次导出的水位走；default = 没有水位，用固定窗口 */
+	source: "last-export" | "default"
+}
+
+/** `last-export.json` 的内容 → 上次导出时间；损坏/缺字段返回 undefined。 */
+export function parseExportMarker(raw: string): Date | undefined {
+	try {
+		const parsed = JSON.parse(raw) as { iso?: unknown }
+		if (typeof parsed?.iso === "string") {
+			const date = new Date(parsed.iso)
+			if (!Number.isNaN(date.getTime())) {
+				return date
+			}
+		}
+	} catch {
+		// 半行 JSON：当作没有标记
+	}
+	return undefined
+}
+
+/** 导出窗口起点：有水位用水位，没有用默认窗口。水位在未来（时钟回拨）视为损坏，走默认。 */
+export function exportWindowStart(marker: Date | undefined, now: Date): ExportWindow {
+	if (marker && marker.getTime() <= now.getTime()) {
+		return { sinceMs: marker.getTime(), source: "last-export" }
+	}
+	return { sinceMs: now.getTime() - AUDIT_EXPORT_DEFAULT_WINDOW_MS, source: "default" }
+}
+
+/**
+ * 把「从新到旧」的文件内容按时间窗过滤：ts 在窗口内的行才保留。
+ *
+ * 解析失败或没有 ts 的行**保守保留**——半行 JSON 可能正是崩溃现场，宁多勿丢；
+ * 窗口语义只对能确定时间的行生效。
+ */
+export function filterLinesWithinWindow(contentsNewestFirst: string[], sinceMs: number): string[] {
+	const out: string[] = []
+	for (const content of contentsNewestFirst) {
+		const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0)
+		const kept = lines.filter((line) => {
+			try {
+				const parsed = JSON.parse(line) as { ts?: unknown }
+				if (typeof parsed?.ts === "number" && Number.isFinite(parsed.ts)) {
+					return parsed.ts >= sinceMs
+				}
+			} catch {
+				// 无法判定时间的行保守保留
+			}
+			return true
+		})
+		if (kept.length > 0) {
+			out.push(kept.join("\n"))
+		}
+	}
+	return out
+}
+
 /** 诊断包文件名：`diagnostics-YYYYMMDD-HHmmss.txt`。 */
 export function diagnosticsFileName(date: Date): string {
 	const yyyy = date.getFullYear()
@@ -409,6 +495,11 @@ export interface DiagnosticsHeader {
 	 * 不传就整段不出现——保持「老调用方零改动」的兼容性。
 	 */
 	errorStats?: ErrorEventStats
+	/**
+	 * #184（2026-11-03）：本包审计事件覆盖窗口的说明行。
+	 * 不传就不输出（老调用方零改动）。
+	 */
+	auditWindow?: { sinceIso: string; source: "last-export" | "default" }
 }
 
 /** error 事件来源侧的人话；未知侧原样显示（将来新增来源不用回来改这里）。 */
@@ -525,6 +616,12 @@ export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
 
 	lines.push("era harness 诊断包")
 	lines.push(`生成时间: ${generatedAt.toISOString()}`)
+	// #184：窗口明写进包里——拿到包的人要能判断「这份包覆盖了哪段时间」，
+	// 否则「(暂无记录)」分不清是「窗口内没事件」还是「窗口算错了」。
+	if (header.auditWindow) {
+		const why = header.auditWindow.source === "last-export" ? "自上次导出" : "默认最近 24 小时，未找到上次导出记录"
+		lines.push(`记录窗口: ${header.auditWindow.sinceIso} 起（${why}）`)
+	}
 	lines.push(`插件版本: ${cleanAuditText(header.extensionVersion) ?? "unknown"}`)
 	lines.push(`平台: ${cleanAuditText(header.platform) ?? process.platform}`)
 	if (header.vscodeVersion) {

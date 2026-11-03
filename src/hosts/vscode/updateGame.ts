@@ -24,6 +24,7 @@ import {
 	describeResult,
 	describeRootSuspicionShort,
 	describeRootTrustWarning,
+	planAuditDetail,
 } from "@core/update/describe"
 import {
 	assessRootSuspicion,
@@ -52,10 +53,25 @@ import type { ConflictGroup, UpdatePlan } from "@core/update/types"
 import { Logger } from "@shared/services/Logger"
 import { ulid } from "ulid"
 import * as vscode from "vscode"
+import { recordAudit } from "@/core/logging/auditLog"
 import { canRunMergeConversation, isConversationBusy, runMergeConversation } from "./mergeTask"
 import { createUpdatePanel, panelEventPayload } from "./updatePanel"
 
 const PROGRESS_TITLE = "正在更新 eraTW"
+
+/** `RunUpdateResult.status` → 审计 outcome（#185） */
+function statusOutcome(status: RunUpdateResult["status"]): "ok" | "error" | "cancelled" | "info" {
+	if (status === "applied") {
+		return "ok"
+	}
+	if (status === "failed") {
+		return "error"
+	}
+	if (status === "cancelled") {
+		return "cancelled"
+	}
+	return "info"
+}
 
 /**
  * 把 `UpdateEvent` 翻译成进度条文案，**只在文案变化时上报**。
@@ -182,23 +198,50 @@ async function planFor(root: string): Promise<Planned | null> {
 		return { source, result }
 	} catch (error) {
 		Logger.warn(`[update] 检查更新失败：${error}`)
+		// #185：连不上社区服务器这件事要能从诊断包里看出来
+		recordAudit({
+			event: "updateGame",
+			action: "plan",
+			target: root,
+			outcome: "error",
+			message: error instanceof Error ? error.message : String(error),
+		})
 		const archive = await pickArchive()
 		if (!archive) {
+			recordAudit({
+				event: "updateGame",
+				action: "plan",
+				target: root,
+				outcome: "error",
+				message: "连不上社区服务器，用户未提供压缩包",
+			})
 			await vscode.window.showErrorMessage("连不上社区服务器，这次没能更新。稍后再试，或者找朋友要一份压缩包。")
 			return null
 		}
 		source = { kind: "archive", path: archive }
-		const result = await vscode.window.withProgress(
-			{ location: vscode.ProgressLocation.Notification, title: PROGRESS_TITLE },
-			(progress) =>
-				runUpdate({
-					root,
-					source,
-					dryRun: true,
-					onEvent: stageReporter(progress),
-				}),
-		)
-		return { source, result }
+		try {
+			const result = await vscode.window.withProgress(
+				{ location: vscode.ProgressLocation.Notification, title: PROGRESS_TITLE },
+				(progress) =>
+					runUpdate({
+						root,
+						source,
+						dryRun: true,
+						onEvent: stageReporter(progress),
+					}),
+			)
+			return { source, result }
+		} catch (retryError) {
+			// #185：压缩包兜底也失败（读不了/格式不对）——诊断包要能看到这一步
+			recordAudit({
+				event: "updateGame",
+				action: "plan",
+				target: root,
+				outcome: "error",
+				message: retryError instanceof Error ? retryError.message : String(retryError),
+			})
+			throw retryError
+		}
 	}
 }
 
@@ -276,6 +319,15 @@ async function askBatchConflict(groups: number, files: number): Promise<BatchCho
 		narrative.options.oneByOne,
 		narrative.options.cancel,
 	)
+	const auditChoice = (picked: BatchChoice | undefined): BatchChoice | undefined => {
+		recordAudit({
+			event: "updateGame",
+			action: "conflict-policy",
+			outcome: picked ? "ok" : "cancelled",
+			detail: `batch=${picked ?? "cancel"}`,
+		})
+		return picked
+	}
 	if (choice === narrative.options.mergeAll) {
 		// 选「全部合并」才提成本：一次性把轮数/时限说清，别让用户以为点一下就好
 		const proceed = await vscode.window.showWarningMessage(
@@ -284,15 +336,15 @@ async function askBatchConflict(groups: number, files: number): Promise<BatchCho
 			"继续",
 			"取消更新",
 		)
-		return proceed === "继续" ? "merge-all" : undefined
+		return auditChoice(proceed === "继续" ? "merge-all" : undefined)
 	}
 	if (choice === narrative.options.keepAll) {
-		return "keep-all"
+		return auditChoice("keep-all")
 	}
 	if (choice === narrative.options.oneByOne) {
-		return "one-by-one"
+		return auditChoice("one-by-one")
 	}
-	return undefined
+	return auditChoice(undefined)
 }
 
 /** 一组冲突 → 策略枚举（关掉弹窗 = 取消整次更新） */
@@ -454,7 +506,29 @@ async function confirmRebuiltPlan(rebuilt: UpdatePlan, confirmed: UpdatePlan): P
 	return choice === "按新清单继续"
 }
 
+/**
+ * 单个游戏根的完整更新流程（#185：全程落审计——诊断包要能回答
+ * 「更新跑没跑、跑到哪一步、它为什么说本地改过」）。
+ */
 async function updateOne(root: string, controller?: Controller): Promise<void> {
+	const startedAt = Date.now()
+	recordAudit({ event: "updateGame", action: "start", target: root })
+	try {
+		await updateOneInner(root, controller, startedAt)
+	} catch (error) {
+		recordAudit({
+			event: "updateGame",
+			action: "error",
+			target: root,
+			outcome: "error",
+			ms: Date.now() - startedAt,
+			message: error instanceof Error ? error.message : String(error),
+		})
+		throw error
+	}
+}
+
+async function updateOneInner(root: string, controller?: Controller, startedAt = Date.now()): Promise<void> {
 	const planned = await planFor(root)
 	if (!planned) {
 		return
@@ -464,6 +538,18 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 	const hasWork = planned.result.status === "planned"
 	const localVersion = await readNowVersion(root)
 	const upstreamVersion = planned.result.head?.nowVersion ?? null
+
+	// #185：计划摘要进审计——「它为什么说我改过东西」的答案就在 detail 里
+	//（mode / conflict 计数与 reason 分布 / warnings / 基线可信度）。
+	recordAudit({
+		event: "updateGame",
+		action: hasWork ? "plan" : "check",
+		target: root,
+		outcome: "info",
+		detail: hasWork
+			? planAuditDetail(planned.result.plan)
+			: `status=${planned.result.status}; local=${localVersion ?? "?"}; upstream=${upstreamVersion ?? "?"}`,
+	})
 
 	if (!hasWork) {
 		const done = describeResult("up-to-date", { root, nowVersion: localVersion ?? upstreamVersion })
@@ -483,6 +569,13 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 			"先不更新",
 		)
 		if (proceed !== "继续更新") {
+			recordAudit({
+				event: "updateGame",
+				action: "cancel",
+				target: root,
+				outcome: "cancelled",
+				message: "免费模型风险提醒时放弃",
+			})
 			return
 		}
 	}
@@ -500,11 +593,20 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		"以后再说",
 	)
 	if (confirmed !== "开始更新") {
+		recordAudit({ event: "updateGame", action: "cancel", target: root, outcome: "cancelled", message: "计划确认时放弃" })
 		return
 	}
+	recordAudit({ event: "updateGame", action: "confirm", target: root, outcome: "ok" })
 
 	const running = await runningGameProcesses()
 	if (running.length > 0) {
+		recordAudit({
+			event: "updateGame",
+			action: "cancel",
+			target: root,
+			outcome: "cancelled",
+			message: "游戏正在运行，先关掉再更新",
+		})
 		await vscode.window.showErrorMessage(`游戏还开着（${running.join("、")}），先关掉再更新。开着的时候改文件会失败。`)
 		return
 	}
@@ -514,11 +616,13 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 	const needsMerge = planned.result.plan.summary.conflict > 0
 	const mode = needsMerge ? await pickMergeMode(controller) : "silent"
 	if (mode === "abort") {
+		recordAudit({ event: "updateGame", action: "cancel", target: root, outcome: "cancelled", message: "合并方式选择时放弃" })
 		return
 	}
 
 	const pick = needsMerge ? await pickMergeModel(controller) : { kind: "unavailable" as const, reason: "这次没有要合并的文件" }
 	if (pick.kind === "cancelled") {
+		recordAudit({ event: "updateGame", action: "cancel", target: root, outcome: "cancelled", message: "合并模型选择时放弃" })
 		return
 	}
 	if (pick.kind === "unavailable") {
@@ -586,13 +690,20 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 							narrative.options.takeTheirs,
 							narrative.options.cancel,
 						)
-						if (choice === narrative.options.keepAll) {
-							return "keep-all"
-						}
-						if (choice === narrative.options.takeTheirs) {
-							return "take-theirs"
-						}
-						return "cancel"
+						// #185：基线不可信时的选择进审计——它是「为什么这批全保留/全覆盖」的出处
+						const policy =
+							choice === narrative.options.keepAll
+								? ("keep-all" as const)
+								: choice === narrative.options.takeTheirs
+									? ("take-theirs" as const)
+									: ("cancel" as const)
+						recordAudit({
+							event: "updateGame",
+							action: "baseline-policy",
+							outcome: policy === "cancel" ? "cancelled" : "ok",
+							detail: `baseline=${policy}`,
+						})
+						return policy
 					},
 					merge:
 						resolveConflicts || !ask
@@ -615,6 +726,14 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 		)
 	} catch (error) {
 		if (error instanceof Error && error.message === UPDATE_CANCELLED) {
+			recordAudit({
+				event: "updateGame",
+				action: "apply",
+				target: root,
+				outcome: "cancelled",
+				ms: Date.now() - startedAt,
+				message: "更新过程中取消（写入已回滚）",
+			})
 			panel?.finish({
 				title: "已取消更新",
 				lines: [
@@ -629,6 +748,22 @@ async function updateOne(root: string, controller?: Controller): Promise<void> {
 
 	const merged = result.resolve?.files.filter((file) => file.decision === "merged").length ?? 0
 	const keptLocal = result.resolve?.files.filter((file) => file.decision !== "merged").length ?? 0
+	// #185：执行结果进审计——status/合并/保留/备份/校验不一致数，一次更新一行
+	recordAudit({
+		event: "updateGame",
+		action: "apply",
+		target: root,
+		outcome: statusOutcome(result.status),
+		ms: Date.now() - startedAt,
+		detail: [
+			`status=${result.status}`,
+			`merged=${merged}`,
+			`kept=${keptLocal}`,
+			`backup=${result.report?.backupDir ? "yes" : "no"}`,
+			`verifyMismatch=${result.verify ? result.verify.mismatches.length : "n/a"}`,
+		].join("; "),
+		message: result.error,
+	})
 	const narrative2 = describeResult(result.status, {
 		root,
 		nowVersion: result.verify?.nowVersion ?? result.head?.nowVersion ?? null,
@@ -714,12 +849,20 @@ async function undo(result: RunUpdateResult, root: string): Promise<void> {
 	const backupDir = result.report?.backupDir
 	if (!backupDir) {
 		await vscode.window.showErrorMessage("找不到这次更新的备份，没法自动撤销。备份一般在游戏目录下的「_备份」文件夹里。")
+		recordAudit({ event: "updateGame", action: "undo", outcome: "error", message: "找不到这次更新的备份" })
 		return
 	}
 	const report = await vscode.window.withProgress(
 		{ location: vscode.ProgressLocation.Notification, title: "正在撤销…", cancellable: false },
 		() => rollbackFromBackup(backupDir),
 	)
+	recordAudit({
+		event: "updateGame",
+		action: "undo",
+		target: backupDir,
+		outcome: report.ok ? "ok" : "error",
+		message: report.ok ? undefined : (report.errors[0]?.message ?? "撤销未完全成功"),
+	})
 	if (report.ok) {
 		await vscode.window.showInformationMessage(`已经撤销，游戏回到更新前的样子（${root}）。`)
 	} else {
@@ -776,6 +919,7 @@ export async function updateGameCommand(controller?: Controller): Promise<void> 
 	}
 
 	if (candidates.length === 0) {
+		recordAudit({ event: "updateGame", action: "start", outcome: "error", message: "工作区里没找到 eraTW 游戏目录" })
 		await vscode.window.showErrorMessage(
 			"当前工作区里没找到 eraTW 的游戏目录。如果现在打开的是口上工程，游戏本体不在工作区里——请打开游戏所在的文件夹（或它的上层目录，插件会自己往下找），再点更新。",
 		)

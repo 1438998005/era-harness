@@ -49,6 +49,37 @@ function countByReason(entries: PlanEntry[]): Map<string, number> {
 }
 
 /**
+ * 计划 → 审计摘要（#185，2026-11-03）。
+ *
+ * 诊断包排障要能回答「更新为什么说我改过东西」：模式、四类动作计数、警告、
+ * 基线可信度、以及 conflict/keep 的 reason 分布（first-sync-human 多不多一眼可见）。
+ * 机器可读的 key=value，⛔ 不是给人看的文案，不要本地化。
+ */
+export function planAuditDetail(plan: UpdatePlan): string {
+	const conflictBy = countByReason(plan.entries.filter((entry) => entry.action === "conflict"))
+	const keepBy = countByReason(plan.entries.filter((entry) => entry.action === "keep"))
+	const parts = [
+		`mode=${plan.mode}`,
+		`write=${plan.summary.write}`,
+		`delete=${plan.summary.delete}`,
+		`keep=${plan.summary.keep}`,
+		`conflict=${plan.summary.conflict}`,
+		`unchanged=${plan.summary.unchanged}`,
+	]
+	if (plan.warnings.length > 0) {
+		parts.push(`warnings=${plan.warnings.join(",")}`)
+	}
+	parts.push(`baseline=${plan.baseline ? plan.baseline.level : "none"}`)
+	if (conflictBy.size > 0) {
+		parts.push(`conflictBy=${[...conflictBy].map(([reason, n]) => `${reason}:${n}`).join(",")}`)
+	}
+	if (keepBy.size > 0) {
+		parts.push(`keepBy=${[...keepBy].map(([reason, n]) => `${reason}:${n}`).join(",")}`)
+	}
+	return parts.join("; ")
+}
+
+/**
  * 计划 → 人话。
  *
  * 刻意不报"不变"的文件数：玩家不关心 12729 个没动的文件，报了只会让人以为要处理它们。

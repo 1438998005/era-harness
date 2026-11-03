@@ -3,6 +3,28 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.98.0 — 2026-11-03
+
+> 本版修「诊断包」的两个盲区（#184/#185，用户反馈）：**导出内容从留存期起点累加**、
+> **「更新 eraTW」全流程零审计**。纯净版游戏被误判「本地改过」（#186）待下轮修——
+> 本版为它的取证铺好了路：更新流程的每个关键决策从此都会进诊断包。
+
+### 修复 · 诊断包导出窗口：不再每次从留存期起点累加（#184）
+
+- 导出窗口从「上次导出的水位」起算：每份包只含上一份之后的事件，逐次导出不再大面积重复；历史留在上一份包文件里。
+- 首次导出（无水位）回退最近 24 小时；水位落 `<diagnostics>/last-export.json`，**包写成功后才推进**——导出失败不会丢窗口。
+- 包头新增「记录窗口: <ISO> 起（自上次导出 / 默认最近 24 小时）」行——「(暂无记录)」从此能被拿到包的人解释。
+
+### 新增 · 「更新 eraTW」全流程进审计（#185）
+
+- 新增 `updateGame` 审计事件类（刻意不与会被导出折叠的 `update` 混用）：start → plan/check → confirm/cancel（免费模型提醒、计划确认、游戏运行中、合并方式、合并模型五个放弃点）→ conflict-policy / baseline-policy → apply → undo/error，一次更新在诊断包里是一条完整链。
+- 计划摘要 `planAuditDetail`：mode / write / delete / keep / conflict / unchanged / warnings / baseline / conflictBy / keepBy 一行可读——「它为什么说我改过东西」直接看 first-sync-human 计数、批次不可信警告与基线可信度。
+- `AuditEntry` 新增 `detail` 字段（≤300 字 key=value、过脱敏），统计摘要不挤 80 字的 message。
+
+**回归**：`test:update` **808/808**（新增 7 用例）、`check-types` 通过、`node esbuild.mjs --production` 重打包。
+
+**注意**：#186（纯净版被误判「本地改过」）不在本版。装上这版后再对纯净版点一次「检测更新」，诊断包里的 `updateGame/plan` 事件会直接给出它走了哪条判定分支。
+
 ## 3.97.0 — 2026-11-03
 
 > 本版修一场实锤事故 + 配套一个防御性新能力：**更新 eraTW 时备份被塞进了用户的口上文件夹**
