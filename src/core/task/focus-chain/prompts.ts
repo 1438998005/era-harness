@@ -97,6 +97,8 @@ const recommended = `
 
 When starting a new task, it is recommended to include a todo list using the task_progress parameter.
 
+Never write the checklist as message text or inside <task_progress> tags in your reply — it belongs ONLY in the tool parameter. Writing it as text wastes a turn because it gets stripped from the visible answer.
+
 ${listInstructionsRecommended}
 `
 

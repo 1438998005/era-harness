@@ -124,6 +124,16 @@
 				"category": "era harness"
 			},
 			{
+				"command": "era-harness.addFileToChat",
+				"title": "将文件添加到 era harness 聊天",
+				"category": "era harness"
+			},
+			{
+				"command": "era-harness.addFolderToChat",
+				"title": "将文件夹添加到 era harness 聊天",
+				"category": "era harness"
+			},
+			{
 				"command": "era-harness.addTerminalOutputToChat",
 				"title": "%cline.command.addTerminalToChat%",
 				"category": "era harness"
@@ -333,6 +343,18 @@
 					"when": "editorHasSelection"
 				}
 			],
+			"explorer/context": [
+				{
+					"command": "era-harness.addFileToChat",
+					"group": "era-harness@1",
+					"when": "!explorerResourceIsFolder && !explorerResourceIsRoot"
+				},
+				{
+					"command": "era-harness.addFolderToChat",
+					"group": "era-harness@2",
+					"when": "explorerResourceIsFolder || explorerResourceIsRoot"
+				}
+			],
 			"terminal/context": [
 				{
 					"command": "era-harness.addTerminalOutputToChat",
@@ -382,6 +404,14 @@
 				{
 					"command": "era-harness.reviewComment.reply",
 					"when": "false"
+				},
+				{
+					"command": "era-harness.addFileToChat",
+					"when": "false"
+				},
+				{
+					"command": "era-harness.addFolderToChat",
+					"when": "false"
 				}
 			],
 			"comments/commentThread/context": [
@@ -422,6 +452,11 @@
 					"type": "boolean",
 					"default": true,
 					"description": "是否由 era harness 提供 .erb/.erh 的 EraBasic 补全/跳转/符号。关闭后只保留内置方法数据。语法高亮由「EraBasic 语言归属」（eraHarness.erabasic.languageOwner）控制，不在这里。"
+				},
+				"eraHarness.ui.hideBuiltinChatOnStartup": {
+					"type": "boolean",
+					"default": true,
+					"description": "每次 era harness 启动时自动关闭右侧辅助侧栏（VS Code 内置 Copilot 聊天默认停靠处）。注意会关闭整个辅助侧栏，若把其他视图放在右栏请关闭本项。"
 				}
 			}
 		}

@@ -296,4 +296,7 @@ service UiService {
 
   // 专属知识库：新建 / 更新（两者都会开一场对话）/ 开关载入 / 删除（请求体为 JSON）
   rpc knowledgeBaseAction(StringRequest) returns (String);
+
+  // 输入框「增强提示词」：单次文本改写，契约见 src/shared/enhancePrompt.ts
+  rpc enhancePrompt(StringRequest) returns (String);
 }

@@ -14,6 +14,7 @@ import { findLastIndex } from "@shared/array"
 import { COMPLETION_RESULT_CHANGES_FLAG } from "@shared/ExtensionMessage"
 import { Logger } from "@shared/services/Logger"
 import { ClineDefaultTool } from "@shared/tools"
+import { isAskPromiseIgnoredError, shouldSkipDuplicateCompletionResult } from "../../ask-race"
 import type { ToolResponse } from "../../index"
 import { showNotificationForApproval } from "../../utils"
 import { buildUserFeedbackContent } from "../../utils/buildUserFeedbackContent"
@@ -164,7 +165,14 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 				return deniedResponse
 			}
 
-			if (lastMessage && lastMessage.ask !== "command") {
+			// 08 #202：ask 竞态重试时结论已发过，不得再发一份 completion_result。
+			// 判重只认「被作废的完成询问 + 尚无用户反馈」，不能用整段历史里有没有结论——
+			// 用户给反馈继续任务时旧结论还在，会把新一轮结论整个吃掉。
+			if (
+				lastMessage &&
+				lastMessage.ask !== "command" &&
+				!shouldSkipDuplicateCompletionResult(config.messageState.getClineMessages())
+			) {
 				// haven't sent a command message yet so first send completion_result then command
 				const completionMessageTs = await config.callbacks.say("completion_result", result, undefined, undefined, false)
 				await config.callbacks.saveCheckpoint(true, completionMessageTs)
@@ -211,8 +219,9 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 			}
 			// user didn't reject, but the command may have output
 			commandResult = execCommandResult
-		} else {
+		} else if (!shouldSkipDuplicateCompletionResult(config.messageState.getClineMessages())) {
 			// Send the complete completion_result message (partial was already removed above)
+			// 08 #202：仅竞态重试时不再重复发结论、存 checkpoint、记完成遥测（图 1 两份「任务已完成」的根因）。
 			const completionMessageTs = await config.callbacks.say("completion_result", result, undefined, undefined, false)
 			await config.callbacks.saveCheckpoint(true, completionMessageTs)
 			await addNewChangesFlagToLastCompletionResultMessage()
@@ -258,8 +267,24 @@ export class AttemptCompletionHandler implements IToolHandler, IPartialBlockHand
 			{ message: result },
 		)
 
-		const { response, text, images, files: completionFiles } = await config.callbacks.ask("completion_result", "", false)
 		const prefix = "[attempt_completion] Result: Done"
+		// 08 #202：完成询问若被内部旁路消息挤掉，结论已经发给用户，按已完成静默收尾：
+		// 不显示红字 say:error、不把内部错误当 toolError 回灌模型（否则多烧一轮并重试出第二份结论）。
+		const completionAsk = await (async () => {
+			try {
+				return await config.callbacks.ask("completion_result", "", false)
+			} catch (error) {
+				if (isAskPromiseIgnoredError(error)) {
+					Logger.warn(`[attempt_completion] 完成询问被内部消息挤掉，按已完成收尾：${error.message}`)
+					return undefined
+				}
+				throw error
+			}
+		})()
+		if (!completionAsk) {
+			return prefix
+		}
+		const { response, text, images, files: completionFiles } = completionAsk
 		if (response === "yesButtonClicked") {
 			return prefix // signals to recursive loop to stop (for now this never happens since yesButtonClicked will trigger a new task)
 		}

@@ -126,6 +126,7 @@ import { refreshWorkflowToggles } from "../context/instructions/user-instruction
 import { Controller } from "../controller"
 import { executeHook } from "../hooks/hook-executor"
 import { StateManager } from "../storage/StateManager"
+import { AskPromiseIgnoredError, shouldDeferDisplayOnlySay } from "./ask-race"
 import { FocusChainManager } from "./focus-chain"
 import {
 	getPresentationCadenceMs,
@@ -821,7 +822,9 @@ export class Task {
 			throw new Error("Cline instance aborted")
 		}
 		if (this.taskState.lastMessageTs !== askTs) {
-			throw new Error("Current ask promise was ignored") // could happen if we send multiple asks in a row i.e. with command_output. It's important that when we know an ask could fail, it is handled gracefully
+			// 08 #202：文案保持上游原样（诊断包/日志按这串检索），但换成专用错误类型，
+			// 让 attempt_completion 能精确识别「被旁路消息挤掉」并静默收尾；真实工具错误不受影响。
+			throw new AskPromiseIgnoredError(type, askTs, this.taskState.lastMessageTs) // could happen if we send multiple asks in a row i.e. with command_output. It's important that when we know an ask could fail, it is handled gracefully
 		}
 		const result = {
 			response: this.taskState.askResponse!,
@@ -1081,9 +1084,19 @@ export class Task {
 
 	// Task lifecycle
 
-	/** 审计用的 provider/model；拿不到就不写，绝不影响任务。 */
+	/**
+	 * 审计用的 provider/model；拿不到就不写，绝不影响任务。
+	 *
+	 * #205：默认取「本轮请求实际服务的模型」快照。免费池每轮换模型，实时设置会把
+	 * parse/tool 事件记成下一轮的模型，与 api/usage（:3385 用请求时的 model.id）对不上。
+	 * 快照缺失时（如 task/start 发生在首次请求之前）自然回退实时设置。
+	 */
 	private auditTaskMeta(): { provider?: string; model?: string } {
 		try {
+			const snapshot = this.taskState.lastRequestProviderInfo
+			if (snapshot?.provider && snapshot?.model) {
+				return { provider: snapshot.provider, model: snapshot.model }
+			}
 			const apiConfig = this.stateManager.getApiConfiguration()
 			const mode = this.stateManager.getGlobalSettingsKey("mode")
 			const provider = (mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
@@ -3341,6 +3354,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			// era harness（D2 解析遥测，2026-10-25）：仅在有修复命中时落一条 parse 事件。
 			// MiMo 复测的教训：方言没消失、是被解析容错消化了——审计此前完全看不出
 			// 「表面干净」的回合里归一化器干了多少活。
+			const taskProgressMistake = shouldCountTaskProgressAsMistake(parseStats.taskProgressStrippedChars)
 			const totalRepairs =
 				parseStats.dsml + parseStats.dots + parseStats.orphanRepair + parseStats.strayQuote + parseStats.taskProgressStrip
 			if (totalRepairs > 0) {
@@ -3356,6 +3370,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						parseStats.orphanRepair > 0 ? `orphan=${parseStats.orphanRepair}` : "",
 						parseStats.strayQuote > 0 ? `strayQuote=${parseStats.strayQuote}` : "",
 						parseStats.taskProgressStrip > 0 ? `taskProgress=${parseStats.taskProgressStrip}` : "",
+						// 08 #202：#87 的诊断信息改走审计，诊断包仍能看到剥离字数与是否记 mistake。
+						parseStats.taskProgressStrippedChars > 0
+							? `taskProgressChars=${parseStats.taskProgressStrippedChars}`
+							: "",
+						taskProgressMistake ? "mistake=1" : "",
 					]
 						.filter(Boolean)
 						.join(","),
@@ -3365,11 +3384,13 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			// 08 #87：模型把整段「进度清单」当正文吐出来（已被剥离，用户看不到），
 			// 本回合等于零推进；不记错的话下一轮它会原样再吐一遍。单轮最多记一次，
 			// 且只计 mistake 不直接判死（阈值与纯函数在 loop-detection）。
-			if (shouldCountTaskProgressAsMistake(parseStats.taskProgressStrippedChars)) {
+			// 08 #202：这里原先用 say("info") 新增 UI 消息；pending completion_result ask 期间
+			// 插队会刷新 lastMessageTs 把询问作废（上游 cline#8283 同源）。按上游裁定修插入源：
+			// 诊断信息并入上面的 parse 审计 + 日志，不再发新消息。
+			if (taskProgressMistake) {
 				this.taskState.consecutiveMistakeCount++
-				await this.say(
-					"info",
-					`模型本轮输出了 ${parseStats.taskProgressStrippedChars} 字的进度清单（已剥离），未推进任务。`,
+				Logger.warn(
+					`[task-progress] 模型本轮输出了 ${parseStats.taskProgressStrippedChars} 字的进度清单（已剥离），未推进任务。`,
 				)
 			}
 
@@ -3491,7 +3512,12 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			// 而不是作为工具调用内部的参数。此时解析器不会生成 tool_use，焦点链待办组件收不到更新（显示 0/0）。
 			// 兜底：扫描本轮正文里的独立 <task_progress> 块，把最后一个清单喂给焦点链，让待办正常启用。
 			// 正常情形（task_progress 作为工具参数）由 ToolExecutor 覆盖，二者互不影响。
-			if (this.FocusChainManager && assistantTextOnly.includes("<task_progress>")) {
+			// 08 #202：完成询问挂起期间不再发 task_progress（会作废 ask，见上游 cline#8283）。
+			if (
+				this.FocusChainManager &&
+				assistantTextOnly.includes("<task_progress>") &&
+				!shouldDeferDisplayOnlySay(this.taskState.pendingAsk, "task_progress")
+			) {
 				const leakedProgress = [...assistantTextOnly.matchAll(/<task_progress>([\s\S]*?)<\/task_progress>/g)]
 				const lastBlock = leakedProgress[leakedProgress.length - 1]?.[1]
 				if (lastBlock && lastBlock.trim()) {
@@ -3779,7 +3805,13 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		// Add focus chain instructions if needed
 		if (!useCompactPrompt && this.FocusChainManager?.shouldIncludeFocusChainInstructions()) {
 			const focusChainInstructions = this.FocusChainManager.generateFocusChainInstructions()
-			if (focusChainInstructions.trim()) {
+			// #206：免费池模型不支持参数化 task_progress，实测把整段清单当正文吐出来
+			// （220 字进度清单、7 次 parse 剥离、多轮空转）。RECOMMENDED 诱导段对它们关掉，
+			// 已有清单的 UPDATE REQUIRED 等其它提示保持原样。
+			const skipFreePoolRecommended =
+				this.getCurrentProviderInfo().providerId === "free" &&
+				focusChainInstructions.includes("task_progress RECOMMENDED")
+			if (focusChainInstructions.trim() && !skipFreePoolRecommended) {
 				processedUserContent.push({
 					type: "text",
 					text: focusChainInstructions,

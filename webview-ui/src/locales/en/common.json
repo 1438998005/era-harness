@@ -57,6 +57,10 @@
 		"planActTooltipToggle": "Toggle w/ {{keys}}",
 		"planMode": "Plan",
 		"actMode": "Act",
+		"enhancePrompt": "Enhance prompt",
+		"enhancePromptBusy": "Enhancing prompt…",
+		"enhancePromptUndo": "Undo enhancement",
+		"enhancePromptFailed": "Prompt enhancement is unavailable — your text is unchanged",
 		"imageDimensionError": "Image dimensions exceed 7500px",
 		"unsupportedFileError": "Files other than images are currently disabled"
 	},

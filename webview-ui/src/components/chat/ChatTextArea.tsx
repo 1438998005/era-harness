@@ -13,6 +13,7 @@ import DynamicTextArea from "react-textarea-autosize"
 import styled from "styled-components"
 import ContextMenu from "@/components/chat/ContextMenu"
 import { CHAT_CONSTANTS } from "@/components/chat/chat-view/constants"
+import { useEnhancePrompt } from "@/components/chat/chat-view/hooks/useEnhancePrompt"
 import { ModelQuickSwitchMenu } from "@/components/chat/ModelQuickSwitchMenu"
 import SlashCommandMenu from "@/components/chat/SlashCommandMenu"
 import Thumbnails from "@/components/common/Thumbnails"
@@ -226,6 +227,14 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			mcpServers,
 		} = useExtensionState()
 		const { t } = useTranslation("common")
+		// 08 #203：发送按钮旁的「增强提示词」（就地替换 / 可撤销 / 失败保留原文）。
+		const translateEnhance = useCallback((key: string) => String(t(key)), [t])
+		const enhance = useEnhancePrompt({
+			inputValue,
+			setInputValue,
+			sendingDisabled,
+			translate: translateEnhance,
+		})
 		const [isTextAreaFocused, setIsTextAreaFocused] = useState(false)
 		const [isDraggingOver, setIsDraggingOver] = useState(false)
 		const [gitCommits, setGitCommits] = useState<GitCommit[]>([])
@@ -1511,10 +1520,45 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							}}
 						/>
 					)}
+					{enhance.errorText && (
+						<div className="absolute bottom-12 right-5 z-10 text-xs text-(--vscode-errorForeground)" role="status">
+							{enhance.errorText}
+						</div>
+					)}
 					<div
 						className="absolute flex items-end bottom-4.5 right-5 z-10 h-8 text-xs"
 						style={{ height: textAreaBaseHeight }}>
-						<div className="flex flex-row items-center">
+						<div className="flex flex-row items-center gap-1">
+							<Tooltip>
+								<TooltipContent>{enhance.label}</TooltipContent>
+								<TooltipTrigger asChild>
+									<div
+										aria-disabled={enhance.disabled}
+										aria-label={enhance.label}
+										className={cn(
+											"input-icon-button",
+											{ disabled: enhance.disabled },
+											enhance.isEnhancing
+												? "codicon codicon-loading codicon-modifier-spin text-sm"
+												: "codicon codicon-sparkle text-sm",
+										)}
+										data-testid="enhance-prompt-button"
+										onClick={() => {
+											if (!enhance.disabled) {
+												void enhance.run()
+											}
+										}}
+										onKeyDown={(event) => {
+											if (!enhance.disabled && (event.key === "Enter" || event.key === " ")) {
+												event.preventDefault()
+												void enhance.run()
+											}
+										}}
+										role="button"
+										tabIndex={enhance.disabled ? -1 : 0}
+									/>
+								</TooltipTrigger>
+							</Tooltip>
 							<div
 								className={cn("input-icon-button", { disabled: sendingDisabled }, "codicon codicon-send text-sm")}
 								data-testid="send-button"

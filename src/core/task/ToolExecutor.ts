@@ -269,6 +269,12 @@ export class ToolExecutor {
 	/** 审计用的 provider/model；任何一项拿不到就不写，绝不影响任务。 */
 	private auditModelInfo(): { provider?: string; model?: string } {
 		try {
+			// #205：优先用请求时快照——免费池每轮换模型，实时设置会把 tool 事件
+			// 记成「下一轮的模型」，与同 turn 的 api/usage 对不上（诊断包无法归因）。
+			const snapshot = this.taskState.lastRequestProviderInfo
+			if (snapshot?.provider && snapshot?.model) {
+				return { provider: snapshot.provider, model: snapshot.model }
+			}
 			const apiConfig = this.stateManager.getApiConfiguration()
 			const mode = this.stateManager.getGlobalSettingsKey("mode")
 			const provider = (mode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string

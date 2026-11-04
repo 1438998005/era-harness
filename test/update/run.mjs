@@ -96,6 +96,10 @@ const SPECS = [
 	"knowledge-base-ui.spec.ts",
 	"update-session.spec.ts",
 	"update-progress.spec.ts",
+	"ask-race.spec.ts",
+	"diagnostics-and-retry.spec.ts",
+	"enhance-prompt.spec.ts",
+	"explorer-add-to-chat.spec.ts",
 ]
 
 const aliasResolverPlugin = {

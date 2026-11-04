@@ -57,6 +57,10 @@
 		"planActTooltipToggle": "切换快捷键：{{keys}}",
 		"planMode": "规划",
 		"actMode": "执行",
+		"enhancePrompt": "增强提示词",
+		"enhancePromptBusy": "正在增强提示词…",
+		"enhancePromptUndo": "撤销增强，还原原文",
+		"enhancePromptFailed": "提示词增强暂时不可用，原文已保留",
 		"imageDimensionError": "图片尺寸超过 7500 像素",
 		"unsupportedFileError": "目前仅支持图片文件"
 	},

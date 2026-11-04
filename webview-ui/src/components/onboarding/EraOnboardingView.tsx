@@ -74,6 +74,16 @@ const EraOnboardingView = memo(() => {
 							/>
 						</div>
 
+						<div
+							className="text-xs leading-relaxed rounded px-3 py-2"
+							style={{
+								background: "var(--vscode-inputValidation-warningBackground)",
+								border: "1px solid var(--vscode-inputValidation-warningBorder)",
+							}}>
+							注意：VS Code 右侧自带的「聊天」窗口是它内置的 Copilot，<b>不是 era harness</b>
+							。本插件的对话就在当前窗口——左侧活动栏的 era harness 图标。
+						</div>
+
 						<div className="flex flex-col gap-2 mt-2">
 							<VSCodeButton appearance="primary" className="w-full" onClick={() => setStep("config")}>
 								开始配置

@@ -534,6 +534,37 @@ export interface ErrorEventStats {
 	bySource: Array<{ source: string; count: number }>
 	/** 按「来源侧 + 种类」小计，排序同上 */
 	byKind: Array<{ source: string; kind: string; count: number }>
+	/**
+	 * #203：包内 `event:"tool" && outcome:"error"` 的条数。
+	 * 工具失败走 tool 事件、不属于 error 事件类；不写进头部时用户会看到
+	 * 「运行时错误: 0 条」却明明刚吃过一条工具红字，以为诊断包没抓到。
+	 * 可选字段：老调用方零改动。
+	 */
+	toolFailures?: number
+}
+
+/**
+ * #203：统计诊断包内的工具失败次数，口径与 `summarizeErrorEvents` 一致——
+ * 只数**包内**（折叠之后）的行、跳过折叠摘要与半行 JSON、不新增事件类也不碰脱敏。
+ */
+export function summarizeToolFailures(lines: readonly string[]): number {
+	let count = 0
+	for (const line of lines) {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(line)
+		} catch {
+			continue
+		}
+		if (!parsed || typeof parsed !== "object") {
+			continue
+		}
+		const record = parsed as Record<string, unknown>
+		if (record.event === "tool" && record.outcome === "error" && record.action !== "folded") {
+			count++
+		}
+	}
+	return count
 }
 
 /**
@@ -592,12 +623,16 @@ export function summarizeErrorEvents(lines: readonly string[]): ErrorEventStats 
  * 省略 = 用户无法区分「没错误」和「功能没做」，正是 #63 抱怨的那个状态。
  */
 export function describeErrorStats(stats: ErrorEventStats): string[] {
+	// #203：工具失败不是「运行时错误」，但用户刚吃过工具红字时头部不能只说 0 条。
+	const toolFailureSuffix = stats.toolFailures ? `；工具失败 ${stats.toolFailures} 次（见下方 tool 事件）` : ""
 	if (stats.total === 0) {
-		return ["运行时错误: 0 条（记录窗口内没有错误；若刚触发过失败操作仍为 0，说明该错误没被捕获链路覆盖）"]
+		return [
+			`运行时错误: 0 条（记录窗口内没有错误；若刚触发过失败操作仍为 0，说明该错误没被捕获链路覆盖）${toolFailureSuffix}`,
+		]
 	}
 
 	const sources = stats.bySource.map(({ source, count }) => `${ERROR_SOURCE_LABEL[source] ?? source} ${count}`).join(" / ")
-	const lines = [`运行时错误: ${stats.total} 条（${sources}）`]
+	const lines = [`运行时错误: ${stats.total} 条（${sources}）${toolFailureSuffix}`]
 	for (const { source, kind, count } of stats.byKind) {
 		const sourceLabel = ERROR_SOURCE_LABEL[source] ?? source
 		const kindLabel = ERROR_KIND_LABEL[kind] ?? kind

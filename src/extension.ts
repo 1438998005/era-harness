@@ -23,6 +23,7 @@ import { registerGlobalErrorCapture } from "@/core/logging/global-error-capture"
 import { HostProvider } from "@/hosts/host-provider"
 import { registerEraBasicLanguageSupport } from "@/hosts/vscode/erabasic"
 import { vscodeHostBridgeClient } from "@/hosts/vscode/hostbridge/client/host-grpc-client"
+import { runAddResourcesToChat } from "@/shared/addToChatFlow"
 import { createStorageContext } from "@/shared/storage/storage-context"
 import { readTextFromClipboard, writeTextToClipboard } from "@/utils/env"
 import { initialize, tearDown } from "./common"
@@ -33,6 +34,7 @@ import { improveWithCline } from "./core/controller/commands/improveWithCline"
 import { sendAddToInputEvent } from "./core/controller/ui/subscribeToAddToInput"
 import { sendShowWebviewEvent } from "./core/controller/ui/subscribeToShowWebview"
 import { HookDiscoveryCache } from "./core/hooks/HookDiscoveryCache"
+import { getFileMentionFromPath } from "./core/mentions"
 import {
 	cleanupMcpMarketplaceCatalogFromGlobalState,
 	cleanupOldApiKey,
@@ -350,6 +352,41 @@ export async function activate(context: vscode.ExtensionContext) {
 			await addToCline(context.controller, context.commandContext)
 		}),
 	)
+
+	// 资源管理器右键：把文件/文件夹以 @/相对路径 mention 加入聊天输入框。
+	// 与 addToChat（编辑器选区）不同，这里只插引用不贴内容——内容由任务发送时按 mention 解析。
+	// 文件/文件夹是两个命令 id（菜单 when 子句区分资源类型），实现共用这一个 handler。
+	const addResourcesToChat = async (uri?: vscode.Uri, uris?: vscode.Uri[]) => {
+		const selected = uris?.length ? uris : uri ? [uri] : []
+		// #209：编排逻辑在无 vscode 依赖的纯模块里（可全自动跑行为测试），
+		// 这里只把宿主副作用注入进去。
+		await runAddResourcesToChat(
+			selected.map((target) => ({
+				fsPath: target.fsPath,
+				isDirectory: async () => {
+					try {
+						const stat = await vscode.workspace.fs.stat(target)
+						return (stat.type & vscode.FileType.Directory) !== 0
+					} catch {
+						// stat 失败按文件处理，发送时的 getFileOrFolderContent 还会再兜底
+						return false
+					}
+				},
+			})),
+			{
+				showWebview: () => showWebview(true),
+				waitForVisible: waitForSidebarVisible,
+				toMention: getFileMentionFromPath,
+				sendToInput: sendAddToInputEvent,
+				showWarning: (message) => HostProvider.window.showMessage({ type: ShowMessageType.WARNING, message }),
+				logWarning: (message) => Logger.warn(message),
+			},
+		)
+	}
+	context.subscriptions.push(
+		vscode.commands.registerCommand(commands.AddFileToChat, addResourcesToChat),
+		vscode.commands.registerCommand(commands.AddFolderToChat, addResourcesToChat),
+	)
 	context.subscriptions.push(
 		vscode.commands.registerCommand(commands.FixWithCline, async (range: vscode.Range, diagnostics: vscode.Diagnostic[]) => {
 			const context = await getContextForCommand(range, diagnostics)
@@ -582,6 +619,18 @@ ${ctx.cellJson || "{}"}
 	// EraBasic 语言支持：独立语言 id + 运行时自动检测路由（装了 erabasic 则让位，否则接管 .erb/.erh）
 	registerEraBasicLanguageSupport(context)
 
+	// 内置聊天窗口治理：右侧辅助侧栏是 VS Code 自带 Copilot 聊天的默认停靠处，
+	// 0 基础用户常把它误认为本插件的界面。设置默认开启，首启另弹一次性说明。
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration("eraHarness.ui.hideBuiltinChatOnStartup") && shouldHideBuiltinChat()) {
+				void maybeHideBuiltinChat()
+			}
+		}),
+	)
+	void maybeHideBuiltinChat()
+	void showBuiltinChatNoticeOnce(context)
+
 	Logger.log(`[Cline] extension activated in ${performance.now() - activationStartTime} ms`)
 
 	return createClineAPI(webview.controller)
@@ -679,7 +728,12 @@ function getUriPath(url: string): string | undefined {
 	}
 }
 
-async function openClineSidebarForTaskUri(): Promise<void> {
+/**
+ * 等待 era harness 侧栏的 webview 真正可见（调用方需先 showWebview 把侧栏带出来）。
+ * webview 冷启动时 React 侧尚未完成订阅（如 addToInput 流），立即发事件会被静默丢弃，
+ * 所以需要轮询等待。超时返回 false，调用方自行决定是否告警。
+ */
+async function waitForSidebarVisible(): Promise<boolean> {
 	const sidebarWaitTimeoutMs = 3000
 	const sidebarWaitIntervalMs = 50
 
@@ -688,12 +742,60 @@ async function openClineSidebarForTaskUri(): Promise<void> {
 	const startedAt = Date.now()
 	while (Date.now() - startedAt < sidebarWaitTimeoutMs) {
 		if (WebviewProvider.getVisibleInstance()) {
-			return
+			return true
 		}
 		await new Promise((resolve) => setTimeout(resolve, sidebarWaitIntervalMs))
 	}
 
-	Logger.warn("Task URI handling timed out waiting for Cline sidebar visibility")
+	return false
+}
+
+async function openClineSidebarForTaskUri(): Promise<void> {
+	const visible = await waitForSidebarVisible()
+	if (!visible) {
+		Logger.warn("Task URI handling timed out waiting for Cline sidebar visibility")
+	}
+}
+
+const BUILTIN_CHAT_NOTICE_KEY = "eraHarness.builtinChatNoticeShown"
+
+function shouldHideBuiltinChat(): boolean {
+	return vscode.workspace.getConfiguration("eraHarness.ui").get<boolean>("hideBuiltinChatOnStartup", true)
+}
+
+/**
+ * 关闭右侧辅助侧栏（VS Code 自带 Copilot 聊天的默认停靠处）。
+ * 扩展 API 无法卸载/隐藏内置聊天本身，只能程序化关闭它所在的窗口；已关闭时是无害 no-op。
+ */
+async function maybeHideBuiltinChat(): Promise<void> {
+	if (!shouldHideBuiltinChat()) {
+		return
+	}
+	try {
+		await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar")
+	} catch (error) {
+		Logger.warn(`Failed to close auxiliary bar: ${error instanceof Error ? error.message : String(error)}`)
+	}
+}
+
+/**
+ * 首启一次性说明：右侧『聊天』是 VS Code 自带 Copilot，不是 era harness。
+ * 无论用户点哪个按钮都先落 globalState 标记，不再弹第二次。
+ */
+async function showBuiltinChatNoticeOnce(context: vscode.ExtensionContext): Promise<void> {
+	if (context.globalState.get(BUILTIN_CHAT_NOTICE_KEY)) {
+		return
+	}
+	await context.globalState.update(BUILTIN_CHAT_NOTICE_KEY, true)
+
+	const choice = await vscode.window.showWarningMessage(
+		"右侧的『聊天』窗口是 VS Code 自带的 Copilot，不是 era harness。era harness 在左侧活动栏的本扩展图标里。",
+		"立即隐藏内置聊天",
+		"知道了",
+	)
+	if (choice === "立即隐藏内置聊天") {
+		await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar")
+	}
 }
 
 async function getBinaryLocation(name: string): Promise<string> {

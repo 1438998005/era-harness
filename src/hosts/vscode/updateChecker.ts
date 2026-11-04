@@ -4,6 +4,7 @@ import * as vscode from "vscode"
 import { recordAudit } from "@/core/logging/auditLog"
 import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
+import { fetchChecksumWithRetry } from "@/shared/checksumRetry"
 import { fetch } from "@/shared/net"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
@@ -377,13 +378,20 @@ async function readChecksumFile(asset: ReleaseAsset, reporter: Reporter, token: 
 
 	try {
 		reporter.report(0, "正在取校验文件…")
-		const response = await fetch(asset.browser_download_url, {
-			headers: { "User-Agent": `era-harness/${ExtensionRegistryInfo.version}` },
+		// #204/#211：401 等瞬时状态做有限退避；重试循环与取消时序在纯模块 checksumRetry 里，
+		// 宿主只注入 fetch / 进度 / 错误工厂。共享本函数的 15s 总超时预算，
+		// 错误文案形状保持不变（外部按文案展示，见 #63 兼容契约）。
+		const response = await fetchChecksumWithRetry({
 			signal: controller.signal,
+			fetchOnce: (signal) =>
+				fetch(asset.browser_download_url, {
+					headers: { "User-Agent": `era-harness/${ExtensionRegistryInfo.version}` },
+					signal,
+				}),
+			onRetry: (nextAttempt, maxAttempts) =>
+				reporter.report(0, `校验文件暂时取不到，正在重试（第 ${nextAttempt}/${maxAttempts} 次）…`),
+			makeError: (message) => new UpdateError("http", message),
 		})
-		if (!response.ok) {
-			throw new UpdateError("http", `校验文件下载失败（HTTP ${response.status}）`)
-		}
 
 		const text = (await response.text()).trim()
 		const digest = parseSha256Digest(text.split(/\s+/)[0] ?? "")
