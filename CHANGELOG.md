@@ -3,6 +3,23 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.99.1 — 2026-11-04
+
+> 修复版：免费模型页的滚动条收进模型池表格内部，页面其余部分固定不滚（修正 3.99.0
+> 引入的整页滚动）；随附 README 鸣谢署名纠正与「友情链接」小节。
+
+### 修复 · 免费模型页滚动条内收
+
+- `apiProvider=free` 时打通 `ApiConfigurationSection → ApiOptions → FreeModelProvider` 条件高度链（`h-full`/`flex-1`/`min-h-0`），模型池表格 wrapper 成为唯一滚动容器（`flex-1 min-h-40 overflow-y-auto`，复用 `.scrollable` 滚动条样式）；说明 / 隐私开关 / 提示等固定区全部 `shrink-0`，行数装得下时无滚动条、无空白并存。
+- 高度链判定与 `ApiOptions` 的 `currentMode` 同源（分开模型时看 `currentTab`，否则看全局 `mode`）——切到另一模式的 tab 不再错套到别的提供商页；表头吸顶保持（sticky 自动吸附新滚动容器）；极矮视口下表格 160px 兜底、底部复选框区不裁字；其他提供商与其他页面零变化。
+
+### 文档 · 鸣谢与友情链接
+
+- 鸣谢署名 `qrchen` → `qrchen421`（用户纠正；与 `emuera.sk.doc` 站长同源）。
+- README 新增「友情链接」小节：**森语 · 口上工作室 v0.3.0**（作者：巡之邱の斯塔酱，基于 era harness 的社区客户端），安装程序自本版起随 Release 友情分发（附同名 `.sha256` 校验文件）。
+
+**回归**：`check-types` 通过、`test:ui` **55/55**、`build:webview` 通过、biome lint 通过。
+
 ## 3.99.0 — 2026-11-04
 
 > 本版补齐「改完 → 验证 → 修」闭环的最后两块：**AI 自主验证游戏报错的新工具 `era_verify`**（#188，
