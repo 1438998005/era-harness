@@ -51,10 +51,13 @@ const FreePoolTable: React.FC<{ candidates: FreeCandidate[]; excludeCollecting: 
 }) => {
 	const { t } = useTranslation("settings")
 	return (
-		// 池为两渠道动态规模（2026-11-04 时点 21 项；数字不写死在逻辑里，仅注释备查），取消固定 300px 内滚：
-		// 整表自然展开、由设置页外层滚动容器（TabContent flex-1 overflow-auto）兜底，
-		// 避免「下方大片空白 + 表内滚动条」并存。
-		<div className="overflow-x-hidden">
+		// 池为两渠道动态规模（2026-11-04 时点 21 项；数字不写死在逻辑里，仅注释备查）。
+		// 2026-11-04 用户裁定：滚动条只许出现在表格右缘，页面其余部分固定不滚——
+		// 本 wrapper 为弹性内滚容器（flex-1 + overflow-y-auto，高度链自 ApiConfigurationSection
+		// 的 isFree 分支打通），min-h-40 防极矮视口塌缩；行数装得下时无滚动条、无空白并存。
+		// （同日早前曾改为整表展开 + 外层整页滚动，因滚动条贯穿整页被否；更早为固定 300px 内滚，
+		// 因「下方空白 + 表内滚动条」并存被否。）
+		<div className="flex-1 min-h-40 overflow-x-hidden overflow-y-auto scrollable">
 			<table className="w-full text-xs border-collapse">
 				<thead>
 					<tr style={{ color: dimColor, backgroundColor: "var(--vscode-sideBar-background, transparent)" }}>
@@ -129,8 +132,10 @@ const FreePoolTable: React.FC<{ candidates: FreeCandidate[]; excludeCollecting: 
 
 /**
  * 免费模型配置卡片：两渠道（Kilo / OVHcloud AI Endpoints）单一优先级池清单（Zen 已暂时移出池，
- * 代码保留待恢复）；模型池表格内部滚动。零配置开箱即用——无 API Key 输入框、无模型下拉
- * （路由自动选模型，呼应「不可选」）。附隐私开关：仅路由不收集提示词的渠道。
+ * 代码保留待恢复）；模型池表格弹性内部滚动——滚动条仅出现在表格右缘，页面不滚
+ * （高度链依赖 ApiConfigurationSection / ApiOptions 的 isFree 条件类名）。
+ * 零配置开箱即用——无 API Key 输入框、无模型下拉（路由自动选模型，呼应「不可选」）。
+ * 附隐私开关：仅路由不收集提示词的渠道。
  */
 export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const { t } = useTranslation("settings")
@@ -141,12 +146,12 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const candidates = getAllFreeCandidates()
 
 	return (
-		<div className="flex flex-col gap-3">
-			<p className="text-xs m-0" style={{ color: dimColor }}>
+		<div className="flex flex-1 min-h-0 flex-col gap-3">
+			<p className="shrink-0 text-xs m-0" style={{ color: dimColor }}>
 				{t("settings.freeModelDesc")}
 			</p>
 
-			<div>
+			<div className="shrink-0">
 				<VSCodeCheckbox
 					checked={excludeCollecting}
 					onChange={() => handleFieldChange("freeExcludeCollecting", !excludeCollecting)}>
@@ -157,10 +162,10 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 				</div>
 			</div>
 
-			<div className="flex flex-col gap-1">
-				<span className="text-xs font-medium">{t("settings.freePoolTitle")}</span>
+			<div className="flex flex-1 min-h-0 flex-col gap-1">
+				<span className="shrink-0 text-xs font-medium">{t("settings.freePoolTitle")}</span>
 				<FreePoolTable candidates={candidates} excludeCollecting={excludeCollecting} />
-				<span className="text-[11px]" style={{ color: dimColor }}>
+				<span className="shrink-0 text-[11px]" style={{ color: dimColor }}>
 					{t("settings.freePoolHint")}
 				</span>
 			</div>

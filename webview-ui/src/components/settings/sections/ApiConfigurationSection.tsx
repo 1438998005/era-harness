@@ -8,7 +8,7 @@ import { StateServiceClient } from "@/services/grpc-client"
 import { TabButton } from "../../mcp/configuration/McpConfigurationView"
 import ApiOptions from "../ApiOptions"
 import Section from "../Section"
-import { syncModeConfigurations } from "../utils/providerUtils"
+import { normalizeApiConfiguration, syncModeConfigurations } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
 
 interface ApiConfigurationSectionProps {
@@ -21,14 +21,24 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 	const { planActSeparateModelsSetting, mode, apiConfiguration } = useExtensionState()
 	const [currentTab, setCurrentTab] = useState<Mode>(mode)
 	const { handleFieldsChange } = useApiConfigurationHandlers()
+	// 免费模型页要求「页面不滚、滚动条收进模型池表格内部」：isFree 时打通
+	// 根 div → Section → ApiOptions → FreeModelProvider 的高度链（h-full / flex-1 / min-h-0），
+	// 由 FreePoolTable 的 wrapper 作为唯一滚动容器；其他提供商不受影响。
+	// 注意与下方 ApiOptions 的 currentMode 同源：分开模型时看 currentTab，否则看全局 mode——
+	// 若只看 mode，切到另一模式的 tab 时高度链会错套到别的提供商页上。
+	const displayedMode = planActSeparateModelsSetting ? currentTab : mode
+	const isFree = normalizeApiConfiguration(apiConfiguration, displayedMode).selectedProvider === "free"
 	return (
-		<div>
+		<div className={isFree ? "flex h-full flex-col" : undefined}>
 			{renderSectionHeader?.("api-config")}
-			<Section>
+			<Section className={isFree ? "flex-1 min-h-0" : undefined}>
 				{/* Tabs container */}
 				{planActSeparateModelsSetting ? (
-					<div className="rounded-md mb-5">
-						<div className="flex gap-px mb-[10px] -mt-2 border-0 border-b border-solid border-(--vscode-panel-border)">
+					<div className={`rounded-md mb-5${isFree ? " flex flex-1 min-h-0 flex-col" : ""}`}>
+						<div
+							className={`flex gap-px mb-[10px] -mt-2 border-0 border-b border-solid border-(--vscode-panel-border)${
+								isFree ? " shrink-0" : ""
+							}`}>
 							<TabButton
 								disabled={currentTab === "plan"}
 								isActive={currentTab === "plan"}
@@ -52,7 +62,7 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 						</div>
 
 						{/* Content container */}
-						<div className="-mb-3">
+						<div className={`-mb-3${isFree ? " flex flex-col flex-1 min-h-0" : ""}`}>
 							<ApiOptions currentMode={currentTab} initialModelTab={initialModelTab} showModelOptions={true} />
 						</div>
 					</div>
@@ -60,7 +70,7 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 					<ApiOptions currentMode={mode} initialModelTab={initialModelTab} showModelOptions={true} />
 				)}
 
-				<div className="mb-[5px]">
+				<div className={`mb-[5px]${isFree ? " shrink-0" : ""}`}>
 					<VSCodeCheckbox
 						checked={planActSeparateModelsSetting}
 						className="mb-[5px]"

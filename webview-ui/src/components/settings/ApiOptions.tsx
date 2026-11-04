@@ -229,7 +229,16 @@ const ApiOptions = ({
 	*/
 
 	return (
-		<div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: isPopup ? -10 : 0 }}>
+		<div
+			style={{
+				display: "flex",
+				flexDirection: "column",
+				gap: 5,
+				marginBottom: isPopup ? -10 : 0,
+				// 免费模型页：本容器参与高度链（父容器 flex-col flex-1 min-h-0），把剩余高度
+				// 交给 FreeModelProvider 的表格内滚区；其他提供商保持自然高度、整页滚动。
+				...(selectedProvider === "free" ? { flex: "1 1 0%", minHeight: 0 } : {}),
+			}}>
 			<style>
 				{`
 				.provider-item-highlight {
