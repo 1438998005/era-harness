@@ -3,6 +3,35 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.100.0 — 2026-11-04
+
+> 功能版：新增发送按钮旁的**提示词增强**、资源管理器**右键「添加到聊天」**与**内置聊天窗口治理**；
+> 同批修复 6 个 BUG（#208–#213，覆盖 `attempt_completion` 幂等判重、右键静默丢事件、异步回填覆盖、
+> 401 退避取消时序、ask 终态集合），并把两处带取消/超时/重试的宿主逻辑下沉为可测纯函数、补为真跑行为测试。
+
+### 新增 · 提示词增强（#207 / #210）
+
+- 发送按钮旁新增「增强提示词」：调用模型改写输入框内容，再点一次可撤销；改写失败/断网时保留原文。
+- `useEnhancePrompt` 用 `latestInputRef` 比对，异步结果回填前若用户已中途编辑则**丢弃过期结果**（#210）。
+- 接线：`ui.proto` 增 `enhancePrompt` RPC + 宿主 handler + 契约 `shared/enhancePrompt.ts` + hook + ChatTextArea + en/zh-CN i18n。
+
+### 新增 · 资源管理器右键「添加到聊天」（#209）
+
+- 文件 / 文件夹 / 多选右键生成 mention 注入输入框。**先 `showWebview(true)` 再等待侧栏可见**，修正侧栏未打开时静默丢事件；超时给 WARNING。
+- 编排抽为纯函数 `shared/addToChatFlow.ts` 的 `runAddResourcesToChat()`，测试真跑调用顺序 / 超时告警 / 多选拼接 / 尾斜杠。
+
+### 新增 · 内置聊天窗口治理
+
+- 右栏（内置 Chat/Copilot）开着时启动自动关闭辅助侧栏、设置项可切换、首启弹窗只出现一次。
+
+### 修复
+
+- **#208（P1）**：`attempt_completion` 判重查整段历史会吃掉「用户反馈后继续任务」的第二轮结论 → 判重收窄为「最后一份完整结论之后没有 `user_feedback`」（`shouldSkipDuplicateCompletionResult()`）。
+- **#211 / #213（P2）**：401 退避在取消 / 超时后仍发请求 → 循环与等待处显式检查 `signal.aborted`；重试循环下沉纯函数 `fetchChecksumWithRetry()`，等待后再查一次 signal 堵住「等待期间被取消仍再发一次 fetch」的残留洞。
+- **#212（P3）**：ask 门控终态集合漏 `new_task` → `TERMINAL_ASKS` 补齐，与 `taskBusy.ts` 同口径。
+
+**回归**：`check-types`（含 protos）0 错、`test:update` **863/863**、`test:ui` 61/61、`test:free` 26/26、`test:toolcall` 56/56；宿主与 webview 双产物已重打并 grep 终验。
+
 ## 3.99.1 — 2026-11-04
 
 > 修复版：免费模型页的滚动条收进模型池表格内部，页面其余部分固定不滚（修正 3.99.0
