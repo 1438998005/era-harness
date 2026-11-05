@@ -221,7 +221,7 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 			const relPath = rawRelPath || "unknown"
 			await config.callbacks.say(
 				"error",
-				`Cline tried to use replace_in_file for '${relPath}' without value for required parameter 'diff'. Retrying...`,
+				`era harness tried to use replace_in_file for '${relPath}' without value for required parameter 'diff'. Retrying...`,
 			)
 			return formatResponse.toolError(formatResponse.replaceInFileMissingDiffError(relPath))
 		}
@@ -243,9 +243,9 @@ export class WriteToFileToolHandler implements IFullyManagedTool {
 
 			await config.callbacks.say(
 				"error",
-				`Cline tried to use write_to_file for '${relPath}' without value for required parameter 'content'. ${
+				`era harness tried to use write_to_file for '${relPath}' without value for required parameter 'content'. ${
 					config.taskState.consecutiveMistakeCount >= 2
-						? "This has happened multiple times — Cline will try a different approach."
+						? "This has happened multiple times — era harness will try a different approach."
 						: "Retrying..."
 				}`,
 			)

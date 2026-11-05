@@ -285,7 +285,10 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 
 	let openTool: string | null = null
 	let emittedToolClose: string | null = null
-	const paramStack: string[] = []
+	// eqForm：以小米官方训练模板的等号开标签（<parameter=X>）压栈的参数。它们的收口是
+	// 通用 </parameter> 而不是 </X>，保护区放行规则按此区分（<parameter name="X"> 形式与
+	// 规范 <X> 标签的值保护语义不变——那是 2026-10-25 防腐蚀 fixture 的判定基础）。
+	const paramStack: { name: string; eqForm: boolean }[] = []
 
 	const pattern = new RegExp(
 		[
@@ -311,9 +314,18 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 		// 保护区判定必须在一切分支之前：值内部出现任何方言标签都不改写。
 		if (paramStack.length > 0) {
 			const top = paramStack[paramStack.length - 1]
-			if (top !== undefined && PROTECTED_PARAM_VALUES.has(top)) {
-				if (match === `</${top}>`) {
+			if (top !== undefined && PROTECTED_PARAM_VALUES.has(top.name)) {
+				if (match === `</${top.name}>`) {
 					paramStack.pop()
+				} else if (top.eqForm && /^<\/\s*parameter/.test(match)) {
+					// 2026-11-04 实弹（任务 1793797385646）：MiMo 官方训练模板对保护区参数
+					// 也用通用 </parameter> 收口。此前原样放行会把收口连同后续
+					// <parameter=requires_approval> 一起吞进值里 → 缺参红字 + 脏命令被执行
+					//（cmd 报「此时不应有 <。」）。等号形式压栈的参数按通用收口弹栈还原；
+					// 规范/attribute 形式的值保护语义不变（防腐蚀 fixture「content 里合法
+					// parameter 标签原样保留」仍走原样放行分支）。
+					paramStack.pop()
+					return `</${top.name}>`
 				}
 				return match
 			}
@@ -324,7 +336,7 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 		// <parameter name="X"> → <X>，压栈
 		if (paramName) {
 			if (knownParams.has(paramName)) {
-				paramStack.push(paramName)
+				paramStack.push({ name: paramName, eqForm: false })
 				return `<${paramName}>`
 			}
 			return match
@@ -332,7 +344,7 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 		// <parameter=X>（等号形式）→ <X>，压栈；规则与上同
 		if (eqParamName) {
 			if (knownParams.has(eqParamName)) {
-				paramStack.push(eqParamName)
+				paramStack.push({ name: eqParamName, eqForm: true })
 				return `<${eqParamName}>`
 			}
 			return match
@@ -340,7 +352,7 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 		// </parameter> → 还原成栈顶参数的闭标签；栈空说明是孤儿闭合，删掉
 		if (/^<\/\s*parameter/.test(match)) {
 			const param = paramStack.pop()
-			return param ? `</${param}>` : ""
+			return param ? `</${param.name}>` : ""
 		}
 		// <invoke> 开包裹直接剥掉；</invoke> 还原成当前工具的闭标签
 		if (/invoke/.test(match)) {
@@ -355,7 +367,7 @@ function normalizeDotsFunctionCallMarkup(text: string, hasDialectWrapper: boolea
 		}
 		if (openTagName) {
 			if (knownParams.has(openTagName)) {
-				paramStack.push(openTagName)
+				paramStack.push({ name: openTagName, eqForm: false })
 			} else if (knownTools.has(openTagName)) {
 				openTool = openTagName
 				emittedToolClose = null

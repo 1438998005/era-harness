@@ -8,6 +8,7 @@ import {
 	SubagentStatusItem,
 } from "@shared/ExtensionMessage"
 import { telemetryService } from "@/services/telemetry"
+import { resolveEffectiveSubagentProvider } from "@/shared/aux-model"
 import {
 	providerSupportsSubagents,
 	resolveSubagentsEnabled,
@@ -101,7 +102,9 @@ export class UseSubagentsToolHandler implements IFullyManagedTool {
 		// 这里兵行险着地拦一次（模型可能凭旧上下文强行调用），并给出可读原因。
 		const apiConfig = config.services.stateManager.getApiConfiguration()
 		const currentMode = config.services.stateManager.getGlobalSettingsKey("mode")
-		const provider = (currentMode === "plan" ? apiConfig.planModeApiProvider : apiConfig.actModeApiProvider) as string
+		// #94 门控必须看子代理**实际会用**的 provider：辅助配置生效时按辅助配置判定，
+		// 否则「主配置非 free + 子代理辅助配置 free」会绕过免费池禁令（2026-11-04 审查）。
+		const provider = resolveEffectiveSubagentProvider(apiConfig, currentMode) as string
 		const subagentsEnabled = resolveSubagentsEnabled(
 			config.services.stateManager.getGlobalSettingsKey("subagentsEnabled"),
 			provider,

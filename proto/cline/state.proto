@@ -69,6 +69,9 @@ message Secrets {
   optional string mimo_api_key = 46;
   optional string bigmodel_api_key = 47;
   optional string bigmodel_plan_api_key = 48;
+  optional string moonshot_api_key = 49;
+  optional string enhance_api_key = 50;
+  optional string subagent_api_key = 51;
 }
 
 // NOTE: Add new fields under API_HANDLER_SETTINGS_FIELDS or USER_SETTINGS_FIELDS
@@ -141,6 +144,19 @@ message Settings {
   map<string, string> act_mode_provider_model_ids = 196;
   optional OpenRouterModelInfo plan_mode_bigmodel_plan_model_info = 197;
   optional OpenRouterModelInfo act_mode_bigmodel_plan_model_info = 198;
+  optional OpenRouterModelInfo plan_mode_moonshot_model_info = 199;
+  optional OpenRouterModelInfo act_mode_moonshot_model_info = 200;
+  optional string moonshot_api_line = 201;
+  optional ApiProvider enhance_api_provider = 202;
+  optional string enhance_api_model_id = 204;
+  optional OpenRouterModelInfo enhance_model_info = 205;
+  optional string enhance_reasoning_effort = 206;
+  optional string enhance_moonshot_api_line = 207;
+  optional ApiProvider subagent_api_provider = 208;
+  optional string subagent_api_model_id = 210;
+  optional OpenRouterModelInfo subagent_model_info = 211;
+  optional string subagent_reasoning_effort = 212;
+  optional string subagent_moonshot_api_line = 213;
 }
 
 message State {

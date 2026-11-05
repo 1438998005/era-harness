@@ -647,7 +647,7 @@ export class ToolExecutor {
 			const message = `Invalid '${pollutedParam}' for ${block.name}: the value contains unresolved tool-call dialect markup (DSML delimiters or stray parameter tags). The tool was NOT executed because a polluted value could silently corrupt the operation (e.g. a search returning misleading empty results). Re-issue the call with clean plain-text values.`
 			await this.say(
 				"error",
-				`Cline tried to use ${block.name} with dialect residue in parameter '${pollutedParam}'. Blocked to prevent silent corruption. Retrying...`,
+				`era harness tried to use ${block.name} with dialect residue in parameter '${pollutedParam}'. Blocked to prevent silent corruption. Retrying...`,
 			)
 			return { outcome: "error", message, snapshot: buildToolParamSnapshot(block.params) }
 		}

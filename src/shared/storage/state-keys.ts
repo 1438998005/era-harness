@@ -1,4 +1,5 @@
 import { AutoApprovalSettings, DEFAULT_AUTO_APPROVAL_SETTINGS } from "@shared/AutoApprovalSettings"
+import type { ApiConfiguration } from "@shared/api"
 import { ApiProvider, DEFAULT_API_PROVIDER, ModelInfo, OpenAiCompatibleModelInfo } from "@shared/api"
 import { ClineRulesToggles } from "@shared/cline-rules"
 import { DEFAULT_FOCUS_CHAIN_SETTINGS, FocusChainSettings } from "@shared/FocusChainSettings"
@@ -108,6 +109,7 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	planModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeBigmodelPlanModelInfo: { default: undefined as ModelInfo | undefined },
+	planModeMoonshotModelInfo: { default: undefined as ModelInfo | undefined },
 	// #52（2026-10-28）：per-provider 模型记忆。deepseek/mimo/bigmodel 共用 planModeApiModelId
 	// 一个槽位，快速切换切走再切回就被覆盖成默认档——按 provider 各记一份，读侧仍过归属校验
 	//（记忆 id 不属本家清单 → 兑底默认档，KB 18 §18.11 教训不得绕过）。
@@ -122,11 +124,32 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	actModeMimoModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeBigmodelPlanModelInfo: { default: undefined as ModelInfo | undefined },
+	actModeMoonshotModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeProviderModelIds: { default: {} as Record<string, string> },
 
 	// Model-specific settings
 	planModeApiProvider: { default: DEFAULT_API_PROVIDER as ApiProvider },
 	actModeApiProvider: { default: DEFAULT_API_PROVIDER as ApiProvider },
+	// Kimi (Moonshot) 双入口：china（api.moonshot.cn，默认）/ international（api.moonshot.ai）。
+	// 判据单一来源在 @shared/moonshot-request（设置页下拉与请求侧共用，知识库 18 §18.11 防漂移）。
+	moonshotApiLine: { default: undefined as string | undefined },
+
+	// 「提示词增强 / 子代理」独立模型配置（2026-11-04，用户裁定：各一套完整独立配置，可跨厂商）。
+	// 平铺而不是嵌套 message：与 planMode*/actMode* 范式同构，state.proto 生成器与转换层都不用
+	// 处理新形状。未配置（无 provider）时两个功能回落主配置，行为零变化。
+	// ⛔ 两个 *ApiKey **只能**登记在 SECRETS_KEYS（见本文件下方注释）：若同时登记在这里，
+	// constructApiConfigurationFromCache 的 {...secrets, ...settings} 会用 settings 里的
+	// undefined 把 secrets 里的真实密钥覆盖掉，辅助配置永远读不到密钥（2026-11-04 实测）。
+	enhanceApiProvider: { default: undefined as ApiProvider | undefined },
+	enhanceApiModelId: { default: undefined as string | undefined },
+	enhanceModelInfo: { default: undefined as ModelInfo | undefined },
+	enhanceReasoningEffort: { default: undefined as string | undefined },
+	enhanceMoonshotApiLine: { default: undefined as string | undefined },
+	subagentApiProvider: { default: undefined as ApiProvider | undefined },
+	subagentApiModelId: { default: undefined as string | undefined },
+	subagentModelInfo: { default: undefined as ModelInfo | undefined },
+	subagentReasoningEffort: { default: undefined as string | undefined },
+	subagentMoonshotApiLine: { default: undefined as string | undefined },
 } satisfies FieldDefinitions
 
 const USER_SETTINGS_FIELDS = {
@@ -204,6 +227,16 @@ const SECRETS_KEYS = [
 	"bigmodelApiKey",
 	// 智谱 GLM 套餐（Coding Plan）：与按量 Key 互不通用，必须单独存
 	"bigmodelPlanApiKey",
+	// Kimi (Moonshot)：国内站（platform.kimi.com）与国际站密钥不互通，但同一个 key 值槽位
+	// 足够——入口由 moonshotApiLine 决定，换入口必须换 key，不存在两把 key 并存的场景
+	"moonshotApiKey",
+	// 「提示词增强 / 子代理」独立模型配置的密钥（跨厂商时的独立凭证）。
+	// 只在这里注册，绝不能同时进 API_HANDLER_SETTINGS_FIELDS：setApiConfiguration 按
+	// isSecretKey 优先写 secretsCache，而 constructApiConfigurationFromCache 是
+	// {...secrets, ...settings} —— 同名 settings 键（undefined）会把密钥覆盖成空，
+	// 导致两套辅助配置静默失效（2026-11-04 审查实测：read-back enhanceApiKey: undefined）。
+	"enhanceApiKey",
+	"subagentApiKey",
 	"ovhAiEndpointsApiKey", // OVHcloud AI Endpoints 可选 Key（免费模型第三渠道；留空走匿名 2rpm）
 	"openai-codex-oauth-credentials", // integrations/openai-codex 仍在（批次 3 才删），需其 OAuth 密钥位
 	"mcpOAuthSecrets",
@@ -260,6 +293,19 @@ export const SecretKeys = Array.from(SECRETS_KEYS)
 export const SettingsKeys = Array.from(SettingsKeysSet) as (keyof Settings)[]
 export const ApiHandlerSettingsKeys = Array.from(ApiHandlerSettingsKeysSet) as (keyof ApiHandlerOptionSettings)[]
 export const GlobalStateAndSettingKeys = Array.from(GlobalStateAndSettingsKeySet) as GlobalStateAndSettingsKey[]
+
+/**
+ * 按 StateManager.constructApiConfigurationFromCache 的顺序合并两份缓存（#235③ 判据单源）。
+ *
+ * ⛔ 顺序固定为 `{...secrets, ...settings}`：settings（globalState）覆盖 secrets。
+ * SecretKeys 与 API_HANDLER_SETTINGS_FIELDS 必须无交集——同名键会让 settings 里的
+ * undefined 把 secrets 里的真实密钥覆盖掉，辅助配置静默失效（2026-11-04 实测）。
+ * 交集判据见 review-bugfix.spec.ts 的第一个用例；StateManager 与该 spec 共用本函数，
+ * 不再各写一份 spread（手工模拟与真实链路必然漂移）。
+ */
+export function mergeApiConfigurationCaches(secrets: Secrets, settings: ApiHandlerOptionSettings): ApiConfiguration {
+	return { ...secrets, ...settings }
+}
 
 // GENERATED DEFAULTS - Auto-generated from property definitions
 // ============================================================================

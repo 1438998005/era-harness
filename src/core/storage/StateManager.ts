@@ -1,5 +1,6 @@
 import type { ApiConfiguration, ModelInfo } from "@shared/api"
 import {
+	type ApiHandlerOptionSettings,
 	ApiHandlerSettingsKeys,
 	type GlobalState,
 	type GlobalStateAndSettings,
@@ -8,6 +9,7 @@ import {
 	isSettingsKey,
 	type LocalState,
 	type LocalStateKey,
+	mergeApiConfigurationCaches,
 	type RemoteConfigFields,
 	type SecretKey,
 	SecretKeys,
@@ -628,6 +630,52 @@ export class StateManager {
 	}
 
 	/**
+	 * 显式删除 API 配置字段（#230：设置页「清空 / 跟随主模型」的真删除通道）。
+	 *
+	 * `setApiConfiguration()` 跳过 `undefined` 是刻意设计：写入路径常把
+	 * `{...secrets, ...settings}` 整份回传，若把 undefined 当成删除会抹掉密钥（#219）。
+	 * 因此「用户想清空某个字段」不能编码成 undefined，必须由调用方显式列出要删的 key，
+	 * 走本方法：把 cache 置 undefined 并加入 pending 集合，持久化层 `setBatch` 遇到
+	 * undefined 会真正 `delete`（`ClineFileStorage.setBatch` / `persistSecretsBatch`）。
+	 *
+	 * 只处理 API 配置字段（secrets / settings），且同步镜像清掉 `remoteConfigCache`——
+	 * 后者是 `setApiConfiguration` 自己写入的，`getSettingWithOverride` 又会优先读它，
+	 * 不清就会出现「磁盘删了但读回还在」。
+	 */
+	clearApiConfigurationFields(keys: readonly (keyof ApiConfiguration)[]): void {
+		if (!this.isInitialized) {
+			throw new Error(STATE_MANAGER_NOT_INITIALIZED)
+		}
+
+		const globalCache = this.globalStateCache as Record<string, unknown>
+		const secretCache = this.secretsCache as unknown as Record<string, unknown>
+		const remoteCache = this.remoteConfigCache as Record<string, unknown>
+		let changed = false
+
+		for (const field of keys) {
+			const key = field as string
+			if (isSecretKey(key)) {
+				if (secretCache[key] !== undefined) {
+					secretCache[key] = undefined
+					this.pendingSecrets.add(key as SecretKey)
+					changed = true
+				}
+			} else if (isSettingsKey(key)) {
+				if (globalCache[key] !== undefined || remoteCache[key] !== undefined) {
+					globalCache[key] = undefined
+					delete remoteCache[key]
+					this.pendingGlobalState.add(key as GlobalStateAndSettingsKey)
+					changed = true
+				}
+			}
+		}
+
+		if (changed) {
+			this.scheduleDebouncedPersistence()
+		}
+	}
+
+	/**
 	 * Get method for global settings keys - reads from in-memory cache
 	 * Precedence: remote config > session override > task settings > global settings
 	 */
@@ -948,12 +996,12 @@ export class StateManager {
 		const secrets = Object.fromEntries(SecretKeys.map((key) => [key, this.getSecret(key)])) as Secrets
 
 		// Build API handler settings object with task override support
-		const settings = Object.fromEntries(ApiHandlerSettingsKeys.map((key) => [key, this.getSettingWithOverride(key)]))
+		const settings = Object.fromEntries(
+			ApiHandlerSettingsKeys.map((key) => [key, this.getSettingWithOverride(key)]),
+		) as ApiHandlerOptionSettings
 
-		return {
-			...secrets,
-			...settings,
-		} satisfies ApiConfiguration
+		// #235③：合并顺序单源在 state-keys.mergeApiConfigurationCaches（与 review-bugfix.spec 共用）
+		return mergeApiConfigurationCaches(secrets, settings)
 	}
 
 	/**

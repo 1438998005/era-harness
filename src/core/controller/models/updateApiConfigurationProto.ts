@@ -1,3 +1,4 @@
+import { auxiliaryFieldsToClear } from "@shared/aux-model"
 import { Empty } from "@shared/proto/cline/common"
 import { UpdateApiConfigurationRequest } from "@shared/proto/cline/models"
 import { convertProtoToApiProvider } from "@shared/proto-conversions/models/api-configuration-conversion"
@@ -40,6 +41,15 @@ export async function updateApiConfigurationProto(
 				protoApiConfiguration.actModeApiProvider !== undefined
 					? convertProtoToApiProvider(protoApiConfiguration.actModeApiProvider!)
 					: undefined,
+			// 「提示词增强 / 子代理」独立配置的 provider 同为 proto 枚举，必须一并转换
+			enhanceApiProvider:
+				protoApiConfiguration.enhanceApiProvider !== undefined
+					? convertProtoToApiProvider(protoApiConfiguration.enhanceApiProvider)
+					: undefined,
+			subagentApiProvider:
+				protoApiConfiguration.subagentApiProvider !== undefined
+					? convertProtoToApiProvider(protoApiConfiguration.subagentApiProvider)
+					: undefined,
 
 			// Convert ModelInfo objects (empty arrays → undefined)
 			// Plan Mode
@@ -64,6 +74,21 @@ export async function updateApiConfigurationProto(
 				: undefined,
 			planModeBigmodelPlanModelInfo: protoApiConfiguration.planModeBigmodelPlanModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeBigmodelPlanModelInfo)
+				: undefined,
+			planModeMoonshotModelInfo: protoApiConfiguration.planModeMoonshotModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.planModeMoonshotModelInfo)
+				: undefined,
+			// #233：lite_llm 一直漏转（靠 spread 原样透传 proto 形状）；LiteLLM 与 OpenAiCompatible
+			// 同构（tiers/temperature/apiFormat），按 OpenAiCompatible 形状还原不丢字段
+			planModeLiteLlmModelInfo: protoApiConfiguration.planModeLiteLlmModelInfo
+				? fromProtobufOpenAiCompatibleModelInfo(protoApiConfiguration.planModeLiteLlmModelInfo)
+				: undefined,
+			// 「提示词增强 / 子代理」独立配置的模型元数据
+			enhanceModelInfo: protoApiConfiguration.enhanceModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.enhanceModelInfo)
+				: undefined,
+			subagentModelInfo: protoApiConfiguration.subagentModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.subagentModelInfo)
 				: undefined,
 			planModeHuggingFaceModelInfo: protoApiConfiguration.planModeHuggingFaceModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeHuggingFaceModelInfo)
@@ -112,6 +137,13 @@ export async function updateApiConfigurationProto(
 			actModeBigmodelPlanModelInfo: protoApiConfiguration.actModeBigmodelPlanModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeBigmodelPlanModelInfo)
 				: undefined,
+			actModeMoonshotModelInfo: protoApiConfiguration.actModeMoonshotModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.actModeMoonshotModelInfo)
+				: undefined,
+			// #233：lite_llm 漏转，同 planModeLiteLlmModelInfo
+			actModeLiteLlmModelInfo: protoApiConfiguration.actModeLiteLlmModelInfo
+				? fromProtobufOpenAiCompatibleModelInfo(protoApiConfiguration.actModeLiteLlmModelInfo)
+				: undefined,
 			actModeRequestyModelInfo: protoApiConfiguration.actModeRequestyModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeRequestyModelInfo)
 				: undefined,
@@ -142,8 +174,12 @@ export async function updateApiConfigurationProto(
 			actModeReasoningEffort: protoApiConfiguration.actModeReasoningEffort as OpenaiReasoningEffort | undefined,
 		}
 
-		// Update the API configuration in storage
+		// Update the API configuration in storage.
+		// #230：设置页的写入恒为「完整配置」（useApiConfigurationHandlers 的 {...apiConfiguration, ...updates}），
+		// 因此 proto 里为空的辅助字段就是用户想清掉的字段。setApiConfiguration 会跳过 undefined，
+		// 必须额外走显式删除通道，否则「跟随主模型 / 清空密钥」只是 UI 假动作，旧值永不消失。
 		controller.stateManager.setApiConfiguration(convertedApiConfigurationFromProto)
+		controller.stateManager.clearApiConfigurationFields(auxiliaryFieldsToClear(convertedApiConfigurationFromProto))
 
 		// Update the task's API handler if there's an active task
 		if (controller.task) {

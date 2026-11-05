@@ -2,8 +2,7 @@ import { buildApiHandler } from "@core/api"
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import { Empty } from "@shared/proto/cline/common"
 import { PlanActMode, McpDisplayMode as ProtoMcpDisplayMode, UpdateSettingsRequest } from "@shared/proto/cline/state"
-import { convertProtoToApiProvider } from "@shared/proto-conversions/models/api-configuration-conversion"
-import { OpenaiReasoningEffort } from "@shared/storage/types"
+import { convertUpdateSettingsApiConfiguration } from "@shared/proto-conversions/models/api-configuration-conversion"
 import { TelemetrySetting } from "@shared/TelemetrySetting"
 import { ClineEnv } from "@/config"
 import { fetchRemoteConfig } from "@/core/storage/remote-config/fetch"
@@ -14,6 +13,8 @@ import { ShowMessageType } from "@/shared/proto/host/window"
 import { Logger } from "@/shared/services/Logger"
 import { telemetryService } from "../../../services/telemetry"
 import { Controller } from ".."
+
+// proto→应用结构转换已收敛到 @shared/proto-conversions（可被行为测试直接调用）。
 
 /**
  * Updates multiple extension settings in a single request
@@ -28,20 +29,7 @@ export async function updateSettings(controller: Controller, request: UpdateSett
 		}
 
 		if (request.apiConfiguration) {
-			const protoApiConfiguration = request.apiConfiguration
-
-			const convertedApiConfigurationFromProto = {
-				...protoApiConfiguration,
-				// Convert proto ApiProvider enums to native string types
-				planModeApiProvider: protoApiConfiguration.planModeApiProvider
-					? convertProtoToApiProvider(protoApiConfiguration.planModeApiProvider)
-					: undefined,
-				actModeApiProvider: protoApiConfiguration.actModeApiProvider
-					? convertProtoToApiProvider(protoApiConfiguration.actModeApiProvider)
-					: undefined,
-				planModeReasoningEffort: protoApiConfiguration.planModeReasoningEffort as OpenaiReasoningEffort | undefined,
-				actModeReasoningEffort: protoApiConfiguration.actModeReasoningEffort as OpenaiReasoningEffort | undefined,
-			}
+			const convertedApiConfigurationFromProto = convertUpdateSettingsApiConfiguration(request.apiConfiguration)
 
 			controller.stateManager.setApiConfiguration(convertedApiConfigurationFromProto)
 

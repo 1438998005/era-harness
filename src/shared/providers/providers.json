@@ -21,6 +21,10 @@
 			"label": "智谱 GLM 套餐（Coding Plan）"
 		},
 		{
+			"value": "moonshot",
+			"label": "Kimi (Moonshot)"
+		},
+		{
 			"value": "openai",
 			"label": "OpenAI Compatible"
 		}

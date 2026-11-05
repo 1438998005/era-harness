@@ -7,6 +7,7 @@ import { useExtensionState } from "@/context/ExtensionStateContext"
 import { StateServiceClient } from "@/services/grpc-client"
 import { TabButton } from "../../mcp/configuration/McpConfigurationView"
 import ApiOptions from "../ApiOptions"
+import AuxiliaryModelSettings from "../AuxiliaryModelSettings"
 import Section from "../Section"
 import { normalizeApiConfiguration, syncModeConfigurations } from "../utils/providerUtils"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
@@ -95,6 +96,13 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 					<p className="text-xs mt-[5px] text-(--vscode-descriptionForeground)">
 						{t("settings.useDifferentModelsDescription")}
 					</p>
+				</div>
+
+				{/* 「提示词增强 / 子代理」独立模型配置（默认跟随主模型零行为变化）。
+				     主模型是免费池时也必须可见——「主免费 + 辅助付费」同样是跨厂商场景；
+				     免费池页有「表格内部滚动」的高度链，这里限高自身滚动、不挤压主表格。 */}
+				<div className={isFree ? "shrink-0 max-h-[40vh] overflow-y-auto" : undefined}>
+					<AuxiliaryModelSettings />
 				</div>
 			</Section>
 		</div>

@@ -14,6 +14,7 @@ import { HostProvider } from "@/hosts/host-provider"
 import { ExtensionRegistryInfo } from "@/registry"
 import { BIGMODEL_BASE_URL, BIGMODEL_PLAN_BASE_URL } from "@/shared/bigmodel-request"
 import { mimoBaseUrlForKey } from "@/shared/mimo-request"
+import { moonshotBaseUrlForLine } from "@/shared/moonshot-request"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
 import { createOpenInOsDeps, openFolderInOs } from "./open-in-os"
@@ -95,12 +96,24 @@ function collectSettingsSummary(): Record<string, string> {
 		summary.bigmodelBaseUrl = `${BIGMODEL_BASE_URL}（按量，内置）`
 		summary.bigmodelPlanBaseUrl = `${BIGMODEL_PLAN_BASE_URL}（GLM 套餐，内置）`
 
+		try {
+			// Kimi 双入口由设置页下拉决定，与请求侧共用 moonshotBaseUrlForLine 一份判据；
+			// apiLine 是设置字段（非密钥），走 getApiConfiguration 读
+			summary.moonshotBaseUrl = `${moonshotBaseUrlForLine(stateManager.getApiConfiguration().moonshotApiLine)}（按入口下拉推导）`
+		} catch {
+			// 忽略单个基址读取失败
+		}
+
 		const secretKeys = [
 			"openAiApiKey",
 			"deepSeekApiKey",
 			"mimoApiKey",
 			"bigmodelApiKey",
 			"bigmodelPlanApiKey",
+			"moonshotApiKey",
+			// 「提示词增强 / 子代理」独立配置密钥（辅助模型排障需要知道是否配置了独立凭证）
+			"enhanceApiKey",
+			"subagentApiKey",
 			"ovhAiEndpointsApiKey",
 			"apiKey",
 		] as const

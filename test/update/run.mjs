@@ -100,6 +100,22 @@ const SPECS = [
 	"diagnostics-and-retry.spec.ts",
 	"enhance-prompt.spec.ts",
 	"explorer-add-to-chat.spec.ts",
+	// 2026-11-04 四项合并批次（Kimi / 独立辅助模型 / 解析器 / 品牌）：
+	// ⚠️ 本列表是硬编码的，新增 test/update/*.spec.ts 必须在这里登记，
+	// 否则 `npm run test:update` 会静默漏跑（上一批两个 spec 就是这样没进全套的）。
+	"aux-model.spec.ts",
+	"moonshot-provider.spec.ts",
+	// 2026-11-04 晚未提交内容复审的跨层回归
+	"review-bugfix.spec.ts",
+	// 防同类：spec 清单自守门 + proto 转换路径对称（新增字段只补一侧会红）
+	"spec-registry.spec.ts",
+	"settings-conversion-symmetry.spec.ts",
+	// 2026-11-05 review 修复：辅助配置「清空 = 显式删除」的真实存储往返（#230）
+	"aux-clear.spec.ts",
+	// #231：provider 组件的 i18n key 必须能从真实 locale 解析（防 namespace 双层前缀 + 假绿测试）
+	"settings-i18n-keys.spec.ts",
+	// #233：ModelInfo proto 类型映射三方一致（proto 文本 ↔ 映射表 ↔ 手写转换清单）
+	"model-info-proto-mapping.spec.ts",
 ]
 
 const aliasResolverPlugin = {

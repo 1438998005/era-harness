@@ -312,6 +312,49 @@
 			]
 		},
 		{
+			"name": "MiMo 官方训练模板 + 保护区参数（2026-11-04 真实任务取证，已脱敏）：<parameter=command> 用通用 </parameter> 收口 → command 干净且 requires_approval 不丢",
+			"raw": "<tool_call><function=execute_command><parameter=command>where rg 2>nul & rg --version 2>&1</parameter><parameter=requires_approval>false</parameter></function></tool_call>",
+			"expectTools": [
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "where rg 2>nul & rg --version 2>&1",
+						"requires_approval": "false"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"tool_call",
+				"parameter",
+				"function"
+			]
+		},
+		{
+			"name": "MiMo 官方训练模板与标准 XML 同消息混发（2026-11-04 实弹形态，已脱敏）→ 两个 execute_command 都完整、参数齐全",
+			"raw": "<execute_command>\n<command>echo hi</command>\n<requires_approval>false</requires_approval>\n</execute_command></think><tool_call><function=execute_command><parameter=command>where rg</parameter><parameter=requires_approval>false</parameter></function></tool_call>",
+			"expectTools": [
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "echo hi",
+						"requires_approval": "false"
+					}
+				},
+				{
+					"name": "execute_command",
+					"params": {
+						"command": "where rg",
+						"requires_approval": "false"
+					}
+				}
+			],
+			"expectTextNotContains": [
+				"tool_call",
+				"parameter",
+				"function"
+			]
+		},
+		{
 			"name": "防腐蚀：无方言包裹的正文里 <parameter name=\"path\"> 必须原样保留（不得激活归一化）",
 			"raw": "<write_to_file><path>doc.md</path><content>用法示例：<parameter name=\"path\">值</parameter>，按需替换。</content></write_to_file>",
 			"expectTools": [

@@ -8,6 +8,7 @@ import { BigmodelHandler } from "./providers/bigmodel"
 import { DeepSeekHandler } from "./providers/deepseek"
 import { FreeModelHandler } from "./providers/free"
 import { MimoHandler } from "./providers/mimo"
+import { MoonshotHandler } from "./providers/moonshot"
 import { OpenAiHandler } from "./providers/openai"
 import { ApiStream, ApiStreamUsageChunk } from "./transform/stream"
 
@@ -104,6 +105,17 @@ function createHandlerForProvider(
 				apiModelId,
 				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelModelInfo : options.actModeBigmodelModelInfo,
 				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+			})
+		case "moonshot":
+			return new MoonshotHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				// 基址由设置页入口下拉（moonshotApiLine）决定，两站密钥不互通；
+				// 空白会让 Bearer 头一起错，统一在入口处吃掉。
+				moonshotApiKey: options.moonshotApiKey?.trim(),
+				apiModelId,
+				moonshotModelInfo: mode === "plan" ? options.planModeMoonshotModelInfo : options.actModeMoonshotModelInfo,
+				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				apiLine: options.moonshotApiLine,
 			})
 		case "bigmodel-plan":
 			// 智谱 GLM 套餐（Coding Plan）：同一个 handler，换基址 + 换计费口径。

@@ -51,7 +51,7 @@ const FreePoolTable: React.FC<{ candidates: FreeCandidate[]; excludeCollecting: 
 }) => {
 	const { t } = useTranslation("settings")
 	return (
-		// 池为两渠道动态规模（2026-11-04 时点 21 项；数字不写死在逻辑里，仅注释备查）。
+		// 池为两渠道动态规模（2026-11-05 全渠道存活复核后为 18 项；数字不写死在逻辑里，仅注释备查）。
 		// 2026-11-04 用户裁定：滚动条只许出现在表格右缘，页面其余部分固定不滚——
 		// 本 wrapper 为弹性内滚容器（flex-1 + overflow-y-auto，高度链自 ApiConfigurationSection
 		// 的 isFree 分支打通），min-h-40 防极矮视口塌缩；行数装得下时无滚动条、无空白并存。

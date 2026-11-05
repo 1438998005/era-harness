@@ -65,6 +65,7 @@ import { listFiles } from "@services/glob/list-files"
 import { McpHub } from "@services/mcp/McpHub"
 import { ApiConfiguration } from "@shared/api"
 import { findLast, findLastIndex } from "@shared/array"
+import { resolveEffectiveSubagentProvider } from "@shared/aux-model"
 import { combineApiRequests } from "@shared/combineApiRequests"
 import { combineCommandSequences } from "@shared/combineCommandSequences"
 import { ClineApiReqCancelReason, ClineApiReqInfo, ClineAsk, ClineMessage, ClineSay } from "@shared/ExtensionMessage"
@@ -958,7 +959,7 @@ export class Task {
 	async sayAndCreateMissingParamError(toolName: ClineDefaultTool, paramName: string, relPath?: string) {
 		await this.say(
 			"error",
-			`Cline tried to use ${toolName}${
+			`era harness tried to use ${toolName}${
 				relPath ? ` for '${relPath.toPosix()}'` : ""
 			} without value for required parameter '${paramName}'. Retrying...`,
 		)
@@ -2121,10 +2122,15 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			globalMemoryEnabled: globalMemoryDocument.enabled,
 			knowledgeBaseSection,
 			yoloModeToggled: this.stateManager.getGlobalSettingsKey("yoloModeToggled"),
-			// #94：免费 provider 下子代理一律关（只派生、不改用户设置，切回其它模型自动恢复）
+			// #94：免费 provider 下子代理一律关（只派生、不改用户设置，切回其它模型自动恢复）。
+			// provider 取子代理**实际会用**的那份配置（辅助模型可跨厂商），不再无条件用主任务
+			// 的 providerInfo——否则「主 free + 辅助付费」被误杀、「主付费 + 辅助 free」绕过禁令。
 			subagentsEnabled: resolveSubagentsEnabled(
 				this.stateManager.getGlobalSettingsKey("subagentsEnabled"),
-				providerInfo.providerId,
+				resolveEffectiveSubagentProvider(
+					this.stateManager.getApiConfiguration(),
+					this.stateManager.getGlobalSettingsKey("mode"),
+				),
 			),
 			clineWebToolsEnabled:
 				this.stateManager.getGlobalSettingsKey("clineWebToolsEnabled") && featureFlagsService.getWebtoolsEnabled(),
@@ -4091,7 +4097,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 		// Add context window usage information (conditionally for some models)
 		// #58：分母用「有效输入预算」（窗口−预留输出）——满窗口径对窗口含输出的供应商
 		// （BigModel）双重高估，1261 前模型与用户都看到「余量充足」。
-		const { contextWindow, effectiveInputBudget } = getContextWindowInfo(this.api)
+		const { effectiveInputBudget } = getContextWindowInfo(this.api)
 
 		// Get the token count from the most recent API request to accurately reflect context management
 		const getTotalTokensFromApiReqMessage = (msg: ClineMessage) => {

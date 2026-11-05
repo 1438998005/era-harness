@@ -42,6 +42,11 @@ export function getConfiguredProviders(
 		configured.push("bigmodel-plan")
 	}
 
+	// Kimi (Moonshot) - requires API key（入口由 moonshotApiLine 决定，key 本身即可判已配置）
+	if (apiConfiguration.moonshotApiKey) {
+		configured.push("moonshot")
+	}
+
 	// OpenAI Compatible - requires base URL and API key, OR has model configured
 	if (
 		(apiConfiguration.openAiBaseUrl && apiConfiguration.openAiApiKey) ||

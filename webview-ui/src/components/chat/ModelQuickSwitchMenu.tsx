@@ -7,6 +7,8 @@ import {
 	type ModelInfo,
 	mimoDefaultModelId,
 	mimoModels,
+	moonshotDefaultModelId,
+	moonshotModels,
 	shouldResetModelForProvider,
 } from "@shared/api"
 import { DEEPSEEK_PEAK_MULTIPLIER, isDeepSeekPeakHour } from "@shared/deepseekPricing"
@@ -28,7 +30,7 @@ interface ModelQuickSwitchMenuProps {
 }
 
 interface QuickSwitchEntry {
-	provider: "free" | "deepseek" | "mimo" | "bigmodel" | "bigmodel-plan" | "openai"
+	provider: "free" | "deepseek" | "mimo" | "bigmodel" | "bigmodel-plan" | "moonshot" | "openai"
 	label: string
 	icon: React.ReactNode
 	iconColor: string
@@ -80,6 +82,11 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 	const bigmodelInfo =
 		(bigmodelModels as Record<string, ModelInfo>)[rememberedIds?.bigmodel ?? ""] ?? bigmodelModels[bigmodelDefaultModelId]
 	const bigmodelPrice = `输入 ¥${bigmodelInfo.cacheReadsPrice}–${bigmodelInfo.cacheWritesPrice} / 输出 ¥${bigmodelInfo.outputPrice}`
+
+	// Kimi：命中/未命中两档输入 + 输出，无峰谷倍率（口径同 MiMo/BigModel）。
+	const moonshotInfo =
+		(moonshotModels as Record<string, ModelInfo>)[rememberedIds?.moonshot ?? ""] ?? moonshotModels[moonshotDefaultModelId]
+	const moonshotPrice = `输入 ¥${moonshotInfo.cacheReadsPrice}–${moonshotInfo.cacheWritesPrice} / 输出 ¥${moonshotInfo.outputPrice}`
 
 	const entries: QuickSwitchEntry[] = [
 		{
@@ -140,6 +147,17 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			// 08 #180：这里以前挂了一句 23 字的 hint（「GLM Coding Plan 订阅额度，与按量 Key 不通用」），
 			// 菜单行没有为长句设计——右侧信息列不收缩，把主名挤成 0 宽，整行溢出被裁。
 			// 菜单行不放长句：「与按量 Key 不通用」在设置页套餐面板里已有（BigmodelPlanProvider），不重复。
+		},
+		{
+			// 08 #180 的教训：菜单行不放长句 hint（双入口/密钥不互通的说明在设置页 Kimi 卡片里）
+			provider: "moonshot",
+			label: "Kimi (Moonshot)",
+			icon: <Sparkles size={13} />,
+			iconColor: "var(--vscode-charts-purple, #A371F7)",
+			badgeBg: "transparent",
+			badgeFg: "inherit",
+			priceText: moonshotPrice,
+			priceColor: "var(--vscode-foreground, #E7E7E7)",
 		},
 		{
 			provider: "openai",
@@ -243,7 +261,12 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 										<SectionCaption>{t("chat.paidSection")}</SectionCaption>
 									</>
 								)}
-								<EntryRow isActive={isActive} onClick={() => handleSelect(entry.provider)} type="button">
+								{/* data-provider 供结构性测试比对 providers.json：新增 provider 忘了加菜单条目会红 */}
+								<EntryRow
+									data-provider={entry.provider}
+									isActive={isActive}
+									onClick={() => handleSelect(entry.provider)}
+									type="button">
 									<span
 										className="flex h-4 w-4 shrink-0 items-center justify-center"
 										style={{ color: entry.iconColor }}>

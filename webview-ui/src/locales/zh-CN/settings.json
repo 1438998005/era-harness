@@ -451,8 +451,24 @@
 			"setupInstructions": "安装说明"
 		},
 		"moonshot": {
-			"name": "Moonshot",
-			"entrypoint": "Moonshot 入口地址"
+			"name": "Kimi (Moonshot)",
+			"entrypoint": "Kimi 入口地址",
+			"apiKeyLabel": "Kimi API Key",
+			"consoleButton": "打开 Kimi 开放平台（API Key）",
+			"docsButton": "API 文档",
+			"lineLabel": "Kimi 入口",
+			"lineChina": "国内站（api.moonshot.cn）",
+			"lineInternational": "国际站（api.moonshot.ai）",
+			"lineHint": "国内站入口 https://api.moonshot.cn/v1；国际站入口 https://api.moonshot.ai/v1。两站密钥互不通用：在 platform.kimi.com 创建的密钥只能用于国内站，切换入口后需要换对应站的密钥。",
+			"syncOk": "已从 Kimi 同步 {{count}} 个模型",
+			"syncFail": "同步失败，暂用内置清单",
+			"syncIdle": "填入密钥后自动同步官方模型列表",
+			"refresh": "刷新模型列表",
+			"refreshing": "同步中…",
+			"unknownModel": "该模型不在内置清单中，上下文与输出上限按 K3.1 系公开下限处理。",
+			"reasoningLabel": "思考强度（reasoning_effort）",
+			"reasoningDescription": "K3.1 系始终开启思考：low=轻量、high=深度、xhigh=最大（发送为 max，官方默认）。不发送则用官方默认值。temperature 与 top_p 为官方固定值（1.0 / 0.95），插件不发送。",
+			"priceNote": "价格为官方按量计费单价（元 / 百万 tokens）：输入分缓存命中 / 未命中两档，1M 上下文窗口不分段计费。Kimi 开放平台为按量计费、无订阅制方案。"
 		},
 		"minimax": {
 			"name": "MiniMax",

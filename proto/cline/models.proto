@@ -590,6 +590,7 @@ message ModelsApiConfiguration {
   optional OpenRouterModelInfo plan_mode_mimo_model_info = 246;
   optional OpenRouterModelInfo plan_mode_bigmodel_model_info = 249;
   optional OpenRouterModelInfo plan_mode_bigmodel_plan_model_info = 254;
+  optional OpenRouterModelInfo plan_mode_moonshot_model_info = 257;
   optional string plan_mode_ollama_model_id = 111;
   optional string plan_mode_lm_studio_model_id = 112;
   optional string plan_mode_lite_llm_model_id = 113;
@@ -636,6 +637,7 @@ message ModelsApiConfiguration {
   optional OpenRouterModelInfo act_mode_mimo_model_info = 247;
   optional OpenRouterModelInfo act_mode_bigmodel_model_info = 250;
   optional OpenRouterModelInfo act_mode_bigmodel_plan_model_info = 255;
+  optional OpenRouterModelInfo act_mode_moonshot_model_info = 256;
   optional string act_mode_ollama_model_id = 211;
   optional string act_mode_lm_studio_model_id = 212;
   optional string act_mode_lite_llm_model_id = 213;
@@ -669,4 +671,19 @@ message ModelsApiConfiguration {
   //（共用 api_model_id 槽位，切走即被覆盖；读侧仍过归属校验）
   map<string, string> plan_mode_provider_model_ids = 251;
   map<string, string> act_mode_provider_model_ids = 252;
+
+  // 「提示词增强 / 子代理」独立模型配置（2026-11-04，用户裁定各一套完整独立配置，可跨厂商）。
+  // 与 state.proto 的 Settings 侧字段一一对应；未配置（无 provider）时消费点回落主配置。
+  optional ApiProvider enhance_api_provider = 258;
+  optional string enhance_api_key = 259;
+  optional string enhance_api_model_id = 260;
+  optional OpenRouterModelInfo enhance_model_info = 261;
+  optional string enhance_reasoning_effort = 262;
+  optional string enhance_moonshot_api_line = 263;
+  optional ApiProvider subagent_api_provider = 264;
+  optional string subagent_api_key = 265;
+  optional string subagent_api_model_id = 266;
+  optional OpenRouterModelInfo subagent_model_info = 267;
+  optional string subagent_reasoning_effort = 268;
+  optional string subagent_moonshot_api_line = 269;
 }

@@ -90,7 +90,6 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 		const requiresApprovalRaw: string | undefined = block.params.requires_approval
 		let requiresApprovalPerLLM = requiresApprovalRaw?.toLowerCase() === "true"
 		const timeoutParam: string | undefined = block.params.timeout
-		let timeoutSeconds: number | undefined
 
 		// Extract provider using the proven pattern from ReportBugHandler
 		const apiConfig = config.services.stateManager.getApiConfiguration()
@@ -102,7 +101,7 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 			config.taskState.consecutiveMistakeCount++
 			await config.callbacks.say(
 				"error",
-				"Cline tried to use execute_command without value for required parameter 'command'. Retrying...",
+				"era harness tried to use execute_command without value for required parameter 'command'. Retrying...",
 			)
 			return formatResponse.toolError(formatResponse.executeCommandMissingCommandError())
 		}
@@ -121,7 +120,7 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 		config.taskState.consecutiveMistakeCount = 0
 
 		// Handling of timeout while in yolo mode or background exec mode
-		timeoutSeconds = resolveCommandTimeoutSeconds(
+		const timeoutSeconds = resolveCommandTimeoutSeconds(
 			command,
 			timeoutParam,
 			config.yoloModeToggled || config.vscodeTerminalExecutionMode === "backgroundExec",

@@ -9,14 +9,17 @@ import {
 	getBigmodelPlanModelInfo,
 	getDeepSeekModelInfo,
 	getMimoModelInfo,
+	getMoonshotModelInfo,
 	ModelInfo,
 	mimoDefaultModelId,
 	modelIdToWriteOnProviderSwitch,
+	moonshotDefaultModelId,
 	openAiModelInfoSaneDefaults,
 	resolveBigmodelModelId,
 	resolveBigmodelPlanModelId,
 	resolveCatalogModelId,
 	resolveMimoModelId,
+	resolveMoonshotModelId,
 } from "@shared/api"
 import { FREE_POOL } from "@shared/free-pools"
 import { Mode } from "@shared/storage/types"
@@ -119,6 +122,20 @@ export function normalizeApiConfiguration(
 				selectedModelInfo: getBigmodelPlanModelInfo(resolvedModelId, planModelInfo),
 			}
 		}
+		case "moonshot": {
+			// 与 MiMo/bigmodel 分支同构：小写归一 + 未知 id 保留，元数据走 getMoonshotModelInfo
+			const requestedModelId = modelId?.trim()
+			const resolvedModelId = requestedModelId
+				? (resolveMoonshotModelId(requestedModelId) ?? requestedModelId)
+				: moonshotDefaultModelId
+			const moonshotModelInfo =
+				currentMode === "plan" ? apiConfiguration?.planModeMoonshotModelInfo : apiConfiguration?.actModeMoonshotModelInfo
+			return {
+				selectedProvider: provider,
+				selectedModelId: resolvedModelId,
+				selectedModelInfo: getMoonshotModelInfo(resolvedModelId, moonshotModelInfo),
+			}
+		}
 		case "openai":
 			const openAiModelId =
 				currentMode === "plan" ? apiConfiguration?.planModeOpenAiModelId : apiConfiguration?.actModeOpenAiModelId
@@ -164,6 +181,7 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			mimoModelInfo: undefined,
 			bigmodelModelInfo: undefined,
 			bigmodelPlanModelInfo: undefined,
+			moonshotModelInfo: undefined,
 
 			// Other mode-specific fields
 			thinkingBudgetTokens: undefined,
@@ -188,6 +206,8 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			mode === "plan" ? apiConfiguration.planModeBigmodelModelInfo : apiConfiguration.actModeBigmodelModelInfo,
 		bigmodelPlanModelInfo:
 			mode === "plan" ? apiConfiguration.planModeBigmodelPlanModelInfo : apiConfiguration.actModeBigmodelPlanModelInfo,
+		moonshotModelInfo:
+			mode === "plan" ? apiConfiguration.planModeMoonshotModelInfo : apiConfiguration.actModeMoonshotModelInfo,
 
 		// Other mode-specific fields (thinking budget 随非目标 provider 已剥离)
 		thinkingBudgetTokens: undefined,
@@ -252,6 +272,13 @@ export async function syncModeConfigurations(
 			updates.actModeApiModelId = sourceFields.apiModelId
 			updates.planModeBigmodelPlanModelInfo = sourceFields.bigmodelPlanModelInfo
 			updates.actModeBigmodelPlanModelInfo = sourceFields.bigmodelPlanModelInfo
+			break
+
+		case "moonshot":
+			updates.planModeApiModelId = sourceFields.apiModelId
+			updates.actModeApiModelId = sourceFields.apiModelId
+			updates.planModeMoonshotModelInfo = sourceFields.moonshotModelInfo
+			updates.actModeMoonshotModelInfo = sourceFields.moonshotModelInfo
 			break
 
 		default:

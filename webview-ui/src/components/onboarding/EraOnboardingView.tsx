@@ -1,8 +1,9 @@
 import { BooleanRequest } from "@shared/proto/cline/common"
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 import { ArrowLeftIcon, FileCode2Icon, ShieldCheckIcon, SparklesIcon } from "lucide-react"
-import { memo, type ReactNode, useEffect, useState } from "react"
+import { memo, type ReactNode, useEffect, useRef, useState } from "react"
 import EraLogo from "@/assets/EraLogo"
+import BuiltinChatNoticeModal from "@/components/onboarding/BuiltinChatNoticeModal"
 import ApiOptions from "@/components/settings/ApiOptions"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { StateServiceClient } from "@/services/grpc-client"
@@ -17,12 +18,30 @@ import { validateApiConfiguration } from "@/utils/validate"
 const EraOnboardingView = memo(() => {
 	const { apiConfiguration, mode } = useExtensionState()
 	const [step, setStep] = useState<"intro" | "config">("intro")
+	// 首启必须确认的「右侧聊天不是本插件」模态（2026-11-04 用户裁定：太不显眼 → 强制确认）。
+	// 仅首启由 App.tsx 的 showWelcome（welcomeViewCompleted）门控，这里只管本次会话内是否已确认。
+	const [showBuiltinChatNotice, setShowBuiltinChatNotice] = useState(true)
 	const [apiErrorMessage, setApiErrorMessage] = useState<string | undefined>(undefined)
 	const [hasAttempted, setHasAttempted] = useState(false)
+	const backgroundRef = useRef<HTMLDivElement | null>(null)
 
 	useEffect(() => {
 		setApiErrorMessage(validateApiConfiguration(mode, apiConfiguration))
 	}, [apiConfiguration, mode])
+
+	// 模态显示期间把背景内容置 inert：遮罩只挡鼠标，键盘仍可 Tab 到「开始配置」/
+	// 「直接进入」按钮并绕过确认（2026-11-04 审查）。inert 同时切断鼠标与键盘，
+	// 卸载/确认后恢复，避免影响后续配置步骤。
+	useEffect(() => {
+		const el = backgroundRef.current as (HTMLDivElement & { inert?: boolean }) | null
+		if (!el) {
+			return
+		}
+		el.inert = showBuiltinChatNotice
+		return () => {
+			el.inert = false
+		}
+	}, [showBuiltinChatNotice])
 
 	const finish = async () => {
 		if (apiErrorMessage) {
@@ -40,7 +59,7 @@ const EraOnboardingView = memo(() => {
 
 	return (
 		<div className="fixed inset-0 flex flex-col overflow-auto">
-			<div className="m-auto w-full max-w-[520px] px-6 py-10 flex flex-col gap-6">
+			<div className="m-auto w-full max-w-[520px] px-6 py-10 flex flex-col gap-6" ref={backgroundRef}>
 				<div className="flex items-center gap-4">
 					<EraLogo className="size-16 shrink-0 text-(--vscode-foreground)" />
 					<div>
@@ -72,16 +91,6 @@ const EraOnboardingView = memo(() => {
 								icon={<SparklesIcon size={15} />}
 								title="文件修改范围可切换"
 							/>
-						</div>
-
-						<div
-							className="text-xs leading-relaxed rounded px-3 py-2"
-							style={{
-								background: "var(--vscode-inputValidation-warningBackground)",
-								border: "1px solid var(--vscode-inputValidation-warningBorder)",
-							}}>
-							注意：VS Code 右侧自带的「聊天」窗口是它内置的 Copilot，<b>不是 era harness</b>
-							。本插件的对话就在当前窗口——左侧活动栏的 era harness 图标。
 						</div>
 
 						<div className="flex flex-col gap-2 mt-2">
@@ -131,6 +140,9 @@ const EraOnboardingView = memo(() => {
 					</>
 				)}
 			</div>
+
+			{/* 不受 step 限制：只要本次会话还没确认就一直挡着，防止切到 config 后提示消失 */}
+			{showBuiltinChatNotice && <BuiltinChatNoticeModal onAck={() => setShowBuiltinChatNotice(false)} />}
 		</div>
 	)
 })

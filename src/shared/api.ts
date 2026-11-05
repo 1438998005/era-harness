@@ -967,6 +967,82 @@ export function getBigmodelPlanModelInfo(modelId: string, modelInfo?: ModelInfo)
 	return { ...bigmodelPlanModels[bigmodelPlanDefaultModelId], ...modelInfo }
 }
 
+// Kimi (Moonshot)
+// 官方文档（2026-11-04 逐页核对 platform.kimi.com，不是从第三方报道推测）：
+// - 控制台 https://platform.kimi.com/console/api-keys；文档索引 /docs/llms.txt
+// - 国内入口 https://api.moonshot.cn/v1（官方示例 base_url），国际入口 https://api.moonshot.ai/v1；
+//   两站密钥不互通（get-api-key.md；上游 Cline 即双入口下拉，默认 international）
+// - 模型列表 /docs/models.md：在售三款 kimi-k3.1-pro / kimi-k3.1-pro-highspeed / kimi-k3，
+//   均为 1M 上下文 + 视觉 + 工具调用；K2 系（kimi-k2.7-code/-highspeed、kimi-k2.6）已停止向
+//   新注册用户开放、预计 2026-12 底全面下线，moonshot-v1-* 与 kimi-k2-*-preview 均已下线——不收录
+// - K3.1 Pro（/docs/guide/kimi-k3-1-pro-quickstart）：**始终开启思考**，顶层 reasoning_effort
+//   low|high|max（默认 max）；max_completion_tokens 默认 131072、最大 1048576；
+//   temperature=1.0 / top_p=0.95 / n=1 / presence_penalty=0 / frequency_penalty=0 为固定值，
+//   不要显式传入；**多轮对话和工具调用必须原样回传完整 assistant message（含 reasoning_content）**
+//   ——与 MiMo 的 400 坑同族（知识库 18）
+// - 价格（2026-11-04 核对平台首页卡片，元/百万 tokens；⚠️ pricing/chat.md 表格未渲染出数字，
+//   首次实测对账时须复核，见知识库 27）：k3.1-pro 命中 1.3 / 未命中·写入 13 / 输出 68；
+//   highspeed 1.3 / 26 / 136；k3 2 / 20 / 100
+// 字段口径沿用 DeepSeek/MiMo：输入按「缓存命中 / 未命中」两档计价 → inputPrice 恒 0、
+// cacheReadsPrice=命中、cacheWritesPrice 承载未命中输入价（官方「缓存写入」价同为 13，
+// 且 usage 是否单列写入 token 未在文档中明确——近似口径，实测对账时复核）。
+export type MoonshotModelId = keyof typeof moonshotModels
+export const moonshotDefaultModelId: MoonshotModelId = "kimi-k3.1-pro"
+
+const moonshotBaseInfo: ModelInfo = {
+	name: "Kimi K3.1 Pro",
+	// 官方 max_completion_tokens 默认值（可调至 1,048,576；取默认档保守请求）
+	maxTokens: 131_072,
+	// 官方：上下文窗口 1M（1,048,576）
+	contextWindow: 1_048_576,
+	// 官方：原生支持视觉理解（图片 + 视频）
+	supportsImages: true,
+	// usage 带缓存命中明细，官方列了命中单价
+	supportsPromptCache: true,
+	// 官方：始终开启思考（reasoning_effort 三档）
+	supportsReasoning: true,
+	// 输入全部按「缓存命中 / 未命中」两档计价，inputPrice 恒为 0（与 DeepSeek/MiMo 同口径）
+	inputPrice: 0,
+	cacheReadsPrice: 1.3, // 输入（缓存命中），元/百万 tokens
+	cacheWritesPrice: 13, // 输入（缓存未命中）——官方「输入」档；缓存写入价同为 13（见上方复核注）
+	outputPrice: 68,
+}
+
+export const moonshotModels = {
+	"kimi-k3.1-pro": moonshotBaseInfo,
+	"kimi-k3.1-pro-highspeed": {
+		...moonshotBaseInfo,
+		name: "Kimi K3.1 Pro Highspeed",
+		cacheWritesPrice: 26,
+		outputPrice: 136,
+	},
+	"kimi-k3": {
+		...moonshotBaseInfo,
+		name: "Kimi K3",
+		cacheReadsPrice: 2,
+		cacheWritesPrice: 20,
+		outputPrice: 100,
+	},
+} as const satisfies Record<string, ModelInfo>
+
+const moonshotModelIdsByLowerCase = new Map<string, MoonshotModelId>(
+	Object.keys(moonshotModels).map((id) => [id.toLowerCase(), id as MoonshotModelId]),
+)
+
+export function resolveMoonshotModelId(modelId: string): MoonshotModelId | undefined {
+	return moonshotModelIdsByLowerCase.get(modelId.trim().toLowerCase())
+}
+
+export function getMoonshotModelInfo(modelId: string, modelInfo?: ModelInfo): ModelInfo {
+	const known = resolveMoonshotModelId(modelId)
+	if (known) {
+		// 已知模型一律以官方数据为准（与 DeepSeek/MiMo 同规则：历史配置残留的旧上限不让它显示）
+		return { ...moonshotModels[known] }
+	}
+	// 在线同步回来的未知模型：保留用户填写的上限，其余用默认模型的保守值
+	return { ...moonshotModels[moonshotDefaultModelId], ...modelInfo }
+}
+
 /**
  * 该 id 是否明显属于某家**有内置清单**的 provider。
  * 用来处理「切到无清单的 OpenAI 兼容端点时，别家的模型 id 会被原样发出去」。
@@ -979,7 +1055,8 @@ export function modelIdBelongsToKnownCatalog(modelId: string | undefined): boole
 	return (
 		resolveMimoModelId(modelId) !== undefined ||
 		resolveDeepSeekModelId(modelId) !== undefined ||
-		resolveBigmodelModelId(modelId) !== undefined
+		resolveBigmodelModelId(modelId) !== undefined ||
+		resolveMoonshotModelId(modelId) !== undefined
 	)
 }
 
@@ -997,6 +1074,8 @@ export function apiProviderDefaultModelId(provider: string | undefined): string 
 			return bigmodelDefaultModelId
 		case "bigmodel-plan":
 			return bigmodelPlanDefaultModelId
+		case "moonshot":
+			return moonshotDefaultModelId
 		default:
 			return undefined
 	}
@@ -1016,6 +1095,8 @@ export function isBuiltinModelId(provider: string | undefined, modelId: string |
 			return resolveBigmodelModelId(modelId) !== undefined
 		case "bigmodel-plan":
 			return resolveBigmodelPlanModelId(modelId) !== undefined
+		case "moonshot":
+			return resolveMoonshotModelId(modelId) !== undefined
 		default:
 			return true
 	}

@@ -55,7 +55,9 @@ export function fromProtobufModelInfo(protoInfo: OpenRouterModelInfo): ModelInfo
 		description: protoInfo.description,
 		thinkingConfig: convertThinkingConfig(protoInfo.thinkingConfig),
 		supportsGlobalEndpoint: protoInfo.supportsGlobalEndpoint,
-		tiers: protoInfo.tiers.length > 0 ? protoInfo.tiers : undefined,
+		// #233：`?.length` 空值防御——通用分派可能把无 tiers 字段的 proto message（Oca）或
+		// 手工构造的对象喂进来；真 protobuf-es 实例恒为数组，但 app 侧对象不保证
+		tiers: protoInfo.tiers?.length ? protoInfo.tiers : undefined,
 	}
 }
 
@@ -96,7 +98,7 @@ export function fromProtobufOpenAiCompatibleModelInfo(protoInfo: ProtoOpenAiComp
 		description: protoInfo.description,
 		thinkingConfig: convertThinkingConfig(protoInfo.thinkingConfig),
 		supportsGlobalEndpoint: protoInfo.supportsGlobalEndpoint,
-		tiers: protoInfo.tiers.length > 0 ? protoInfo.tiers : undefined,
+		tiers: protoInfo.tiers?.length ? protoInfo.tiers : undefined, // #233 空值防御，同 fromProtobufModelInfo
 		temperature: protoInfo.temperature,
 		isR1FormatRequired: protoInfo.isR1FormatRequired,
 	}

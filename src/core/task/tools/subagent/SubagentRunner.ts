@@ -340,7 +340,6 @@ export class SubagentRunner {
 
 		try {
 			const mode = this.baseConfig.services.stateManager.getGlobalSettingsKey("mode")
-			const apiConfiguration = this.baseConfig.services.stateManager.getApiConfiguration()
 			const api = this.apiHandler
 			this.activeApiAbort = api.abort?.bind(api)
 
@@ -357,9 +356,10 @@ export class SubagentRunner {
 				void this.abort()
 			}, 5_000)
 
-			const providerId = (
-				mode === "plan" ? apiConfiguration.planModeApiProvider : apiConfiguration.actModeApiProvider
-			) as string
+			// providerId 取 Builder 解析后的生效口径（辅助配置生效时是辅助 provider，
+			// 而不是主配置的），与实际发请求的 api handler 对齐（2026-11-04 独立辅助模型）。
+			const resolved = this.agent.getResolvedProviderMode()
+			const providerId = (resolved.providerId ?? "deepseek") as string
 			const providerInfo = {
 				providerId,
 				model: api.getModel(),

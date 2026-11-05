@@ -3,7 +3,8 @@ import { PromptRegistry } from "@core/prompts/system-prompt"
 import { ClineToolSet } from "@core/prompts/system-prompt/registry/ClineToolSet"
 import type { SystemPromptContext } from "@core/prompts/system-prompt/types"
 import { ClineDefaultTool } from "@shared/tools"
-import { ApiProvider } from "@/shared/api"
+import { ApiConfiguration, ApiProvider } from "@/shared/api"
+import { extractAuxiliaryOverride, resolveAuxiliaryApiConfiguration } from "@/shared/aux-model"
 import { getProviderModelIdKey } from "@/shared/storage/provider-keys"
 import type { TaskConfig } from "../types/TaskConfig"
 import type { AgentBaseConfig } from "./AgentConfigLoader"
@@ -67,6 +68,9 @@ export class SubagentBuilder {
 	private readonly agentConfig: AgentConfig = {}
 	private readonly allowedTools: ClineDefaultTool[]
 	private readonly apiHandler: ReturnType<typeof buildApiHandler>
+	/** 实际生效的配置（辅助配置或主配置），Runner 的 providerId/model 统计从这里取，避免口径分裂。 */
+	private readonly resolvedApiConfiguration: ApiConfiguration
+	private readonly resolvedMode: "plan" | "act"
 
 	constructor(
 		private readonly baseConfig: TaskConfig,
@@ -78,16 +82,36 @@ export class SubagentBuilder {
 
 		const mode = this.baseConfig.services.stateManager.getGlobalSettingsKey("mode")
 		const apiConfiguration = this.baseConfig.services.stateManager.getApiConfiguration()
-		const effectiveApiConfiguration = {
-			...apiConfiguration,
-			ulid: this.baseConfig.ulid,
-		} as Record<string, unknown>
-		this.applyModelOverride(effectiveApiConfiguration, mode, this.agentConfig.modelId)
-		this.apiHandler = buildApiHandler(effectiveApiConfiguration as typeof apiConfiguration, mode)
+		// 独立辅助模型（2026-11-04）：配置了「子代理」专用 provider+密钥时走辅助配置（可跨厂商），
+		// 未配置时 undefined → 原样走主配置（零行为变化）。yaml 的 modelId 覆盖传入 resolve 内处理，
+		// 优先级（yaml > 辅助所选 > 主配置）判据单源在 @shared/aux-model。
+		const auxConfiguration = resolveAuxiliaryApiConfiguration(
+			extractAuxiliaryOverride(apiConfiguration, "subagent"),
+			apiConfiguration,
+			mode,
+			this.agentConfig.modelId,
+		)
+		this.resolvedMode = mode
+		this.resolvedApiConfiguration = { ...(auxConfiguration ?? apiConfiguration), ulid: this.baseConfig.ulid }
+		// yaml modelId 兜底套用：aux 未生效时走旧路径（主配置 + applyModelOverride）；
+		// aux 已生效时 yaml 已在 resolve 内消费，这里再套一次是幂等的（同为 yaml 值）。
+		this.applyModelOverride(this.resolvedApiConfiguration as Record<string, unknown>, mode, this.agentConfig.modelId)
+		this.apiHandler = buildApiHandler(this.resolvedApiConfiguration, mode)
 	}
 
 	getApiHandler(): ReturnType<typeof buildApiHandler> {
 		return this.apiHandler
+	}
+
+	/** 实际生效的 providerId / mode（Runner 的统计口径与请求侧对齐用）。 */
+	getResolvedProviderMode(): { providerId: string | undefined; mode: "plan" | "act" } {
+		return {
+			providerId:
+				this.resolvedMode === "plan"
+					? this.resolvedApiConfiguration.planModeApiProvider
+					: this.resolvedApiConfiguration.actModeApiProvider,
+			mode: this.resolvedMode,
+		}
 	}
 
 	getAllowedTools(): ClineDefaultTool[] {

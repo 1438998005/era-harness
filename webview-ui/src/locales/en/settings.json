@@ -451,8 +451,24 @@
 			"setupInstructions": "Setup Instructions"
 		},
 		"moonshot": {
-			"name": "Moonshot",
-			"entrypoint": "Moonshot Entrypoint"
+			"name": "Kimi (Moonshot)",
+			"entrypoint": "Kimi Entrypoint",
+			"apiKeyLabel": "Kimi API Key",
+			"consoleButton": "Open Kimi Platform (API Keys)",
+			"docsButton": "API Docs",
+			"lineLabel": "Kimi Entrypoint",
+			"lineChina": "China (api.moonshot.cn)",
+			"lineInternational": "International (api.moonshot.ai)",
+			"lineHint": "China endpoint: https://api.moonshot.cn/v1; international endpoint: https://api.moonshot.ai/v1. Keys are NOT interchangeable between the two sites: a key created on platform.kimi.com only works with the China endpoint. Switching the entrypoint requires a key from the matching site.",
+			"syncOk": "Synced {{count}} models from Kimi",
+			"syncFail": "Sync failed, using the built-in catalog",
+			"syncIdle": "Enter your key to sync the official model list",
+			"refresh": "Refresh model list",
+			"refreshing": "Syncing…",
+			"unknownModel": "This model is not in the built-in catalog; context and output limits fall back to K3.1-series public values.",
+			"reasoningLabel": "Reasoning effort (reasoning_effort)",
+			"reasoningDescription": "K3.1 models always reason: low=light, high=deep, xhigh=max (sent as max, the official default). Omitted values use the official default. temperature and top_p are fixed server-side (1.0 / 0.95) and are not sent by the extension.",
+			"priceNote": "Prices are official pay-as-you-go rates (CNY / million tokens): input is split into cache-hit / cache-miss tiers, and the 1M context window is billed uniformly. The Kimi API platform is pay-as-you-go only; no subscription plans."
 		},
 		"minimax": {
 			"name": "MiniMax",

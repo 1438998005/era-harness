@@ -1,4 +1,5 @@
 import { buildApiHandler } from "@core/api"
+import { extractAuxiliaryOverride, resolveAuxiliaryApiConfiguration } from "@shared/aux-model"
 import {
 	buildEnhancePromptSystemPrompt,
 	ENHANCE_PROMPT_MAX_OUTPUT_CHARS,
@@ -32,7 +33,14 @@ export async function enhancePrompt(controller: Controller, request: StringReque
 
 	try {
 		const apiConfiguration = controller.stateManager.getApiConfiguration()
-		const api = buildApiHandler(apiConfiguration, "act")
+		// 独立辅助模型（2026-11-04）：配置了「提示词增强」专用 provider+密钥时走辅助配置，
+		// 未配置时 undefined → 原样走主配置（零行为变化）。判据单源在 @shared/aux-model。
+		const auxConfiguration = resolveAuxiliaryApiConfiguration(
+			extractAuxiliaryOverride(apiConfiguration, "enhance"),
+			apiConfiguration,
+			"act",
+		)
+		const api = buildApiHandler(auxConfiguration ?? apiConfiguration, "act")
 		const { text, context } = parsed.request
 		const userContent = context ? `${text}\n\n<context>\n${context}\n</context>` : text
 		const stream = api.createMessage(buildEnhancePromptSystemPrompt(), [{ role: "user", content: userContent }])

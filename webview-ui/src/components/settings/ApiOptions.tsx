@@ -15,6 +15,7 @@ import { BigmodelProvider } from "./providers/BigmodelProvider"
 import { DeepSeekProvider } from "./providers/DeepSeekProvider"
 import { FreeModelProvider } from "./providers/FreeModelProvider"
 import { MimoProvider } from "./providers/MimoProvider"
+import { MoonshotProvider } from "./providers/MoonshotProvider"
 import { OpenAICompatibleProvider } from "./providers/OpenAICompatible"
 import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers"
 
@@ -48,13 +49,14 @@ const ApiOptions = ({
 	modelIdErrorMessage,
 	isPopup,
 	currentMode,
-	initialModelTab,
+	// prop 仍在接口里（调用方传值），组件内暂未消费
+	initialModelTab: _initialModelTab,
 }: ApiOptionsProps) => {
 	const { t } = useTranslation("settings")
 	// Use full context state for immediate save payload
 	const { apiConfiguration, remoteConfigSettings } = useExtensionState()
 
-	const { selectedProvider, selectedModelId } = normalizeApiConfiguration(apiConfiguration, currentMode)
+	const { selectedProvider } = normalizeApiConfiguration(apiConfiguration, currentMode)
 
 	const { handleModeFieldsChange } = useApiConfigurationHandlers()
 
@@ -344,6 +346,9 @@ const ApiOptions = ({
 
 			{apiConfiguration && selectedProvider === "bigmodel-plan" && (
 				<BigmodelPlanProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
+			{apiConfiguration && selectedProvider === "moonshot" && (
+				<MoonshotProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
 			)}
 
 			{apiConfiguration && selectedProvider === "openai" && (
