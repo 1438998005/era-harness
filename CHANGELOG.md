@@ -3,6 +3,50 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.101.0 — 2026-11-05
+
+> 功能版：Kimi（月之暗面 / Moonshot）接入 + 提示词增强/子代理各一套独立模型配置；
+> 同批完成免费池修池 18 项、#214–#235 review 修复，以及主仓库回迁 GitHub（jihulab 降为备用渠道）。
+
+### 新增 · Kimi / Moonshot provider（#218）
+
+- 双入口（`api.moonshot.cn` 默认 / `.ai`）、在售 3 款模型、在线模型同步、`reasoning_effort` 三档。
+- 快速切换菜单补 Kimi（#222）。
+
+### 新增 · 独立模型配置（#217）
+
+- 提示词增强与子代理各一套独立模型配置：跨厂商、平铺字段、agent YAML 覆盖优先级。
+- 主模型为免费档时，辅助模型设置区常驻（#224）。
+
+### 修复 · 配置与模型分派
+
+- **#230**：辅助配置「清空 / 跟随主模型」改为显式删除（`AUXILIARY_CONFIG_KEYS` 单源 + `clearApiConfigurationFields` 真删通道）。
+- **#233**：`*ModelInfo` 分派改按 proto 类型映射表（Oca 不再 TypeError、Aihubmix 不丢 `temperature`、补 `lite_llm` 漏转）；symmetry 测试重写 + `model-info-proto-mapping` 元测试锁三方一致。
+- **#235**：free 辅助不残留主配置密钥 / 入口；合并顺序抽 `mergeApiConfigurationCaches` 单源。
+- **#232**：在线同步竞态加 `requestId` 代际守卫，旧响应 / 旧错误不覆盖新结果。
+- **#231**：`MoonshotProvider` i18n key 去掉 `settings.` 叠层；测试改真实 locale 查表 + `MISSING_I18N_KEY` 哨兵 + 元测试防同类。
+
+### 修复 · 交互、模板与免费池
+
+- **#214 / #215**：MiMo 官方模板通用 `</parameter>` 收口保护区参数 + 用户可见报错品牌化。
+- **#216 / #221**：首启「右侧聊天不是插件」必须确认模态（焦点锁 + `inert`，键盘不可绕过）。
+- **#229**：免费池 21 → 18 项——移除 6 个死项、新增 3 条真实免费行、排除 2 个虚拟路由器、按社区评价权重重排（Nemotron 3.5 Super VL 池首）。
+
+### 仓库与发布渠道
+
+- 主仓库回迁 `github.com/1438998005/era-harness`（删库重建后从 jihulab 推回脱敏历史），jihulab 降为单向代码镜像 + 备用 Release 渠道。
+- `package.json` 的 `repository.url` 与 `scripts.vsix` 的 `--baseContentUrl` / `--baseImagesUrl`、README 友情链接说明、关于页文案与「Release 页面」链接同步改指 GitHub。
+- 更新器逻辑零改动：`RELEASE_SOURCE_ORDER = ["github","jihulab"]`、`scanSources()` 逐渠道独立限时扫描、两个下载按钮互不兜底（D41 的②/③继续生效）。
+- GitHub 侧因删库重建，15 个旧 Release（v3.87.1～v3.91.12）及其资产已清空；本版是重建后的第一条 GitHub Release，jihulab 侧保留完整历史。
+- 校验口径两套不混用：GitHub 用 `assets[].digest`，jihulab 用同一 Release 里配套的 `<vsix>.sha256`。
+- 已知项：#234 Moonshot 多轮 `reasoning_content` 仍待真实 Kimi Key 实弹回放（本批对 #234 行为零改动）。
+
+### 工程
+
+- `biome lint` error 清零（`useConst` / 未用参数 / 未用导入）+ format / organizeImports 归一。
+
+**回归**：`check-types`（含 protos）0 错、`test:update` 922/922、`test:ui` 80/80、`test:free` 27/27、`test:toolcall` 58/58；宿主与 webview 双产物已重打。
+
 ## 3.100.0 — 2026-11-04
 
 > 功能版：新增发送按钮旁的**提示词增强**、资源管理器**右键「添加到聊天」**与**内置聊天窗口治理**；

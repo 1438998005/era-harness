@@ -2,7 +2,7 @@
 	"name": "era-harness",
 	"displayName": "era harness",
 	"description": "eraTW / Emuera 脚本工程的 AI 开发助手：CP932/UTF-8 安全读写、引擎日志诊断、404 条指令与语法手册（含 Emuera 规格页，可在线同步、可发现新页）、真实启动引擎验证加载。改动先出 diff，审批后才落盘；无账号、无遥测，仅本地安装。",
-	"version": "3.100.0",
+	"version": "3.101.0",
 	"icon": "assets/icons/icon.png",
 	"workspaces": [
 		"."
