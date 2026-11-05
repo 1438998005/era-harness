@@ -71,15 +71,15 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 				<div className="flex px-4 flex-col gap-2">
 					<h2 className="text-lg font-semibold">era harness v{version}</h2>
 					<p className="m-0">
-						eraTW 画蛇添足版开发助手。不发布到插件市场，仅通过本仓库的 GitHub / jihulab 两处 Release 分发；也可以直接
-						sideload 本地 vsix。
+						eraTW 画蛇添足版开发助手。不发布到插件市场，主发布渠道为 GitHub Releases，jihulab 为备用镜像与备用 Release
+						渠道；也可以直接 sideload 本地 vsix。
 					</p>
 
 					<div className="flex items-center gap-2">
 						<VSCodeButton appearance="secondary" disabled={checking} onClick={checkForUpdates}>
 							{checking ? "已发起…" : "检查更新"}
 						</VSCodeButton>
-						<VSCodeLink href="https://jihulab.com/eraharness/era-harness/-/releases">Release 页面</VSCodeLink>
+						<VSCodeLink href="https://github.com/1438998005/era-harness/releases/latest">Release 页面</VSCodeLink>
 					</div>
 					<p className="m-0 text-xs text-description">
 						只有你点「检查更新」才会联网检查；发现有新版本后，要你自己选「从 GitHub 下载」或「从 jihulab

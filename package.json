@@ -14,7 +14,7 @@
 	"publisher": "eraharness",
 	"repository": {
 		"type": "git",
-		"url": "https://jihulab.com/eraharness/era-harness"
+		"url": "https://github.com/1438998005/era-harness"
 	},
 	"categories": [
 		"AI",
@@ -471,7 +471,7 @@
 		"watch:esbuild": "node esbuild.mjs --watch",
 		"watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
 		"package": "npm run check-types && npm run build:webview && npm run lint && node esbuild.mjs --production",
-		"vsix": "vsce package --baseContentUrl https://jihulab.com/eraharness/era-harness/-/raw/main --baseImagesUrl https://jihulab.com/eraharness/era-harness/-/raw/main",
+		"vsix": "vsce package --baseContentUrl https://github.com/1438998005/era-harness/blob/main --baseImagesUrl https://github.com/1438998005/era-harness/raw/main",
 		"protos": "node scripts/build-proto.mjs",
 		"protos-python": "node scripts/build-python-proto.mjs",
 		"download-ripgrep": "node scripts/download-ripgrep.mjs",

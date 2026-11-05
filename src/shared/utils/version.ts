@@ -16,7 +16,7 @@ export interface ReleaseAsset {
  * 两条**互相独立**的发布渠道：各自查、各自下，下载地址都来自各自接口。
  *
  * 刻意不做「一个源 + 一个加速前缀」的拼接——jihulab 的地址不是 GitHub 地址的变形，
- * 而且账号受限时 GitHub 整条链路都不通，前缀方案救不了。
+ * 而且 GitHub 整条链路不可达时（例如账号受限期间），前缀方案救不了。
  */
 export type ReleaseSource = "github" | "jihulab"
 
@@ -49,7 +49,7 @@ export const RELEASE_SOURCES: Record<ReleaseSource, ReleaseSourceMeta> = {
 	},
 }
 
-/** 检查顺序：先 GitHub，连不上再问 jihulab */
+/** 扫描顺序：GitHub 在前、jihulab 在后；两条都会各自独立扫描，不是「失败才问下一条」 */
 export const RELEASE_SOURCE_ORDER: readonly ReleaseSource[] = ["github", "jihulab"]
 
 /** 单个 vsix 的体积上限：超过即视为异常资产 */

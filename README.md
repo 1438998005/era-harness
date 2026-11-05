@@ -137,6 +137,7 @@ npm test
 ## 友情链接
 
 - **森语 · 口上工作室**（v0.3.0）— 社区作者「巡之邱の斯塔酱」基于 era harness 二次开发的客户端，面向口上作者提供开箱即用的一键安装包。安装程序随本仓库 [Release](https://jihulab.com/eraharness/era-harness/-/releases) 友情分发（见资产列表 `森语口上工作室-*-安装程序.exe`，附同名 `.sha256` 校验文件）；源码包可向作者索取。其功能与内容属原作者所有，本项目未逐一审核。
+  - 渠道说明：本仓库主发布页为 [GitHub Releases](https://github.com/1438998005/era-harness/releases/latest)，jihulab 为备用镜像与备用 Release 渠道；该社区客户端的安装程序目前挂在备用渠道的资产列表里，主渠道补挂后以主渠道为准。
 
 ---
 
