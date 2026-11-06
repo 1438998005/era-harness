@@ -157,6 +157,12 @@ message Settings {
   optional OpenRouterModelInfo subagent_model_info = 211;
   optional string subagent_reasoning_effort = 212;
   optional string subagent_moonshot_api_line = 213;
+  optional string deep_seek_reasoning_effort = 214;
+  optional string mimo_reasoning_effort = 215;
+  optional string bigmodel_reasoning_effort = 216;
+  optional string bigmodel_plan_reasoning_effort = 217;
+  optional string moonshot_reasoning_effort = 218;
+  optional string pinned_model_id = 219;
 }
 
 message State {

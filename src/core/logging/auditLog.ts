@@ -33,6 +33,8 @@ import {
 	parseExportMarker,
 	serializeAuditEntry,
 	summarizeErrorEvents,
+	summarizeModelHealth,
+	summarizeSilentSuspects,
 	summarizeToolFailures,
 } from "./audit-log-format"
 
@@ -226,13 +228,21 @@ export async function exportDiagnostics(header: DiagnosticsHeader): Promise<Diag
 
 	// #63：统计口径是**包内**（折叠之后）——头部说几条，正文就得能数出几条。
 	// 折叠摘要行自己写了「另有 N 条已折叠」，不在小计里重复计入。
-	const errorStats = { ...summarizeErrorEvents(lines), toolFailures: summarizeToolFailures(lines) }
+	const errorStats = {
+		...summarizeErrorEvents(lines),
+		toolFailures: summarizeToolFailures(lines),
+		silentSuspects: summarizeSilentSuspects(lines),
+	}
+	// 08 #240：健康度表同样只统计**包内**（折叠之后）的行，与上面三个小计同源；
+	// 纯展示，不参与 failover / 候选链 / 池序决策。
+	const modelHealth = summarizeModelHealth(lines)
 
 	const body = [
 		buildDiagnosticsHeader({
 			...header,
 			generatedAt: now,
 			errorStats,
+			modelHealth,
 			auditWindow: { sinceIso: new Date(auditWindow.sinceMs).toISOString(), source: auditWindow.source },
 		}),
 		"",

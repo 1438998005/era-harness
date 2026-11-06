@@ -143,6 +143,7 @@ import { StreamResponseHandler } from "./StreamResponseHandler"
 import { TaskPresentationScheduler } from "./TaskPresentationScheduler"
 import { TaskState } from "./TaskState"
 import { ToolExecutor } from "./ToolExecutor"
+import type { CommandExecutionMeta } from "./tool-outcome"
 import { detectAvailableCliTools, extractProviderDomainFromUrl, updateApiReqMsg } from "./utils"
 import { buildUserFeedbackContent } from "./utils/buildUserFeedbackContent"
 
@@ -1798,7 +1799,7 @@ export class Task {
 		command: string,
 		timeoutSeconds: number | undefined,
 		options?: CommandExecutionOptions,
-	): Promise<[boolean, ClineToolResponseContent]> {
+	): Promise<[boolean, ClineToolResponseContent, CommandExecutionMeta?]> {
 		return this.commandExecutor.execute(command, timeoutSeconds, options)
 	}
 

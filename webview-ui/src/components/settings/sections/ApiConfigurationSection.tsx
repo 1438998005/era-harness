@@ -22,24 +22,22 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 	const { planActSeparateModelsSetting, mode, apiConfiguration } = useExtensionState()
 	const [currentTab, setCurrentTab] = useState<Mode>(mode)
 	const { handleFieldsChange } = useApiConfigurationHandlers()
-	// 免费模型页要求「页面不滚、滚动条收进模型池表格内部」：isFree 时打通
-	// 根 div → Section → ApiOptions → FreeModelProvider 的高度链（h-full / flex-1 / min-h-0），
-	// 由 FreePoolTable 的 wrapper 作为唯一滚动容器；其他提供商不受影响。
-	// 注意与下方 ApiOptions 的 currentMode 同源：分开模型时看 currentTab，否则看全局 mode——
-	// 若只看 mode，切到另一模式的 tab 时高度链会错套到别的提供商页上。
+	// KB 08 #236（2026-11-05 用户裁定）：整页滚为主、表格内滚只在表格区域生效。
+	// 页面唯一主滚动容器是 SettingsView 的 TabContent(overflow-auto)；免费池页不再打通
+	// h-full / flex-1 / min-h-0 高度链，否则模型池会吃满视口、把辅助模型区挤出屏幕。
+	// 表格自己按 FREE_POOL_MIN_VISIBLE_ROWS 设最大高度（保底 10 行）：从表格往下滚能
+	// 一路到辅助模型区、无断点，内滚条只在表格区域生效、不抢整页滚轮。
+	// 注意与下方 ApiOptions 的 currentMode 同源：分开模型时看 currentTab，否则看全局 mode（#224 防回归）。
 	const displayedMode = planActSeparateModelsSetting ? currentTab : mode
 	const isFree = normalizeApiConfiguration(apiConfiguration, displayedMode).selectedProvider === "free"
 	return (
-		<div className={isFree ? "flex h-full flex-col" : undefined}>
+		<div data-free-provider={isFree ? "true" : undefined}>
 			{renderSectionHeader?.("api-config")}
-			<Section className={isFree ? "flex-1 min-h-0" : undefined}>
+			<Section>
 				{/* Tabs container */}
 				{planActSeparateModelsSetting ? (
-					<div className={`rounded-md mb-5${isFree ? " flex flex-1 min-h-0 flex-col" : ""}`}>
-						<div
-							className={`flex gap-px mb-[10px] -mt-2 border-0 border-b border-solid border-(--vscode-panel-border)${
-								isFree ? " shrink-0" : ""
-							}`}>
+					<div className="rounded-md mb-5">
+						<div className="flex gap-px mb-[10px] -mt-2 border-0 border-b border-solid border-(--vscode-panel-border)">
 							<TabButton
 								disabled={currentTab === "plan"}
 								isActive={currentTab === "plan"}
@@ -62,8 +60,8 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 							</TabButton>
 						</div>
 
-						{/* Content container */}
-						<div className={`-mb-3${isFree ? " flex flex-col flex-1 min-h-0" : ""}`}>
+						{/* Content container：#236 后不再参与高度链，整页滚交给外层 TabContent */}
+						<div className="-mb-3">
 							<ApiOptions currentMode={currentTab} initialModelTab={initialModelTab} showModelOptions={true} />
 						</div>
 					</div>
@@ -71,7 +69,7 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 					<ApiOptions currentMode={mode} initialModelTab={initialModelTab} showModelOptions={true} />
 				)}
 
-				<div className={`mb-[5px]${isFree ? " shrink-0" : ""}`}>
+				<div className="mb-[5px]">
 					<VSCodeCheckbox
 						checked={planActSeparateModelsSetting}
 						className="mb-[5px]"
@@ -99,9 +97,10 @@ const ApiConfigurationSection = ({ renderSectionHeader, initialModelTab }: ApiCo
 				</div>
 
 				{/* 「提示词增强 / 子代理」独立模型配置（默认跟随主模型零行为变化）。
-				     主模型是免费池时也必须可见——「主免费 + 辅助付费」同样是跨厂商场景；
-				     免费池页有「表格内部滚动」的高度链，这里限高自身滚动、不挤压主表格。 */}
-				<div className={isFree ? "shrink-0 max-h-[40vh] overflow-y-auto" : undefined}>
+			     主模型是免费池时也必须可见——「主免费 + 辅助付费」同样是跨厂商场景；
+			     KB 08 #236：不再限高自身滚动，交给页面唯一主滚动容器，
+			     保证从模型池往下滚能自然到达辅助区、中间没有断点。 */}
+				<div>
 					<AuxiliaryModelSettings />
 				</div>
 			</Section>

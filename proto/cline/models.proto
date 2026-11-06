@@ -686,4 +686,16 @@ message ModelsApiConfiguration {
   optional OpenRouterModelInfo subagent_model_info = 267;
   optional string subagent_reasoning_effort = 268;
   optional string subagent_moonshot_api_line = 269;
+
+  // KB 08 #237（2026-11-05 用户裁定）：思维强度按 provider 各存各的（全局单槽，不分 plan/act）。
+  // 与 state.proto Settings 的 214–218 一一对应；映射单源见 @shared/aux-model
+  // PROVIDER_REASONING_EFFORT_KEY。旧的 enhance/subagent_reasoning_effort 字段号不删、不复用。
+  // KB 08 #242：指定的真实上游模型 ID（非 displayName / 非下标），空 = 自动路由。
+  // 与 state.proto Settings 的 219 对应；与 #237 的 270–274 号段不冲突。
+  optional string pinned_model_id = 275;
+  optional string deep_seek_reasoning_effort = 270;
+  optional string mimo_reasoning_effort = 271;
+  optional string bigmodel_reasoning_effort = 272;
+  optional string bigmodel_plan_reasoning_effort = 273;
+  optional string moonshot_reasoning_effort = 274;
 }

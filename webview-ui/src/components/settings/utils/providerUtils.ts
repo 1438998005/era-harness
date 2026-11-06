@@ -50,20 +50,27 @@ export function normalizeApiConfiguration(
 	const modelId = modelIdToWriteOnProviderSwitch(provider, rawModelId) ?? rawModelId
 
 	switch (provider) {
-		case "free":
+		case "free": {
 			// 免费模型：路由自动选模型，无用户可选模型 id。
 			// 上下文窗口必须用真实值：openAiModelInfoSaneDefaults 的 128_000 是通用占位，
 			// 会让 UI 把所有免费模型都显示成 128k（实际池内为 32k~1M）。
-			// 后端从 FREE_POOL[0] 开始尝试，失败才 failover，所以取首候选的窗口。
-			// 局限：failover 到后续候选后这里会偏大；真实值以环境详情为准（后端按 activeCandidate 计算）。
+			// 自动路由下后端从 FREE_POOL[0] 开始尝试，失败才 failover，所以取首候选的窗口。
+			// KB 08 #241 重排后池首是 Beam 1.0（窗口随之变大）；这里从池定义派生，池首换了自动联动，
+			// ⛔ 不要把旧池首的窗口字面量写死回来。局限：failover 到后续候选后这里会偏大；
+			// 真实值以环境详情为准（后端按 activeCandidate 计算）。
+			// KB 08 #242：指定模型时取该候选的窗口（与 free.ts getModel() 同口径）；
+			// 存的是真实上游 ID，⛔ 不能用 displayName/下标查找，#241 重排后仍指向同一模型。
+			const pinnedId = apiConfiguration?.pinnedModelId?.trim()
+			const windowCandidate = pinnedId ? FREE_POOL.find((c) => c.id === pinnedId) : undefined
 			return {
 				selectedProvider: "free",
 				selectedModelId: "",
 				selectedModelInfo: {
 					...openAiModelInfoSaneDefaults,
-					contextWindow: FREE_POOL[0]?.contextWindow ?? openAiModelInfoSaneDefaults.contextWindow,
+					contextWindow: (windowCandidate ?? FREE_POOL[0])?.contextWindow ?? openAiModelInfoSaneDefaults.contextWindow,
 				},
 			}
+		}
 		case "deepseek": {
 			// 大小写归一 + 未知 id 保留：与 MiMo 分支、扩展侧 getDeepSeekModelInfo 共用同一份规则，
 			// 否则会出现「设置页显示 flash、扩展实际发 pro」。

@@ -181,6 +181,7 @@ export const DeepSeekProvider = ({ showModelOptions, isPopup, currentMode }: Dee
 							description="DeepSeek V4 默认开启思考：low=轻量、high=深度（默认）、xhigh=最大（发送为 max）。不传则用官方默认值。"
 							label="思维强度（reasoning_effort）"
 							labels={{ low: "低（low）", high: "高（high，默认）", xhigh: "最大（max）" }}
+							provider="deepseek"
 						/>
 					)}
 

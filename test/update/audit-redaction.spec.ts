@@ -5,6 +5,7 @@
  * 而是"绝不可能带出正文/密钥"，以及一条记录必须能安全地压成一行 JSONL。
  */
 import assert from "node:assert/strict"
+import fs from "node:fs"
 import test from "node:test"
 import {
 	AUDIT_EXPORT_DEFAULT_WINDOW_MS,
@@ -16,23 +17,38 @@ import {
 	cleanAuditText,
 	collectRecentLines,
 	compareAuditFilesDesc,
+	describeModelHealth,
 	diagnosticsFileName,
 	exportWindowStart,
 	filterLinesWithinWindow,
 	foldEventsForExport,
+	MODEL_HEALTH_COMMAND_TOOL,
 	parseAuditFileDate,
 	parseExportMarker,
 	sanitizeAuditEntry,
 	scrubSecrets,
 	serializeAuditEntry,
 	summarizeErrorEvents,
+	summarizeModelHealth,
+	summarizeSilentSuspects,
 } from "../../src/core/logging/audit-log-format"
-import { buildToolParamSnapshot, findDialectResidueParam } from "../../src/core/task/dialect-guard"
 import {
+	buildToolParamSnapshot,
+	buildUnclosedTagFailureMessage,
+	findDialectResidueParam,
+	findUnclosedTagResidueParam,
+	GUARDED_PARAMS,
+} from "../../src/core/task/dialect-guard"
+import {
+	type CommandExecutionMeta,
+	collectCommandStderrHints,
+	commandOutcomeFromMeta,
 	extractToolErrorMessage,
 	isToolDenied,
 	outcomeFromToolResponse,
+	STDERR_HINT_PATTERNS,
 	TOOL_DENIED_TEXT,
+	type ToolExecutionResult,
 } from "../../src/core/task/tool-outcome"
 import { planAuditDetail } from "../../src/core/update/describe"
 import type { UpdatePlan } from "../../src/core/update/types"
@@ -813,4 +829,267 @@ test("#185 planAuditDetail：模式/计数/警告/基线/reason 分布都在一�
 	assert.match(incremental, /mode=incremental/)
 	assert.match(incremental, /baseline=suspect/)
 	assert.equal(incremental.includes("warnings="), false, "没有警告就不出 warnings 键")
+})
+
+// —— 08 #238：命令结果判定的单源纯函数（先加测试再实现） ——
+
+/** 正常成功命令的 meta：exit 0、有输出、无 stderr 特征、未转储。 */
+const cleanCommandMeta: CommandExecutionMeta = {
+	exitCode: 0,
+	signal: undefined,
+	outputLength: 57,
+	stderrHints: [],
+	truncated: false,
+}
+
+test("#238 commandOutcomeFromMeta：四类回放 + 优先级 + 正常命令无误判", () => {
+	const ok: ToolExecutionResult = { outcome: "ok" }
+
+	// exit 255 / exit 1 → error，message 脱敏（只含退出码，绝不含命令输出正文）
+	for (const code of [255, 1]) {
+		const out = commandOutcomeFromMeta({ ...cleanCommandMeta, exitCode: code }, ok)
+		assert.equal(out.outcome, "error")
+		assert.equal(out.message, `Command failed with exit code ${code}.`)
+		assert.equal("suspect" in out, false)
+		assert.equal(out.message?.includes("Output"), false, "message 不得携带输出正文")
+	}
+
+	// 无 exitCode 但有 signal → error
+	const sig = commandOutcomeFromMeta({ ...cleanCommandMeta, exitCode: undefined, signal: "SIGTERM" }, ok)
+	assert.equal(sig.outcome, "error")
+	assert.equal(sig.message, "Command terminated by signal SIGTERM.")
+
+	// 管道 stderr（exit 0 + stderr 特征）→ 保持 ok + suspect，绝不判 error
+	const stderr = commandOutcomeFromMeta({ ...cleanCommandMeta, stderrHints: ["FINDSTR:"] }, ok)
+	assert.equal(stderr.outcome, "ok")
+	assert.equal(stderr.suspect, true)
+
+	// exit 0 零输出 → 保持 ok + suspect
+	const empty = commandOutcomeFromMeta({ ...cleanCommandMeta, outputLength: 0 }, ok)
+	assert.equal(empty.outcome, "ok")
+	assert.equal(empty.suspect, true)
+
+	// 输出被转储（未完整回传）→ 保持 ok + suspect
+	const truncated = commandOutcomeFromMeta({ ...cleanCommandMeta, truncated: true }, ok)
+	assert.equal(truncated.outcome, "ok")
+	assert.equal(truncated.suspect, true)
+
+	// 正常成功命令：不带 suspect（原样返回）
+	assert.equal(commandOutcomeFromMeta(cleanCommandMeta, ok), ok)
+	assert.equal("suspect" in commandOutcomeFromMeta(cleanCommandMeta, ok), false)
+	// meta 缺失时原样返回，拿不准不误报
+	assert.equal(commandOutcomeFromMeta(undefined, ok), ok)
+
+	// denied / error / cancelled 优先级不可被覆盖（即使 exitCode 非 0 或带 stderr 特征）
+	for (const base of [
+		{ outcome: "denied" as const, message: "denied" },
+		{ outcome: "error" as const, message: "err" },
+		{ outcome: "cancelled" as const, message: "cancel" },
+	]) {
+		assert.equal(commandOutcomeFromMeta({ ...cleanCommandMeta, exitCode: 255 }, base), base)
+		assert.equal(commandOutcomeFromMeta({ ...cleanCommandMeta, stderrHints: ["Traceback"] }, base), base)
+	}
+})
+
+test("#238 stderr 特征单源：只给 suspect 提示，不泛化到任意错误词", () => {
+	for (const pattern of ["FINDSTR:", "SyntaxError", "Traceback", "系统找不到指定的路径", "'head' 不是内部或外部命令"]) {
+		assert.ok(STDERR_HINT_PATTERNS.includes(pattern), `缺少特征: ${pattern}`)
+	}
+	assert.deepEqual(collectCommandStderrHints("FINDSTR: not found\nTraceback (most recent call last):"), [
+		"FINDSTR:",
+		"Traceback",
+	])
+	assert.deepEqual(collectCommandStderrHints("all good, warnings and errors are just prose"), [])
+	assert.equal(collectCommandStderrHints("").length, 0)
+})
+
+test("#238 suspect 落盘：只写真值、过白名单，正常命令不带字段", () => {
+	const hit = serializeAuditEntry({ event: "tool", tool: "execute_command", outcome: "ok", suspect: true }, 1)!
+	assert.equal(JSON.parse(hit).suspect, true)
+	const clean = serializeAuditEntry({ event: "tool", tool: "execute_command", outcome: "ok" }, 1)!
+	assert.equal("suspect" in JSON.parse(clean), false)
+	// 非布尔值不落盘
+	const bad = serializeAuditEntry({ event: "tool", suspect: "yes" as never }, 1)!
+	assert.equal("suspect" in JSON.parse(bad), false)
+})
+
+test("#238 summarizeSilentSuspects：只数 event=tool 且 suspect=true，不与工具失败混算", () => {
+	const lines = [
+		JSON.stringify({ event: "tool", tool: "execute_command", outcome: "ok", suspect: true }),
+		JSON.stringify({ event: "tool", tool: "execute_command", outcome: "ok" }),
+		JSON.stringify({ event: "tool", tool: "execute_command", outcome: "error" }),
+		JSON.stringify({ event: "tool", action: "folded", suspect: true }),
+		JSON.stringify({ event: "api", suspect: true }),
+		"not json",
+	]
+	assert.equal(summarizeSilentSuspects(lines), 1)
+	assert.equal(summarizeSilentSuspects([]), 0)
+})
+
+// —— 08 #239：标签残片单源防线 ——
+
+test("#239 findDialectResidueParam：畸形 regex 命中、合法正则不命中", () => {
+	// 畸形：参数值吞进了未闭合标签的闭/开残片
+	assert.equal(findDialectResidueParam({ path: ".", regex: "net</search_files>" }), "regex")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "net</regex>" }), "regex")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "<regex>net" }), "regex")
+	assert.equal(findDialectResidueParam({ path: "ERB</path>", regex: "net" }), "path")
+	assert.equal(findDialectResidueParam({ path: ".", file_pattern: "*.ERB</file_pattern>" }), "file_pattern")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "net</parameter>" }), "regex")
+	// 既有 DSML / parameter 判据不能回归
+	assert.equal(findDialectResidueParam({ path: "ERB</｜｜DSML｜｜ parameter>" }), "path")
+
+	// 合法：⛔ 绝不泛化到任意 `<`
+	assert.equal(findDialectResidueParam({ path: ".", regex: "\\<word\\>" }), undefined, "grep 词边界正则")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "<div>" }), undefined, "HTML 文本搜索")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "(?s)<div>.*</div>" }), undefined, "HTML 正则")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "foo\nbar\nbaz" }), undefined, "含换行合法正则")
+	assert.equal(findDialectResidueParam({ path: ".", regex: "net|foo" }), undefined, "普通多选正则")
+	// content/diff/command 正文类参数不在定位类名单：合法讨论 XML 不受影响
+	assert.equal(findDialectResidueParam({ content: "用法：<path>x</path>" }), undefined)
+})
+
+test("#239 findUnclosedTagResidueParam：与 findDialectResidueParam 同源，只认标签残片", () => {
+	assert.equal(findUnclosedTagResidueParam({ path: ".", regex: "net</search_files>" }), "regex")
+	assert.equal(findUnclosedTagResidueParam({ path: ".", regex: "net" }), undefined)
+	assert.equal(findUnclosedTagResidueParam({ path: ".", regex: "\\<word\\>" }), undefined)
+	assert.equal(findUnclosedTagResidueParam(undefined), undefined)
+	// DSML 残片不算「标签未闭合」，但仍是方言残片（两个函数职责分明、共用判据）
+	assert.equal(findUnclosedTagResidueParam({ path: "ERB</｜｜DSML｜｜ parameter>" }), undefined)
+	assert.equal(findDialectResidueParam({ path: "ERB</｜｜DSML｜｜ parameter>" }), "path")
+})
+
+test("#239 buildUnclosedTagFailureMessage：归因 + 脱敏回显 + 正确写法一步改对", () => {
+	assert.equal(buildUnclosedTagFailureMessage({ path: ".", regex: "net" }), undefined)
+	const msg = buildUnclosedTagFailureMessage({ path: ".", regex: "net</search_files>" })!
+	assert.match(msg, /疑似工具标签未闭合/)
+	assert.match(msg, /<regex>net<\/regex>/, "给一条正确写法示例")
+	assert.match(msg, /regex=/, "回显脱敏后的实际参数")
+	// 回显复用 buildToolParamSnapshot：content 正文整段排除
+	const withBody = buildUnclosedTagFailureMessage({ path: ".", regex: "net</regex>", content: "【文件正文】" })!
+	assert.equal(withBody.includes("【文件正文】"), false, "正文类参数不得进回显")
+	// 实测现场形态：整段后续标签被吞进 regex，示例仍给出剥干净的第一行真实值
+	const real = buildUnclosedTagFailureMessage(
+		{ path: ".", regex: "净土</path>\n<file_pattern>*.erb\n</search_files>" },
+		"regex",
+	)!
+	assert.match(real, /<regex>净土<\/regex>/, "一步改对的示例用真实值，不给占位符")
+})
+
+test("#239 结构性：GUARDED_PARAMS 覆盖 search_files 的三个定位类参数", () => {
+	const names: readonly string[] = GUARDED_PARAMS
+	for (const key of ["path", "regex", "file_pattern"]) {
+		assert.ok(names.includes(key), `${key} 必须在 GUARDED_PARAMS 单源名单里`)
+	}
+})
+
+test("#239 expectedParam：通用防线的归因必须指向被拦下的那个参数", () => {
+	const params = { path: ".", regex: "net</search_files>" }
+	const msg = buildUnclosedTagFailureMessage(params, "regex")!
+	assert.match(msg, /'regex'/, "归因指名 regex")
+	assert.match(msg, /疑似工具标签未闭合/)
+	// 多参数同时污染：通用防线拦下的是 path（DSML），标签残片在 regex，
+	// 此时不能把归因错记到 regex 上，应返回 undefined 让通用防线落回 #45 文案。
+	const mixed = { path: "ERB</｜｜DSML｜｜ parameter>", regex: "net</search_files>" }
+	assert.equal(findDialectResidueParam(mixed), "path")
+	assert.equal(findUnclosedTagResidueParam(mixed), "regex")
+	assert.equal(buildUnclosedTagFailureMessage(mixed, "path"), undefined)
+	// 不传 expectedParam 时（handler 防御性兜底）仍按标签残片自身归因
+	assert.match(buildUnclosedTagFailureMessage(mixed)!, /'regex'/)
+})
+
+test("review #239：归因文案在生成处 scrub 密钥（直推模型/UI，不过 audit 层）", () => {
+	const secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+	const msg = buildUnclosedTagFailureMessage({
+		path: `/tmp/${secret}.erb`,
+		regex: "net</search_files>",
+		url: `https://x.test/?key=AIza${"B".repeat(35)}`,
+	})!
+	assert.equal(msg.includes(secret), false, "快照里的 sk- 密钥不得原样外发")
+	assert.match(msg, /\[redacted\]/, "必须复用审计层同一份 scrubSecrets（单源）")
+	assert.match(msg, /secrets scrubbed/, "措辞必须与实现一致")
+	assert.doesNotMatch(msg, /Actual parameters \(redacted\)/, "旧的不实措辞不得回归")
+	// 「正确写法示例」同样取自参数值，也必须擦
+	const sampleMsg = buildUnclosedTagFailureMessage({ path: ".", regex: `${secret}</search_files>` })!
+	assert.equal(sampleMsg.includes(secret), false, "示例值不得带密钥")
+	assert.match(sampleMsg, /<regex>\[redacted\]<\/regex>/)
+	// 结构性：脱敏发生在 dialect-guard 生成处，不能只靠调用方/audit 层兜底
+	const guard = fs.readFileSync("src/core/task/dialect-guard.ts", "utf8")
+	assert.match(guard, /scrubSecrets\(buildToolParamSnapshot\(params\)/)
+	assert.match(guard, /scrubSecrets\(sample\)/)
+})
+
+// —— 08 #240：按模型健康度聚合（只可观测，不改路由） ——
+
+/** 造一条真实白名单序列化后的审计行（与诊断包正文同源）。 */
+function healthLine(entry: Record<string, unknown>): string {
+	return serializeAuditEntry(entry as never, 1)!
+}
+
+test("#240 summarizeModelHealth：按 model 聚合工具失败 / 命令失败 / 疑似静默 / parse repair", () => {
+	const bad = "nvidia/nemotron-3.5-super-vl:free"
+	const good = "reflection/beam-free"
+	const lines = [
+		healthLine({ event: "tool", tool: "execute_command", model: bad, outcome: "error" }),
+		healthLine({ event: "tool", tool: "execute_command", model: bad, outcome: "ok", suspect: true }),
+		healthLine({ event: "tool", tool: "search_files", model: bad, outcome: "error" }),
+		healthLine({ event: "tool", tool: "read_file", model: bad, outcome: "ok" }),
+		healthLine({ event: "parse", action: "repair", model: bad }),
+		healthLine({ event: "parse", action: "repair", model: bad }),
+		healthLine({ event: "tool", tool: "execute_command", model: good, outcome: "ok" }),
+		healthLine({ event: "tool", tool: "read_file", model: good, outcome: "ok" }),
+	]
+	const rows = summarizeModelHealth(lines)
+	assert.equal(rows.length, 2)
+	assert.equal(rows[0].model, bad, "失败多的排前面")
+	assert.deepEqual(rows[0], {
+		model: bad,
+		toolCalls: 4,
+		toolErrors: 2,
+		commandCalls: 2,
+		commandFailures: 2, // 一条 exit!=0 判 error，一条 suspect 静默失败
+		parseRepairs: 2,
+		silentSuspects: 1,
+	})
+	assert.deepEqual(rows[1], {
+		model: good,
+		toolCalls: 2,
+		toolErrors: 0,
+		commandCalls: 1,
+		commandFailures: 0,
+		parseRepairs: 0,
+		silentSuspects: 0,
+	})
+	assert.equal(MODEL_HEALTH_COMMAND_TOOL, "execute_command", "命令工具 id 与 ClineDefaultTool.BASH 同源")
+})
+
+test("#240 口径边界：折叠摘要/半行 JSON/非 tool-parse 事件不计数，model 缺失回落 provider", () => {
+	const lines = [
+		healthLine({ event: "tool", tool: "read_file", model: "m1", outcome: "error" }),
+		JSON.stringify({ event: "tool", tool: "read_file", model: "m1", outcome: "error", action: "folded" }),
+		"not json",
+		"{}",
+		healthLine({ event: "api", model: "m1", outcome: "error" }),
+		healthLine({ event: "parse", action: "repair", provider: "kilo" }),
+		healthLine({ event: "tool", tool: "read_file", outcome: "ok" }),
+	]
+	const rows = summarizeModelHealth(lines)
+	assert.equal(rows.find((r) => r.model === "m1")?.toolErrors, 1, "折叠/畸形/api 事件都不得计入")
+	assert.equal(rows.find((r) => r.model === "kilo:(模型未标注)")?.parseRepairs, 1, "缺 model 回落 provider，不丢事件")
+	assert.equal(rows.find((r) => r.model === "(未标注模型)")?.toolCalls, 1, "两者都缺也不丢事件")
+	assert.equal(summarizeModelHealth([]).length, 0)
+	assert.deepEqual(describeModelHealth([]), [], "0 行时整段不出现")
+})
+
+test("#240 诊断包头部：健康度表紧跟错误小计，且明确「仅可观测、不影响路由」", () => {
+	const rows = summarizeModelHealth([
+		healthLine({ event: "tool", tool: "execute_command", model: "m-bad", outcome: "error" }),
+		healthLine({ event: "parse", action: "repair", model: "m-bad" }),
+	])
+	const header = buildDiagnosticsHeader({ extensionVersion: "3.101.0", modelHealth: rows })
+	assert.match(header, /按模型健康度（仅可观测，不影响路由/)
+	assert.match(header, /m-bad: 工具 1 次 \/ 失败 1（100\.0%）/)
+	assert.match(header, /parse repair 1/)
+	const without = buildDiagnosticsHeader({ extensionVersion: "3.101.0" })
+	assert.equal(without.includes("按模型健康度"), false, "老调用方零改动")
 })

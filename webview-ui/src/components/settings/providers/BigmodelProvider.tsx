@@ -191,6 +191,7 @@ export const BigmodelProvider = ({ showModelOptions, isPopup, currentMode }: Big
 											none: "关闭（thinking: disabled）",
 										}
 							}
+							provider="bigmodel"
 						/>
 					)}
 

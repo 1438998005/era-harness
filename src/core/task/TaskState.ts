@@ -2,6 +2,7 @@ import { Anthropic } from "@anthropic-ai/sdk"
 import { AssistantMessageContent } from "@core/assistant-message"
 import type { ClineAsk } from "@shared/ExtensionMessage"
 import { ClineAskResponse } from "@shared/WebviewMessage"
+import type { CommandExecutionMeta } from "./tool-outcome"
 import type { HookExecution } from "./types/HookExecution"
 
 export class TaskState {
@@ -118,6 +119,10 @@ export class TaskState {
 	// ToolExecutor 写审计时消费并清空，同一次 read_file 只落一条审计（此前 handler 与
 	// ToolExecutor 各写一条，间隔 ~200ms，统计双计）。
 	readToolAuditMeta?: { cacheHit: boolean; readCount: number }
+
+	// era harness（08 #238）：execute_command 的结构化元数据——handler 写入、ToolExecutor
+	// 审计时消费并清空（同 readToolAuditMeta 模式），避免把 meta 塞进给模型的 result 文本。
+	lastCommandMeta?: CommandExecutionMeta
 
 	// Task Abort / Cancellation
 	abort = false

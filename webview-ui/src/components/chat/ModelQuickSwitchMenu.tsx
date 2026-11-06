@@ -88,6 +88,9 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 		(moonshotModels as Record<string, ModelInfo>)[rememberedIds?.moonshot ?? ""] ?? moonshotModels[moonshotDefaultModelId]
 	const moonshotPrice = `输入 ¥${moonshotInfo.cacheReadsPrice}–${moonshotInfo.cacheWritesPrice} / 输出 ¥${moonshotInfo.outputPrice}`
 
+	// KB 08 #242（用户裁定）：快捷切换菜单**不显示**指定模型、不参与 per-provider 记忆。
+	// pinnedModelId 是免费池内部的一份全局配置，切换主 provider 不该把它当作一个独立
+	// 「模型档位」记住/清掉；这里只保留一个 free 入口，指定与否由 API 设置页管理。
 	const entries: QuickSwitchEntry[] = [
 		{
 			provider: "free",

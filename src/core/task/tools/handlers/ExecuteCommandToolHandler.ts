@@ -294,7 +294,9 @@ export class ExecuteCommandToolHandler implements IFullyManagedTool {
 			finalCommand = `cd "${executionDir}" && ${actualCommand}`
 		}
 
-		const [userRejected, result] = await config.callbacks.executeCommandTool(finalCommand, timeoutSeconds)
+		const [userRejected, result, meta] = await config.callbacks.executeCommandTool(finalCommand, timeoutSeconds)
+		// 08 #238：结构化元数据透传给 ToolExecutor 的审计判定（不进 result 文本、不给模型看）。
+		config.taskState.lastCommandMeta = meta
 
 		if (timeoutId) {
 			clearTimeout(timeoutId)

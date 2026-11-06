@@ -19,7 +19,7 @@ import { formatResponse } from "../prompts/responses"
 import { StateManager } from "../storage/StateManager"
 import { WorkspaceRootManager } from "../workspace"
 import { ToolResponse } from "."
-import { buildToolParamSnapshot, findDialectResidueParam } from "./dialect-guard"
+import { buildToolParamSnapshot, buildUnclosedTagFailureMessage, findDialectResidueParam } from "./dialect-guard"
 import {
 	checkRepeatedToolCall,
 	extractApplyPatchPaths,
@@ -31,7 +31,12 @@ import {
 } from "./loop-detection"
 import { MessageStateHandler } from "./message-state"
 import { TaskState } from "./TaskState"
-import { outcomeFromToolResponse, type ToolExecutionResult } from "./tool-outcome"
+import {
+	type CommandExecutionMeta,
+	commandOutcomeFromMeta,
+	outcomeFromToolResponse,
+	type ToolExecutionResult,
+} from "./tool-outcome"
 import { AutoApprove } from "./tools/autoApprove"
 import { IPartialBlockHandler, ToolExecutorCoordinator } from "./tools/ToolExecutorCoordinator"
 import { ToolValidator } from "./tools/ToolValidator"
@@ -121,7 +126,7 @@ export class ToolExecutor {
 			command: string,
 			timeoutSeconds: number | undefined,
 			options?: CommandExecutionOptions,
-		) => Promise<[boolean, any]>,
+		) => Promise<[boolean, any, CommandExecutionMeta?]>,
 		private cancelRunningCommandTool: () => Promise<boolean>,
 		private doesLatestTaskCompletionHaveNewChanges: () => Promise<boolean>,
 		private updateFCListFromToolResponse: (taskProgress: string | undefined) => Promise<void>,
@@ -246,6 +251,7 @@ export class ToolExecutor {
 				ms: Date.now() - startedAt,
 				message: result.message,
 				snapshot: result.snapshot,
+				suspect: result.suspect || undefined,
 				cacheHit: readMeta?.cacheHit,
 				readCount: readMeta?.readCount,
 				...model,
@@ -644,11 +650,22 @@ export class ToolExecutor {
 		const pollutedParam = findDialectResidueParam(block.params)
 		if (pollutedParam) {
 			config.taskState.consecutiveMistakeCount++
-			const message = `Invalid '${pollutedParam}' for ${block.name}: the value contains unresolved tool-call dialect markup (DSML delimiters or stray parameter tags). The tool was NOT executed because a polluted value could silently corrupt the operation (e.g. a search returning misleading empty results). Re-issue the call with clean plain-text values.`
+			// 08 #239：本防线在 handler 之前执行，畸形标签残片会先被它拦下；若只把专用归因写在
+			// SearchFilesToolHandler 里，模型端到端永远看不到「疑似工具标签未闭合」。故命中标签残片时
+			// 在这里复用同一单源归因（已 scrub 的参数快照 + 正确写法示例），其余 DSML 残片沿用 #45 通用文案。
+			// review 修订：本 message 直推模型/UI、不过 serializeAuditEntry，故脱敏在
+			// buildUnclosedTagFailureMessage 生成处就完成，不能依赖 audit 层兜底。
+			// 传入 pollutedParam 钉住「被拦的就是被归因的那个参数」，避免多参数同时污染时又指错方向。
+			const message =
+				buildUnclosedTagFailureMessage(block.params, pollutedParam) ??
+				`Invalid '${pollutedParam}' for ${block.name}: the value contains unresolved tool-call dialect markup (DSML delimiters or stray parameter tags). The tool was NOT executed because a polluted value could silently corrupt the operation (e.g. a search returning misleading empty results). Re-issue the call with clean plain-text values.`
 			await this.say(
 				"error",
 				`era harness tried to use ${block.name} with dialect residue in parameter '${pollutedParam}'. Blocked to prevent silent corruption. Retrying...`,
 			)
+			// #45 原防线只 say("error")（UI 通知），未回 tool_result：模型拿不到归因，只能靠连续犯错
+			// 熔断兜底。这里按 plan-mode 分支的既有写法补推 toolError，让模型下一轮就能一步改对。
+			this.pushToolResult(formatResponse.toolError(message), block)
 			return { outcome: "error", message, snapshot: buildToolParamSnapshot(block.params) }
 		}
 
@@ -676,6 +693,13 @@ export class ToolExecutor {
 
 			// handler 正常 resolve 的 toolError / 用户拒绝也算失败，只有抛异常会被 catch 看到
 			toolOutcome = outcomeFromToolResponse(toolResult)
+
+			// 08 #238：命令结果的结构化元数据由 handler 经 taskState 透传（照 readToolAuditMeta 的
+			// 写入/消费/清空模式），在这里单点叠加成审计 outcome；读取后立即清空，避免串到下一次调用。
+			if (block.name === ClineDefaultTool.BASH) {
+				// 清理统一放在 finally：abort / 异常等路径也不会残留到下一次调用。
+				toolOutcome = commandOutcomeFromMeta(this.taskState.lastCommandMeta, toolOutcome)
+			}
 
 			// A successful edit changes the file's content, so earlier reads of it are no
 			// longer "the same content" — forget them to avoid suppressing a legitimate re-read.
@@ -776,6 +800,13 @@ export class ToolExecutor {
 
 			// Re-throw the error after PostToolUse completes
 			throw error
+		} finally {
+			// 08 #238（review 修订）：不论成功 / abort / pushToolResult 抛异常，BASH 的瞬时
+			// meta 一律清空，避免残留被下一次工具调用误消费。读取发生在上面的成功路径，
+			// 顺序上先读后清，不影响本次判定。
+			if (block.name === ClineDefaultTool.BASH) {
+				this.taskState.lastCommandMeta = undefined
+			}
 		}
 
 		// Early return if hook requested cancellation

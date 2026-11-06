@@ -238,6 +238,7 @@ export const MoonshotProvider = ({ showModelOptions, isPopup, currentMode }: Moo
 							description={t("providers.moonshot.reasoningDescription")}
 							label={t("providers.moonshot.reasoningLabel")}
 							labels={{ low: "低（low）", high: "高（high）", xhigh: "最大（max，官方默认）" }}
+							provider="moonshot"
 						/>
 					)}
 

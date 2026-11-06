@@ -111,9 +111,9 @@ function collectSettingsSummary(): Record<string, string> {
 			"bigmodelApiKey",
 			"bigmodelPlanApiKey",
 			"moonshotApiKey",
-			// 「提示词增强 / 子代理」独立配置密钥（辅助模型排障需要知道是否配置了独立凭证）
-			"enhanceApiKey",
-			"subagentApiKey",
+			// KB 08 #237：旧的 enhanceApiKey / subagentApiKey 不再进诊断摘要。两套辅助模型
+			// 统一用所选 provider 的主配置密钥，把旧值显示成「已设置」会误导排障方向
+			//（用户以为辅助模型还有独立凭证）。字段名与存储仍保留，仅此处不读。
 			"ovhAiEndpointsApiKey",
 			"apiKey",
 		] as const

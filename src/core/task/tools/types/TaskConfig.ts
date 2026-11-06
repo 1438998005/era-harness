@@ -17,6 +17,7 @@ import type { ContextManager } from "../../../context/context-management/Context
 import type { StateManager } from "../../../storage/StateManager"
 import type { MessageStateHandler } from "../../message-state"
 import type { TaskState } from "../../TaskState"
+import type { CommandExecutionMeta } from "../../tool-outcome"
 import type { AutoApprove } from "../../tools/autoApprove"
 import type { HookExecution } from "../../types/HookExecution"
 import type { ToolExecutorCoordinator } from "../ToolExecutorCoordinator"
@@ -102,7 +103,7 @@ export interface TaskCallbacks {
 		command: string,
 		timeoutSeconds: number | undefined,
 		options?: CommandExecutionOptions,
-	) => Promise<[boolean, any]>
+	) => Promise<[boolean, any, CommandExecutionMeta?]>
 	cancelRunningCommandTool?: () => Promise<boolean>
 
 	doesLatestTaskCompletionHaveNewChanges: () => Promise<boolean>

@@ -8,14 +8,21 @@
  * 2. 池内按序号依次尝试，直到「流出内容」为止；
  * 3. 失败分类：上下文超限上抛（Task 层截断重试）；（Zen 恢复后）免费门触发车道级冷却；
  *    限流（含 OVH 匿名 2rpm）/区域/传输/5xx/空停 → 换下一个；用户中止 → 直接抛；
- * 4. 全部失败 → 抛错引导配置 DeepSeek。
+ * 4. 全部失败 → 抛错引导配置 DeepSeek；KB 08 #242 指定模型（pinned）时链长恒为 1，
+ *    改走 composePinnedError 给专门报错 + 恢复标记，⛔ 不自动切回自动路由。
  *
  * 双 wire：Chat 为当前唯一在用 wire；Responses 分支仅服务 Zen muse-spark，随 Zen 移出后休眠。
  * 免费车道不计费（usage 的 totalCost 恒 0）。
  */
 
 import { ModelInfo } from "@shared/api"
-import { buildFreeCandidateChain, FREE_POOL, type FreeCandidate, type KiloFreeRow } from "@shared/free-pools"
+import {
+	buildFreeCandidateChain,
+	describePinnedGateConflict,
+	FREE_POOL,
+	type FreeCandidate,
+	type KiloFreeRow,
+} from "@shared/free-pools"
 import OpenAI from "openai"
 import type { ChatCompletionTool as OpenAITool } from "openai/resources/chat/completions"
 import { toOpenAIResponseTools } from "@/core/prompts/system-prompt/spec"
@@ -26,7 +33,15 @@ import { convertToOpenAiMessages } from "../transform/openai-format"
 import { ApiStream } from "../transform/stream"
 import { getOpenAIToolParams, ToolCallProcessor } from "../transform/tool-call-processor"
 import { handleResponsesApiStreamResponse } from "../utils/responses_api_support"
-import { classifyFreeFailure, composeFinalError, isFreeTierGateError, isUserAbort } from "./free-errors"
+import {
+	classifyFreeFailure,
+	composeFinalError,
+	composePinnedError,
+	errorMessageOf,
+	isFreeTierGateError,
+	isUserAbort,
+	withPinnedRecoveryMarker,
+} from "./free-errors"
 import {
 	createKiloClient,
 	createOvhClient,
@@ -51,6 +66,11 @@ interface FreeModelHandlerOptions extends CommonApiHandlerOptions {
 	ovhApiKey?: string
 	/** 隐私开关：true = 仅路由不收集提示词的渠道（排除 Kilo；此时 Kilo listing 也不拉取） */
 	excludeCollecting?: boolean
+	/**
+	 * KB 08 #242：指定的**真实上游模型 ID**（全局一份，不分 plan/act）。
+	 * 空 = 自动路由。指定后候选链长度恒为 1，⛔ 不会自动切回自动路由。
+	 */
+	pinnedModelId?: string
 }
 
 /**
@@ -103,7 +123,11 @@ export class FreeModelHandler implements ApiHandler {
 	}
 
 	getModel(): { id: string; info: ModelInfo } {
-		const candidate = this.activeCandidate ?? FREE_POOL[0]
+		// KB 08 #242：指定模型时，首个请求发出前 getModel() 也须指向该候选的窗口，
+		// 否则上下文窗口仍按 #241 池首算，Task 层截断会按错的窗口下刀。
+		const pinned = this.options.pinnedModelId?.trim()
+		const pinnedCandidate = pinned ? FREE_POOL.find((c) => c.id === pinned) : undefined
+		const candidate = this.activeCandidate ?? pinnedCandidate ?? FREE_POOL[0]
 		return { id: candidate.id, info: toFreeModelInfo(candidate) }
 	}
 
@@ -127,11 +151,19 @@ export class FreeModelHandler implements ApiHandler {
 
 		const hasImages = messagesHaveImages(messages)
 		const excludeCollecting = this.options.excludeCollecting === true
+		const pinnedModelId = this.options.pinnedModelId?.trim() || undefined
 		// 隐私开关开启时 Kilo 必然被链组装剔除，listing 拉取纯属一次白等的网络请求
 		const kiloFreeRows = this.options.kiloFreeRows ?? (excludeCollecting ? [] : await fetchKiloFreeModels())
-		const chain = buildFreeCandidateChain({ hasImages, kiloFreeRows, excludeCollecting })
+		// KB 08 #242：钳制在 buildFreeCandidateChain 内部完成——先按隐私 / Kilo listing / vision
+		// 组装完整链，最后才 filter(pinned)。⛔ 不另起一条绕过门控的链；链长恰为 1 或 0。
+		const chain = buildFreeCandidateChain({ hasImages, kiloFreeRows, excludeCollecting, pinnedModelId })
 
 		if (chain.length === 0) {
+			if (pinnedModelId) {
+				// 专门报错：说清被哪一道门排除，⛔ 不落到自动路由的「全部冷却 / 无 vision 候选」文案
+				const conflict = describePinnedGateConflict(pinnedModelId, { hasImages, excludeCollecting, kiloFreeRows })
+				throw composePinnedError(pinnedModelId, conflict ?? "该模型已被当前请求条件排除，本次请求未发出。", 0)
+			}
 			throw new Error(
 				hasImages
 					? excludeCollecting
@@ -148,6 +180,8 @@ export class FreeModelHandler implements ApiHandler {
 		let switches = 0
 
 		for (const candidate of chain) {
+			// pinned 时 chain 长度恒为 1：下面的 switchable / 空停 continue 会直接走到循环结束，
+			// 因此「不切换、只报一次专门错误」由链长保证，⛔ 不需要也不允许在此自动清掉 pinned。
 			if (this.userAborted) {
 				throw FreeModelHandler.abortError()
 			}
@@ -189,12 +223,18 @@ export class FreeModelHandler implements ApiHandler {
 				}
 				// 已经吐给上层的内容收不回来：再切下一个候选会把两条回复拼在一起，
 				// 用户会看到「模型 A 说到一半 + 模型 B 重新开头」。这种情况只能报错。
+				// 08 #242（review 修订）：这里直接 throw，到不了下面「全链失败」的
+				// composePinnedError()，所以 pinned 时必须就地补恢复标记，否则中途断流
+				// （链长=1 时的高发失败）拿不到「切回自动路由」入口。原地追加、不包装，
+				// 保留 error 类型/stack/status 供上层分类。
 				if (sawContent) {
-					throw error
+					throw pinnedModelId && error instanceof Error ? withPinnedRecoveryMarker(error) : error
 				}
 				const kind = classifyFreeFailure(error)
 				if (kind === "context-exceeded") {
-					// 不切换：交给 Task 层截断重试（此时 getModel() 已指向本候选的真实窗口）
+					// 不切换：交给 Task 层截断重试（此时 getModel() 已指向本候选的真实窗口）。
+					// ⛔ 刻意不补恢复标记：这不是「模型不可用」，而是 Task 层会自己截断重试的正常
+					// 流程；在此弹「切回自动路由」会把用户引离正确的重试路径。
 					throw error
 				}
 				if (isFreeTierGateError(error)) {
@@ -208,6 +248,11 @@ export class FreeModelHandler implements ApiHandler {
 			}
 		}
 
+		if (pinnedModelId) {
+			// tried=0 只可能是车道冷却把唯一候选 continue 掉了；不能说「已尝试 0 个候选」。
+			const reason = tried === 0 ? "该模型所在车道正在冷却中，本轮跳过了唯一候选、请求未发出。" : errorMessageOf(lastError)
+			throw composePinnedError(pinnedModelId, reason, tried)
+		}
 		throw composeFinalError(lastError, tried)
 	}
 

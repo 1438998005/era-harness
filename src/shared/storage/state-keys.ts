@@ -99,6 +99,19 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	enableParallelToolCalling: { default: true as boolean },
 	// era harness：免费池隐私开关。true = 仅路由到不收集提示词的渠道（排除 Kilo 明文收集，仅剩 OVH；渠道标记见 free-pools.ts LANE_META）
 	freeExcludeCollecting: { default: false as boolean },
+	// KB 08 #237（2026-11-05 用户裁定）：思维强度按 provider 各存各的，不再只存全局 plan/act 两槽。
+	// 子代理 / 提示词增强选 DeepSeek 时读「DeepSeek 那一页设的档」，哪怕当前主模型是别家；
+	// 反过来主模型是 DeepSeek、辅助选 Moonshot 也不会误读 DeepSeek 档。映射单源见
+	// @shared/aux-model 的 PROVIDER_REASONING_EFFORT_KEY，请求侧按 apiProvider 查表读取。
+	// 存量用户没设新槽时回落全局 planMode/actModeReasoningEffort，行为零变化（不迁移、不删旧槽）。
+	deepSeekReasoningEffort: { default: undefined as string | undefined },
+	mimoReasoningEffort: { default: undefined as string | undefined },
+	bigmodelReasoningEffort: { default: undefined as string | undefined },
+	bigmodelPlanReasoningEffort: { default: undefined as string | undefined },
+	moonshotReasoningEffort: { default: undefined as string | undefined },
+	// KB 08 #242：免费模型池「指定模型」。存**真实上游模型 ID**（不是 displayName、不是数组
+	// 下标），全局一份不分 plan/act；#241 池序重排后仍能指向同一个模型。清空 = 回到自动路由。
+	pinnedModelId: { default: undefined as string | undefined },
 
 	// Plan mode configurations
 	planModeApiModelId: { default: undefined as string | undefined },
@@ -134,9 +147,14 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	// 判据单一来源在 @shared/moonshot-request（设置页下拉与请求侧共用，知识库 18 §18.11 防漂移）。
 	moonshotApiLine: { default: undefined as string | undefined },
 
-	// 「提示词增强 / 子代理」独立模型配置（2026-11-04，用户裁定：各一套完整独立配置，可跨厂商）。
+	// 「提示词增强 / 子代理」独立模型配置（2026-11-04 建立；2026-11-05 KB 08 #237 修订）。
 	// 平铺而不是嵌套 message：与 planMode*/actMode* 范式同构，state.proto 生成器与转换层都不用
 	// 处理新形状。未配置（无 provider）时两个功能回落主配置，行为零变化。
+	// ⚠️ #237 用户裁定后这两套**只保留「选 provider + 选模型 / ModelInfo」**：密钥与思维强度
+	// 一律跟随所选 provider 对应的主 API 配置，Kimi 入口跟随主 moonshotApiLine。下面这些旧的
+	// *ApiKey / *ReasoningEffort / *MoonshotApiLine 字段仍留在存储与清空清单里（兼容旧数据、
+	// 不删 proto 字段号、不动 aux-clear.spec.ts 的 6/6/12 断言），但解析 / 请求 / 诊断 /
+	// UI 四处一律不再读取，见 @shared/aux-model 的屏蔽注释与元测试。
 	// ⛔ 两个 *ApiKey **只能**登记在 SECRETS_KEYS（见本文件下方注释）：若同时登记在这里，
 	// constructApiConfigurationFromCache 的 {...secrets, ...settings} 会用 settings 里的
 	// undefined 把 secrets 里的真实密钥覆盖掉，辅助配置永远读不到密钥（2026-11-04 实测）。
@@ -230,11 +248,13 @@ const SECRETS_KEYS = [
 	// Kimi (Moonshot)：国内站（platform.kimi.com）与国际站密钥不互通，但同一个 key 值槽位
 	// 足够——入口由 moonshotApiLine 决定，换入口必须换 key，不存在两把 key 并存的场景
 	"moonshotApiKey",
-	// 「提示词增强 / 子代理」独立模型配置的密钥（跨厂商时的独立凭证）。
+	// 「提示词增强 / 子代理」旧独立凭证（KB 08 #237 起**保留但不读**）。
 	// 只在这里注册，绝不能同时进 API_HANDLER_SETTINGS_FIELDS：setApiConfiguration 按
 	// isSecretKey 优先写 secretsCache，而 constructApiConfigurationFromCache 是
 	// {...secrets, ...settings} —— 同名 settings 键（undefined）会把密钥覆盖成空，
 	// 导致两套辅助配置静默失效（2026-11-04 审查实测：read-back enhanceApiKey: undefined）。
+	// #237 后辅助模型统一用所选 provider 的主配置密钥；这里保留两个 key 仅为让存量磁盘值
+	// 仍能被 aux-clear 的显式删除通道清掉，绝不删号复用（proto 字段号一并保留）。
 	"enhanceApiKey",
 	"subagentApiKey",
 	"ovhAiEndpointsApiKey", // OVHcloud AI Endpoints 可选 Key（免费模型第三渠道；留空走匿名 2rpm）

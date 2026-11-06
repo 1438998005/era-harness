@@ -1,4 +1,5 @@
 import { ApiConfiguration, ModelInfo, modelIdToWriteOnProviderSwitch } from "@shared/api"
+import { resolveReasoningEffort } from "@shared/aux-model"
 import { BIGMODEL_PLAN_BASE_URL } from "@shared/bigmodel-request"
 import { Mode } from "@shared/storage/types"
 import { ClineStorageMessage } from "@/shared/messages/content"
@@ -69,6 +70,8 @@ function createHandlerForProvider(
 				onRetryAttempt: options.onRetryAttempt,
 				ovhApiKey: options.ovhAiEndpointsApiKey,
 				excludeCollecting: options.freeExcludeCollecting,
+				// KB 08 #242：全局一份、不分 plan/act。空 = 自动路由（#241 池序 + failover 原样生效）。
+				pinnedModelId: options.pinnedModelId,
 			})
 		case "openai":
 			return new OpenAiHandler({
@@ -79,7 +82,7 @@ function createHandlerForProvider(
 				openAiBaseUrl: options.openAiBaseUrl,
 				openAiModelId: mode === "plan" ? options.planModeOpenAiModelId : options.actModeOpenAiModelId,
 				openAiModelInfo: mode === "plan" ? options.planModeOpenAiModelInfo : options.actModeOpenAiModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 			})
 		case "deepseek":
 			return new DeepSeekHandler({
@@ -87,7 +90,7 @@ function createHandlerForProvider(
 				deepSeekApiKey: options.deepSeekApiKey?.trim(),
 				apiModelId,
 				deepSeekModelInfo: mode === "plan" ? options.planModeDeepSeekModelInfo : options.actModeDeepSeekModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 			})
 		case "mimo":
 			return new MimoHandler({
@@ -96,7 +99,7 @@ function createHandlerForProvider(
 				mimoApiKey: options.mimoApiKey?.trim(),
 				apiModelId,
 				mimoModelInfo: mode === "plan" ? options.planModeMimoModelInfo : options.actModeMimoModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 			})
 		case "bigmodel":
 			return new BigmodelHandler({
@@ -104,7 +107,7 @@ function createHandlerForProvider(
 				bigmodelApiKey: options.bigmodelApiKey?.trim(),
 				apiModelId,
 				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelModelInfo : options.actModeBigmodelModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 			})
 		case "moonshot":
 			return new MoonshotHandler({
@@ -114,7 +117,7 @@ function createHandlerForProvider(
 				moonshotApiKey: options.moonshotApiKey?.trim(),
 				apiModelId,
 				moonshotModelInfo: mode === "plan" ? options.planModeMoonshotModelInfo : options.actModeMoonshotModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 				apiLine: options.moonshotApiLine,
 			})
 		case "bigmodel-plan":
@@ -125,7 +128,7 @@ function createHandlerForProvider(
 				bigmodelApiKey: (options.bigmodelPlanApiKey ?? options.bigmodelApiKey)?.trim(),
 				apiModelId,
 				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelPlanModelInfo : options.actModeBigmodelPlanModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 				baseUrlOverride: BIGMODEL_PLAN_BASE_URL,
 				billingMode: "plan",
 			})
@@ -139,7 +142,7 @@ function createHandlerForProvider(
 				deepSeekApiKey: options.deepSeekApiKey?.trim(),
 				apiModelId,
 				deepSeekModelInfo: mode === "plan" ? options.planModeDeepSeekModelInfo : options.actModeDeepSeekModelInfo,
-				reasoningEffort: mode === "plan" ? options.planModeReasoningEffort : options.actModeReasoningEffort,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 			})
 	}
 }

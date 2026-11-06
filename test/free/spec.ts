@@ -5,18 +5,30 @@
 //       session 铸造格式与时间戳对账（free-session 保留）/ handler 的空停切换、限流切换、
 //       上下文超限不切换、全部失败的引导报错、带图只路由 vision。
 import assert from "node:assert/strict"
+import fs from "node:fs"
 import { beforeEach, test } from "node:test"
 import { FreeModelHandler } from "@core/api/providers/free"
 import {
 	classifyFreeFailure,
 	composeFinalError,
+	composePinnedError,
 	isFreeTierGateError,
 	isRegionBlockedError,
 	isUserAbort,
+	stripPinnedRecoveryMarker,
+	withPinnedRecoveryMarker,
 } from "@core/api/providers/free-errors"
 import { resetFreeLaneCaches } from "@core/api/providers/free-lanes"
 import { decodeSessionTimestamp, mintSessionId } from "@core/api/providers/free-session"
-import { buildFreeCandidateChain, FREE_POOL, LANE_META, parseKiloFreeRows } from "@shared/free-pools"
+import {
+	buildFreeCandidateChain,
+	describePinnedGateConflict,
+	FREE_PINNED_RECOVERY_MARKER,
+	FREE_POOL,
+	FREE_POOL_MIN_VISIBLE_ROWS,
+	LANE_META,
+	parseKiloFreeRows,
+} from "@shared/free-pools"
 import type OpenAI from "openai"
 
 // ---------------------------------------------------------------------------
@@ -78,6 +90,12 @@ async function* emptyStream(): AsyncGenerator<Record<string, unknown>> {
 	// 无 yield
 }
 
+/** review #242：中途断流——先吐一段内容，再抛错（handler 必须原样上抛、不再切候选）。 */
+async function* partialThenError(text: string, error: Error): AsyncGenerator<Record<string, unknown>> {
+	yield { choices: [{ delta: { content: text } }] }
+	throw error
+}
+
 function apiError(status: number, message: string): Error {
 	const error = new Error(message) as Error & { status: number }
 	error.status = status
@@ -91,37 +109,123 @@ beforeEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// 候选链组装（单一优先级池，2026-11-05 修订：编码/工程能力 + 社区评价权重，18 项跨两渠道）
+// KB 08 #241 定稿池序（**单一常量表**）：本文件里任何顺序/位置断言都必须从它派生，
+// ⛔ 禁止再抄第二份顺序（§4.25 结构性要求）。前 14 项 = #229 旧序剔除 NVIDIA 四项后的相对序，
+// 逐字不动；后 4 项 = NVIDIA 家族按三源重排，Super VL 末位隔离。
 // ---------------------------------------------------------------------------
 
-test("单一池：无 listing 时 18 个候选（全部精确 ID）且保持编码能力 + 社区口碑优先级顺序", () => {
+const EXPECTED_POOL_ORDER = [
+	"reflection/beam-free",
+	"Qwen3.8-27B",
+	"Qwen3.6-27B",
+	"stealth/glyph-cluster",
+	"stealth/crouton-alpha",
+	"dots-studio/dots-3-note-preview:free",
+	"Qwen3.5-397B-A17B",
+	"cohere/north-mini-code:free",
+	"gpt-oss-120b",
+	"Mistral-Small-3.2-24B-Instruct-2506",
+	"gpt-oss-20b",
+	"Meta-Llama-3_3-70B-Instruct",
+	"Qwen3.5-9B",
+	"Qwen2.5-VL-72B-Instruct",
+	"nvidia/nemotron-3-ultra-550b-a55b:free",
+	"nvidia/nemotron-3.5-lightning:free",
+	"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+	"nvidia/nemotron-3.5-super-vl:free",
+] as const
+
+/** #229 旧序（18 项），只用于钉住「其余 14 项相对顺序完全不动」这条不变量。 */
+const POOL_ORDER_BEFORE_241 = [
+	"nvidia/nemotron-3.5-super-vl:free",
+	"reflection/beam-free",
+	"Qwen3.8-27B",
+	"nvidia/nemotron-3-ultra-550b-a55b:free",
+	"Qwen3.6-27B",
+	"stealth/glyph-cluster",
+	"stealth/crouton-alpha",
+	"dots-studio/dots-3-note-preview:free",
+	"Qwen3.5-397B-A17B",
+	"cohere/north-mini-code:free",
+	"nvidia/nemotron-3.5-lightning:free",
+	"gpt-oss-120b",
+	"Mistral-Small-3.2-24B-Instruct-2506",
+	"gpt-oss-20b",
+	"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+	"Meta-Llama-3_3-70B-Instruct",
+	"Qwen3.5-9B",
+	"Qwen2.5-VL-72B-Instruct",
+] as const
+
+/** 从「期望顺序」派生，不在测试里再抄一份 vision 名单。 */
+const expectedVisionOrder = (ids: readonly string[]) =>
+	buildFreeCandidateChain({ hasImages: false })
+		.filter((c) => c.vision && ids.includes(c.id))
+		.map((c) => c.id)
+
+// ---------------------------------------------------------------------------
+// 候选链组装（KB 08 #241 定稿 18 项，三源并重排序口径）
+// ---------------------------------------------------------------------------
+
+test("单一池：无 listing 时 18 个候选（全部精确 ID）且逐字等于 #241 定稿序", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
 	assert.equal(chain.length, 18) // OVH 9 + Kilo 9（全部精确 ID，无 listingMatch 条目）
 	// 渠道分布：OVH 9 + Kilo 9；Zen 已移出池
 	assert.equal(chain.filter((c) => c.lane === "zen").length, 0)
 	assert.equal(chain.filter((c) => c.lane === "ovh").length, 9)
 	assert.equal(chain.filter((c) => c.lane === "kilo").length, 9)
-	// 优先级顺序（2026-11-05 修订，用户裁定「社区评价（重点）」；无 listing 时 Kilo 9 项全部放行）
-	assert.equal(chain[0].id, "nvidia/nemotron-3.5-super-vl:free") // Kilo 榜 Code/Plan/Debug 三榜 #1
-	assert.equal(chain[1].id, "reflection/beam-free")
-	assert.equal(chain[2].id, "Qwen3.8-27B")
-	assert.equal(chain[3].id, "nvidia/nemotron-3-ultra-550b-a55b:free")
-	assert.equal(chain[4].id, "Qwen3.6-27B")
-	assert.equal(chain[5].id, "stealth/glyph-cluster")
-	assert.equal(chain[6].id, "stealth/crouton-alpha")
-	assert.equal(chain[7].id, "dots-studio/dots-3-note-preview:free")
-	assert.equal(chain[8].id, "Qwen3.5-397B-A17B")
-	assert.equal(chain[9].id, "cohere/north-mini-code:free")
-	assert.equal(chain[10].id, "nvidia/nemotron-3.5-lightning:free")
-	assert.equal(chain[11].id, "gpt-oss-120b")
-	assert.equal(chain[12].id, "Mistral-Small-3.2-24B-Instruct-2506")
-	assert.equal(chain[13].id, "gpt-oss-20b")
-	assert.equal(chain[14].id, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
-	assert.equal(chain[15].id, "Meta-Llama-3_3-70B-Instruct")
-	assert.equal(chain[16].id, "Qwen3.5-9B")
-	assert.equal(chain[17].id, "Qwen2.5-VL-72B-Instruct")
+	assert.deepEqual(
+		chain.map((c) => c.id),
+		EXPECTED_POOL_ORDER,
+	)
 	// Laguna S 2.1 已移除：Kilo listing 整行消失（2026-11-04 实证，连付费行都不剩）
 	assert.ok(!chain.some((c) => c.id === "poolside/laguna-s-2.1:free"), "已死的 Laguna 不应留在池中")
+})
+
+test("#241 结构性：FREE_POOL 与单一常量表一致，NVIDIA 四项恰在 #15–18 且 Super VL 末位", () => {
+	assert.deepEqual(
+		FREE_POOL.map((c) => c.id),
+		EXPECTED_POOL_ORDER,
+	)
+	assert.equal(new Set(EXPECTED_POOL_ORDER).size, 18, "期望表自身不得有重复/漏项")
+	assert.deepEqual(
+		FREE_POOL.slice(14).map((c) => c.id),
+		EXPECTED_POOL_ORDER.slice(14),
+		"NVIDIA 四项：Ultra → Lightning → Nano Omni → Super VL",
+	)
+	assert.equal(FREE_POOL[17].id, "nvidia/nemotron-3.5-super-vl:free", "唯一有本地实测且实测失败 → 末位隔离")
+	// 其余 14 项相对顺序完全不动：从 #229 旧序剔除 NVIDIA 四项后逐字比较
+	const legacyNonNvidia = POOL_ORDER_BEFORE_241.filter((id) => !id.startsWith("nvidia/"))
+	assert.deepEqual(EXPECTED_POOL_ORDER.slice(0, 14), legacyNonNvidia)
+	assert.deepEqual(
+		FREE_POOL.slice(0, 14).map((c) => c.id),
+		legacyNonNvidia,
+	)
+})
+
+test("#241 元测试：池首窗口与设置页同源，带图链不单独定序、候选链签名未变", () => {
+	// 池首由 Super VL(1_000_000) 换成 Beam 1.0(1_048_576)，设置页必须仍从 FREE_POOL[0] 派生，不能写死旧值
+	assert.equal(FREE_POOL[0].id, "reflection/beam-free")
+	assert.equal(FREE_POOL[0].contextWindow, 1_048_576)
+	const providerUtils = fs.readFileSync("webview-ui/src/components/settings/utils/providerUtils.ts", "utf8")
+	// KB 08 #242：自动路由仍从 FREE_POOL[0] 派生；指定模型时改取该候选（按真实 ID 查池）
+	assert.match(providerUtils, /\(windowCandidate \?\? FREE_POOL\[0\]\)\?\.contextWindow/, "窗口从池定义派生，不写死")
+	assert.match(providerUtils, /FREE_POOL\.find\(\(c\) => c\.id === pinnedId\)/, "pinned 按真实上游 ID 查池，不是下标")
+	const freeBranch = providerUtils.slice(providerUtils.indexOf('case "free":'), providerUtils.indexOf('case "deepseek":'))
+	assert.doesNotMatch(freeBranch, /contextWindow:\s*1_000_000/, "不得把旧池首的窗口写死回 free 分支")
+	const pools = fs.readFileSync("src/shared/free-pools.ts", "utf8")
+	// KB 08 #242 后带图链仍是 filter(vision)，只是从「直接 return」改成先赋给 gated，
+	// 再在末尾按 pinned 钳制——顺序不能反，否则指定模型会绕过 vision / 隐私 / listing 门。
+	assert.match(pools, /chain\.filter\(\(candidate\) => candidate\.vision\)/, "带图链仍是 filter(vision)")
+	assert.match(pools, /gated\.filter\(\(candidate\) => candidate\.id === pinned\)/, "钳制按真实 ID 落在门控之后")
+	const chainCode = stripComments(pools)
+	assert.ok(
+		chainCode.indexOf("chain.filter((candidate) => candidate.vision)") <
+			chainCode.indexOf("gated.filter((candidate) => candidate.id === pinned)"),
+		"pinned 钳制必须在四道门之后",
+	)
+	assert.match(pools, /export function buildFreeCandidateChain\(options: FreeChainOptions\)/, "候选链签名未变")
+	assert.equal(pools.includes("visionOrder"), false, "不得新增带图链专属顺序")
 })
 
 // 防同类回归（KB 08 #229）：2026-11-04 深夜全渠道存活复核的 6 个死项与 2 个虚拟路由器，
@@ -209,17 +313,18 @@ test("上下文窗口：OVH 端点 / Kilo 静态实证表的权威值", () => {
 	assert.equal(byId("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")?.maxOutput, 65_536)
 })
 
-test("带图链只含 vision 候选（Nemotron VL/Crouton/dots/Nano Omni + OVH 的 Qwen2.5-VL）", () => {
+test("带图链只含 vision 候选，首位 stealth/crouton-alpha（#241：不单独定序，由 filter(vision) 自然得出）", () => {
 	const chain = buildFreeCandidateChain({ hasImages: true })
-	assert.equal(chain.length, 5, "池内 vision 候选恰好 5 个（2026-11-05）")
+	assert.equal(chain.length, 5, "池内 vision 候选恰好 5 个")
 	assert.ok(chain.every((candidate) => candidate.vision))
 	assert.ok(!chain.some((candidate) => candidate.id === "gpt-oss-120b"), "纯文本候选应被过滤")
-	// 2026-11-05：旧首选 Inkling 免费行消失 → 首选改为池首的 Nemotron 3.5 Super VL
-	assert.equal(chain[0].id, "nvidia/nemotron-3.5-super-vl:free", "vision 链首选应是池首的 Nemotron 3.5 Super VL")
-	assert.equal(chain[1].id, "stealth/crouton-alpha", "vision 链第 2 位")
-	assert.equal(chain[2].id, "dots-studio/dots-3-note-preview:free", "vision 链第 3 位")
-	assert.equal(chain[3].id, "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "vision 链第 4 位")
-	assert.equal(chain[4].id, "Qwen2.5-VL-72B-Instruct", "OVH vision 候选应在带图链中且为末位")
+	// 期望顺序从单一常量表派生，而不是再抄一份 vision 名单
+	assert.deepEqual(
+		chain.map((c) => c.id),
+		expectedVisionOrder(EXPECTED_POOL_ORDER),
+	)
+	assert.equal(chain[0].id, "stealth/crouton-alpha", "用户明确裁定带图链首位合理")
+	assert.equal(chain[4].id, "nvidia/nemotron-3.5-super-vl:free", "Super VL 末位隔离，不再是带图链首选")
 	// Beam/Glyph/Lightning 免费行仅 text → 不在带图链
 	assert.ok(!chain.some((candidate) => candidate.id === "reflection/beam-free"), "Beam 仅 text 不应进带图链")
 	assert.ok(!chain.some((candidate) => candidate.id === "stealth/glyph-cluster"), "Glyph 仅 text 不应进带图链")
@@ -473,7 +578,251 @@ test("带图请求：listing 只给 dots 行时落 dots（其余 Kilo vision 不
 
 	assert.equal(chunks.join(""), "OK")
 	assert.equal(handler.getModel().id, "dots-studio/dots-3-note-preview:free")
-	// vision 链顺序（该 listing 下）：dots-3-note（2026-11-05 池位 #8）→ Qwen2.5-VL（OVH 末位 vision）；dots 命中即返回
+	// vision 链顺序（该 listing 下）：dots-3-note（#241 池位 #6）→ Qwen2.5-VL（OVH 侧 vision）；dots 命中即返回
 	assert.deepEqual(callsOf(kilo).chat, ["dots-studio/dots-3-note-preview:free"])
 	assert.equal(callsOf(ovh).chat, undefined, "dots 先命中，OVH 不应被调")
+})
+
+// ---------------------------------------------------------------------------
+// KB 08 #242：指定模型（pinned）行为 / 结构性 / 元测试（KB 04 §4.25 三层）
+// ---------------------------------------------------------------------------
+
+/** 源码断言前剥注释：注释里常写「不要这么写」的反例（KB 08 同类型排查）。 */
+function stripComments(code: string): string {
+	return code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")
+}
+
+test("#242 buildFreeCandidateChain：pinned 后链长恰为 1、ID 相等；存真实 ID 而非下标", () => {
+	for (const id of [EXPECTED_POOL_ORDER[0], EXPECTED_POOL_ORDER[9], EXPECTED_POOL_ORDER[17]]) {
+		const chain = buildFreeCandidateChain({ hasImages: false, kiloFreeRows: undefined, pinnedModelId: id })
+		assert.equal(chain.length, 1, `${id} 指定后链长应为 1`)
+		assert.equal(chain[0].id, id)
+		// #241 池序变更后不串位：取的是 FREE_POOL 里按 ID 找到的同一个对象，与位次无关
+		assert.equal(chain[0].displayName, FREE_POOL.find((c) => c.id === id)?.displayName)
+		assert.equal(chain[0].contextWindow, FREE_POOL.find((c) => c.id === id)?.contextWindow)
+	}
+	// 未指定 = 自动路由，行为零变化
+	assert.deepEqual(
+		buildFreeCandidateChain({ hasImages: false, kiloFreeRows: undefined }).map((c) => c.id),
+		EXPECTED_POOL_ORDER,
+	)
+})
+
+test("#242 四道门：隐私 / vision / Kilo listing / 未知 ID 都给链空 + 专门归因", () => {
+	const kilo = FREE_POOL.find((c) => c.lane === "kilo" && !c.vision)
+	const nonVision = FREE_POOL.find((c) => c.lane === "ovh" && !c.vision)
+	assert.ok(kilo && nonVision, "测试样本必须存在于池内")
+
+	const privacy = { hasImages: false, excludeCollecting: true, kiloFreeRows: [] }
+	assert.equal(buildFreeCandidateChain({ ...privacy, pinnedModelId: kilo.id }).length, 0)
+	assert.match(describePinnedGateConflict(kilo.id, privacy) ?? "", /收集提示词/)
+
+	const images = { hasImages: true, excludeCollecting: false, kiloFreeRows: undefined }
+	assert.equal(buildFreeCandidateChain({ ...images, pinnedModelId: nonVision.id }).length, 0)
+	assert.match(describePinnedGateConflict(nonVision.id, images) ?? "", /不支持图片/)
+
+	const listing = { hasImages: false, excludeCollecting: false, kiloFreeRows: [] }
+	assert.equal(buildFreeCandidateChain({ ...listing, pinnedModelId: kilo.id }).length, 0)
+	assert.match(describePinnedGateConflict(kilo.id, listing) ?? "", /Kilo 免费清单/)
+	assert.match(describePinnedGateConflict("no-such-model-id", listing) ?? "", /不在免费模型池中/)
+	// 门控都通过时不该误报（OVH 非 vision 项在纯文本请求下可用）
+	assert.equal(describePinnedGateConflict(nonVision.id, listing), undefined)
+})
+
+test("#242 handler：pinned + 429 只调一次、不切换，抛带恢复标记的专门错误", async () => {
+	const target = FREE_POOL.find((c) => c.lane === "ovh" && !c.vision)
+	assert.ok(target)
+	const ovh = fakeClient({ chat: () => apiError(429, "rate limit") })
+	const kilo = fakeClient({ chat: () => textStream("SHOULD NOT SWITCH") })
+	const handler = new FreeModelHandler({
+		ovhClient: ovh,
+		kiloClient: kilo,
+		kiloFreeRows: [],
+		pinnedModelId: target.id,
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			const message = (error as Error).message
+			assert.match(message, /指定的免费模型/)
+			assert.ok(message.includes(FREE_PINNED_RECOVERY_MARKER), "错误须带恢复标记")
+			assert.match(message, /没有下一个模型可切换/, "必须写清链长=1 的因果")
+			assert.doesNotMatch(message, /已尝试 \d+ 个候选/, "⛔ 不得落到自动路由的「已尝试 N 个候选」文案")
+			assert.equal(stripPinnedRecoveryMarker(message).includes(FREE_PINNED_RECOVERY_MARKER), false)
+			return true
+		},
+	)
+	assert.deepEqual(callsOf(ovh).chat, [target.id], "只请求指定模型一次")
+	assert.equal(callsOf(kilo).chat, undefined, "pinned 下不得切到 Kilo 候选")
+	assert.equal(handler.getModel().id, target.id, "getModel 须指向指定候选的窗口")
+})
+
+test("#242 handler：pinned 被隐私门排除时不发任何请求，抛专门报错", async () => {
+	const kilo = FREE_POOL.find((c) => c.lane === "kilo" && !c.vision)
+	assert.ok(kilo)
+	const ovh = fakeClient({ chat: () => textStream("SHOULD NOT RUN") })
+	const kiloClient = fakeClient({ chat: () => textStream("SHOULD NOT RUN") })
+	const handler = new FreeModelHandler({
+		ovhClient: ovh,
+		kiloClient: kiloClient,
+		kiloFreeRows: [],
+		excludeCollecting: true,
+		pinnedModelId: kilo.id,
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			const message = (error as Error).message
+			assert.match(message, /收集提示词/)
+			assert.match(message, /本次请求未发出/)
+			assert.ok(message.includes(FREE_PINNED_RECOVERY_MARKER))
+			assert.doesNotMatch(message, /已尝试 0 个候选/)
+			return true
+		},
+	)
+	assert.equal(callsOf(ovh).chat, undefined)
+	assert.equal(callsOf(kiloClient).chat, undefined)
+})
+
+test("review #242：withPinnedRecoveryMarker 原地追加、保留类型/stack、幂等", () => {
+	const err = apiError(429, "stream broke mid-way")
+	const stack = err.stack
+	assert.equal(withPinnedRecoveryMarker(err), err, "必须原地改同一个 Error 对象，不包装")
+	assert.equal(err.status, 429, "上游 status 不丢")
+	assert.equal(err.stack, stack, "stack 不丢")
+	assert.equal(err.message.split(FREE_PINNED_RECOVERY_MARKER).length - 1, 1)
+	withPinnedRecoveryMarker(err)
+	assert.equal(err.message.split(FREE_PINNED_RECOVERY_MARKER).length - 1, 1, "幂等，不叠加标记")
+	assert.equal(stripPinnedRecoveryMarker(err.message).includes(FREE_PINNED_RECOVERY_MARKER), false)
+})
+
+test("review #242：pinned 中途断流的原样上抛也带恢复标记，自动路由不带", async () => {
+	const target = FREE_POOL.find((c) => c.lane === "ovh" && !c.vision)
+	assert.ok(target)
+	const pinnedClient = fakeClient({ chat: () => partialThenError("半截回复", apiError(429, "stream broke")) })
+	const pinned = new FreeModelHandler({
+		ovhClient: pinnedClient,
+		kiloClient: fakeClient({ chat: () => textStream("SHOULD NOT SWITCH") }),
+		kiloFreeRows: [],
+		pinnedModelId: target.id,
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of pinned.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			const message = (error as Error).message
+			assert.match(message, /stream broke/, "必须是原错误文本，不能被 composePinnedError 包装")
+			assert.ok(message.includes(FREE_PINNED_RECOVERY_MARKER), "中途断流也要给恢复入口")
+			assert.equal((error as Error & { status?: number }).status, 429, "原 error 的 status 保留")
+			return true
+		},
+	)
+	assert.deepEqual(callsOf(pinnedClient).chat, [target.id], "pinned 下只请求指定模型一次")
+
+	// 自动路由下同一断流不带 marker：既有行为零改动
+	const autoClient = fakeClient({ chat: () => partialThenError("半截回复", apiError(429, "stream broke")) })
+	const auto = new FreeModelHandler({
+		ovhClient: autoClient,
+		kiloClient: fakeClient({ chat: () => textStream("OK") }),
+		kiloFreeRows: [],
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of auto.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			assert.equal((error as Error).message.includes(FREE_PINNED_RECOVERY_MARKER), false)
+			return true
+		},
+	)
+	// 结构性：接线必须落在 sawContent 分支，不能只在「全链失败」路径补
+	const free = fs.readFileSync("src/core/api/providers/free.ts", "utf8")
+	assert.match(free, /if \(sawContent\)[\s\S]{0,300}withPinnedRecoveryMarker\(error\)/)
+})
+
+test("#242 composePinnedError：tried=0 不说「已尝试 0 个候选」，自动路由文案零改动", () => {
+	const pinned0 = composePinnedError("some/model-id", "上游 429", 0)
+	assert.match(pinned0.message, /本次请求未发出/)
+	assert.doesNotMatch(pinned0.message, /已尝试 0 个候选/)
+	assert.ok(pinned0.message.includes(FREE_PINNED_RECOVERY_MARKER))
+	assert.match(composePinnedError("some/model-id", "上游 429", 1).message, /已尝试 1 次/)
+	const auto = composeFinalError(apiError(429, "rate limit"), 3)
+	assert.match(auto.message, /已尝试 3 个候选/)
+	assert.equal(auto.message.includes(FREE_PINNED_RECOVERY_MARKER), false, "自动路由错误不得带恢复标记")
+})
+
+test("#236 元测试：保底 10 行常量单源、两个高度链注入源已收口、整页滚唯一", () => {
+	assert.equal(FREE_POOL_MIN_VISIBLE_ROWS, 10, "用户裁定：保底 10 行")
+	const provider = stripComments(fs.readFileSync("webview-ui/src/components/settings/providers/FreeModelProvider.tsx", "utf8"))
+	assert.match(provider, /FREE_POOL_MIN_VISIBLE_ROWS \* POOL_ROW_HEIGHT_PX/, "表格高度必须由单源常量派生")
+	assert.doesNotMatch(provider, /flex-1 min-h-0/, "表格容器不得再吃满视口")
+	assert.doesNotMatch(provider, /overscroll-behavior:\s*contain/, "不得截断滚轮链（否则下滚有断点）")
+	const section = stripComments(
+		fs.readFileSync("webview-ui/src/components/settings/sections/ApiConfigurationSection.tsx", "utf8"),
+	)
+	assert.doesNotMatch(section, /max-h-\[40vh\]/, "辅助区不再自身限高")
+	assert.doesNotMatch(section, /flex h-full flex-col/, "根 div 不再打通高度链")
+	assert.match(section, /data-free-provider/, "#224 displayedMode 同源判据仍在")
+	const apiOptions = stripComments(fs.readFileSync("webview-ui/src/components/settings/ApiOptions.tsx", "utf8"))
+	assert.doesNotMatch(apiOptions, /selectedProvider === "free" \? \{ flex:/, "第二个高度链注入源已收口")
+	const settingsView = stripComments(fs.readFileSync("webview-ui/src/components/settings/SettingsView.tsx", "utf8"))
+	assert.match(settingsView, /TabContent className="flex-1 overflow-auto"/, "页面唯一主滚动容器仍在")
+})
+
+test("#242 元测试：存真实 ID、四道门复用、失败不自动切、双语齐备、恢复标记同源", () => {
+	const pools = stripComments(fs.readFileSync("src/shared/free-pools.ts", "utf8"))
+	assert.match(
+		pools,
+		/return gated\.filter\(\(candidate\) => candidate\.id === pinned\)/,
+		"钳制必须按真实上游 ID，⛔ 不是 displayName / 下标",
+	)
+	const free = stripComments(fs.readFileSync("src/core/api/providers/free.ts", "utf8"))
+	assert.match(free, /buildFreeCandidateChain\(\{ hasImages, kiloFreeRows, excludeCollecting, pinnedModelId \}\)/)
+	assert.match(free, /describePinnedGateConflict\(pinnedModelId/, "链空必须复用四道门归因")
+	assert.match(free, /composePinnedError\(pinnedModelId/)
+	assert.doesNotMatch(free, /pinnedModelId = undefined/, "⛔ 路由层不得自动清掉 pinned")
+	const index = stripComments(fs.readFileSync("src/core/api/index.ts", "utf8"))
+	assert.match(index, /pinnedModelId: options\.pinnedModelId/, "请求侧必须把 pinned 传给 handler")
+	const errors = stripComments(fs.readFileSync("src/core/api/providers/free-errors.ts", "utf8"))
+	assert.match(errors, /FREE_PINNED_RECOVERY_MARKER/, "host 错误须写恢复标记")
+	const errorRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ErrorRow.tsx", "utf8"))
+	assert.match(errorRow, /FREE_PINNED_RECOVERY_MARKER/, "webview 与 host 从同一常量识别标记")
+	assert.match(errorRow, /handleFieldChange\("pinnedModelId", undefined\)/, "点了才切回自动路由")
+	assert.match(errorRow, /TaskServiceClient\.askResponse/, "点了才重试")
+	// 恢复标记必须能穿过 host 的 ClineError → api_req_failed 文案链路到达 ErrorRow
+	const taskIndex = stripComments(fs.readFileSync("src/core/task/index.ts", "utf8"))
+	assert.match(taskIndex, /await this\.ask\("api_req_failed", humanErrorMessage\)/, "错误文本原样送到 webview")
+	assert.match(taskIndex, /const humanErrorMessage = clineError\.message \|\| errorMessage/, "文案取原始 message")
+	// 用户裁定：快捷切换菜单不显示指定模型、不参与 per-provider 记忆
+	const quickSwitch = stripComments(fs.readFileSync("webview-ui/src/components/chat/ModelQuickSwitchMenu.tsx", "utf8"))
+	assert.doesNotMatch(quickSwitch, /pinnedModelId/, "快捷菜单不得读取/展示指定模型")
+	// 风险告知「强制中英双语」：两种语言环境里都必须同时含中文与英文，并写清 429 因果
+	for (const lng of ["en", "zh-CN"]) {
+		const settings = JSON.parse(fs.readFileSync(`webview-ui/src/locales/${lng}/settings.json`, "utf8")) as {
+			settings: Record<string, string>
+		}
+		const risk = settings.settings.freePinnedRisk
+		assert.equal(typeof risk, "string", `${lng} 缺 freePinnedRisk`)
+		assert.match(risk, /[一-龥]/, `${lng} 风险告知必须含中文`)
+		assert.match(risk, /Warning:.*[A-Za-z]{4,}/, `${lng} 风险告知必须含完整的英文警示句`)
+		assert.match(risk, /警告：/, `${lng} 风险告知必须含中文警示句`)
+		assert.match(risk, /429/, `${lng} 风险告知必须点名限流`)
+		const common = JSON.parse(fs.readFileSync(`webview-ui/src/locales/${lng}/common.json`, "utf8")) as {
+			error: Record<string, string>
+		}
+		assert.equal(typeof common.error.freePinnedRecovery, "string", `${lng} 缺恢复按钮文案`)
+	}
 })

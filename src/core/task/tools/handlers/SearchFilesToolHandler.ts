@@ -11,6 +11,7 @@ import { telemetryService } from "@/services/telemetry"
 import { ClineSayTool } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
 import { ClineDefaultTool } from "@/shared/tools"
+import { buildUnclosedTagFailureMessage } from "../../dialect-guard"
 import type { ToolResponse } from "../../index"
 import { showNotificationForApproval } from "../../utils"
 import type { IFullyManagedTool } from "../ToolExecutorCoordinator"
@@ -128,7 +129,14 @@ export class SearchFilesToolHandler implements IFullyManagedTool {
 		searchResults: Array<{ success: boolean; errorMessage?: string }>,
 		searchPaths: Array<{ absolutePath: string }>,
 		relDirPath: string,
+		params: Record<string, string | undefined> | undefined,
 	): string {
+		// 08 #239：标签未闭合残片导致搜索失败时，给一步改对的归因 + 脱敏回显 + 正确写法示例。
+		// 检测/回显都复用 dialect-guard 单源（不另写第二份）；仅命中才改文案，#45 双分支与正常结果零改动。
+		const unclosedMessage = buildUnclosedTagFailureMessage(params)
+		if (unclosedMessage) {
+			return formatResponse.toolError(unclosedMessage)
+		}
 		const allTargetsMissing = searchPaths.length > 0 && searchPaths.every(({ absolutePath }) => !existsSync(absolutePath))
 		if (allTargetsMissing) {
 			return formatResponse.toolError(
@@ -340,7 +348,7 @@ export class SearchFilesToolHandler implements IFullyManagedTool {
 		// absolute path for files outside the workspace).
 		const results = anySucceeded
 			? this.formatSearchResults(config, searchResults, searchPaths)
-			: this.buildSearchFailureMessage(searchResults, searchPaths, relDirPath!)
+			: this.buildSearchFailureMessage(searchResults, searchPaths, relDirPath!, block.params)
 
 		// Capture workspace search pattern telemetry
 		if (config.isMultiRootEnabled && config.workspaceManager) {

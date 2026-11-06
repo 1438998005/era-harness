@@ -160,6 +160,7 @@ export const BigmodelPlanProvider = ({ showModelOptions, isPopup, currentMode }:
 											none: "关闭（thinking: disabled）",
 										}
 							}
+							provider="bigmodel-plan"
 						/>
 					)}
 

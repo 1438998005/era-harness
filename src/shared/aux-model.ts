@@ -3,16 +3,23 @@ import { modelIdToWriteOnProviderSwitch } from "./api"
 import type { Mode } from "./storage/types"
 
 /**
- * 「提示词增强 / 子代理」独立模型配置（2026-11-04，用户裁定：各一套完整独立配置，可跨厂商）。
+ * 「提示词增强 / 子代理」独立模型配置（2026-11-04 建立；2026-11-05 KB 08 #237 修订）。
  *
  * 设计约束（为什么是纯函数 + 平铺字段）：
- * - 判据单源：未配置回落、跨厂商密钥槽、模型 id 归属纠偏、agent YAML 覆盖优先级，
+ * - 判据单源：未配置回落、跨厂商配置槽、模型 id 归属纠偏、agent YAML 覆盖优先级，
  *   全部收在这里。消费点（enhancePrompt / SubagentBuilder）只做接线，判据写两遍必然漂移。
  * - 未配置 = 零行为变化：`resolveAuxiliaryApiConfiguration` 返回 undefined，消费点走主配置，
  *   存量用户与未配置用户完全不受影响。
  * - 归属纠偏复用既有判据：辅助配置改了 provider 没改 modelId 时，别家模型 id 会打到错端点
  *   （KB 18 §18.11 的 402 坑）——这里直接调 `modelIdToWriteOnProviderSwitch`，与设置页、
  *   buildApiHandler 前置闸共用同一份规则，不另写一份。
+ *
+ * ⚠️ #237 修订（用户裁定，推翻 2026-11-04 的「各一套完整独立配置」设计前提）：
+ * 两套辅助配置**只保留「选 provider + 选模型 / ModelInfo」**。密钥、思维强度、Kimi 入口
+ * 一律跟随所选 provider 对应的主 API 配置：子代理选 DeepSeek 就用主 deepSeekApiKey 与
+ * 「DeepSeek 页设的那一档思维强度」，哪怕当前主模型是别家（用户举例口径）；提示词增强
+ * 同样收窄。旧字段（*ApiKey / *ReasoningEffort / *MoonshotApiLine）保留存储与清空清单，
+ * 但解析、请求配置、诊断摘要、UI 四处一律不读——见 extractAuxiliaryOverride 的屏蔽注释。
  */
 
 /** 辅助配置支持的 provider：五家预设 + 免费池。OpenAI 兼容需要自定义 baseUrl，暂不纳入。 */
@@ -96,13 +103,51 @@ export function auxiliaryFieldsToClear(config: Partial<ApiConfiguration> | undef
 	return result
 }
 
-/** provider → 密钥槽位（buildApiHandler 按 provider 读固定字段，辅助密钥必须写进对应槽）。 */
+/** provider → 密钥槽位（buildApiHandler 按 provider 读固定字段，主配置密钥存在这里）。 */
 const PROVIDER_SECRET_KEY: Partial<Record<ApiProvider, keyof ApiConfiguration>> = {
 	deepseek: "deepSeekApiKey",
 	mimo: "mimoApiKey",
 	bigmodel: "bigmodelApiKey",
 	"bigmodel-plan": "bigmodelPlanApiKey",
 	moonshot: "moonshotApiKey",
+}
+
+/**
+ * KB 08 #237：provider → **该家自己的**思维强度槽（全局单档，不分 plan/act）。
+ *
+ * 与 PROVIDER_SECRET_KEY 同族写法的单源映射：设置页各家控件写、请求侧
+ * `buildApiHandler` 按当前 apiProvider 查、元测试按本表派生期望值，三处共用一份。
+ * ⛔ 不要另写「语义不同的第二份」映射（#219/#230 的跨层漂移就是这么来的）。
+ * free / openai 兼容无条目：free handler 不读思维强度，openai 兼容仍用全局 mode 槽。
+ */
+export const PROVIDER_REASONING_EFFORT_KEY: Partial<Record<ApiProvider, keyof ApiConfiguration>> = {
+	deepseek: "deepSeekReasoningEffort",
+	mimo: "mimoReasoningEffort",
+	bigmodel: "bigmodelReasoningEffort",
+	"bigmodel-plan": "bigmodelPlanReasoningEffort",
+	moonshot: "moonshotReasoningEffort",
+}
+
+/**
+ * KB 08 #237：按**本次请求的 provider** 读思维强度，纯函数单源（设置页写、请求侧读、测试断言
+ * 三处共用）。旧写法七个分支统一读全局 planMode/actModeReasoningEffort，全局只有两槽，谁最后
+ * 在主配置页改了档所有 provider 都跟着变；用户举例要求「子代理用 DeepSeek 就读 DeepSeek 页
+ * 设的那一档，哪怕当前主模型是别家」。
+ *
+ * 辅助模型 resolve 出的 provider 与主模型不同时，本函数自然读到对应档；存量用户没设新槽、
+ * 或 free / openai 兼容等无槽 provider，回落到全局 mode 槽，行为零变化。
+ */
+export function resolveReasoningEffort(
+	apiProvider: string | undefined,
+	config: ApiConfiguration,
+	mode: Mode,
+): string | undefined {
+	const modeEffort = mode === "plan" ? config.planModeReasoningEffort : config.actModeReasoningEffort
+	const effortKey = PROVIDER_REASONING_EFFORT_KEY[apiProvider as ApiProvider]
+	if (!effortKey) {
+		return modeEffort
+	}
+	return (config[effortKey] as string | undefined) ?? modeEffort
 }
 
 /** provider → per-mode ModelInfo 槽位（同 planModeMimoModelInfo 范式，plan/act 成对）。 */
@@ -117,52 +162,64 @@ const PROVIDER_MODEL_INFO_KEY: Partial<Record<ApiProvider, { plan: keyof ApiConf
 /** 一套辅助配置的值包（从 ApiConfiguration 平铺字段抽取，见 extractAuxiliaryOverride）。 */
 export interface AuxiliaryModelOverride {
 	provider?: string
-	apiKey?: string
 	modelId?: string
 	modelInfo?: ModelInfo
+	/** @deprecated KB 08 #237 起彻底不读，保留形状仅为兼容既有调用点；恒为 undefined。 */
+	apiKey?: string
+	/** @deprecated KB 08 #237 起彻底不读，保留形状仅为兼容既有调用点；恒为 undefined。 */
 	reasoningEffort?: string
-	/** Kimi 双入口（仅 provider=moonshot 时生效）。 */
+	/** @deprecated KB 08 #237 起彻底不读（Kimi 入口跟随主 moonshotApiLine）；恒为 undefined。 */
 	moonshotApiLine?: string
 }
 
-/** 从平铺配置字段抽一套辅助配置值包（prefix 为 "enhance" / "subagent"）。 */
+/**
+ * 从平铺配置字段抽一套辅助配置值包（prefix 为 "enhance" / "subagent"）。
+ *
+ * ⚠️ KB 08 #237：旧独立密钥 / 独立思维强度 / 独立 Kimi 入口**一律不抽取**（恒 undefined），
+ * 「不读」从解析层就钉死，下游 resolve / 请求配置 / 诊断摘要没有机会误用旧值。字段名仍留在
+ * AUXILIARY_CONFIG_KEYS、SECRETS_KEYS 与 proto 里，只为兼容存量磁盘值与显式清空通道
+ * （不删字段号、不删号复用），见元测试。
+ */
 export function extractAuxiliaryOverride(config: ApiConfiguration, prefix: "enhance" | "subagent"): AuxiliaryModelOverride {
 	return {
 		provider: config[`${prefix}ApiProvider` as keyof ApiConfiguration] as string | undefined,
-		apiKey: config[`${prefix}ApiKey` as keyof ApiConfiguration] as string | undefined,
 		modelId: config[`${prefix}ApiModelId` as keyof ApiConfiguration] as string | undefined,
 		modelInfo: config[`${prefix}ModelInfo` as keyof ApiConfiguration] as ModelInfo | undefined,
-		reasoningEffort: config[`${prefix}ReasoningEffort` as keyof ApiConfiguration] as string | undefined,
-		moonshotApiLine: config[`${prefix}MoonshotApiLine` as keyof ApiConfiguration] as string | undefined,
+		apiKey: undefined,
+		reasoningEffort: undefined,
+		moonshotApiLine: undefined,
 	}
 }
 
 /**
- * 该辅助配置是否「已配置」：必须显式选了受支持的 provider，且给了独立密钥
- * （免费池零配置可用，是唯一例外）。只选 provider 不给 key 视为未配置——
- * 拿主配置密钥打辅助模型是「半配置」状态，宁可不生效也不静默混用两家的账。
+ * 该辅助配置是否「已配置」：KB 08 #237 起**只要显式选了受支持的 provider**。
+ *
+ * 旧判据还要求独立密钥，理由写在 2026-11-04 的注释里：「拿主配置密钥打辅助模型是半配置
+ * 状态，宁可不生效也不静默混用两家的账」。这条设计前提已被 #237 用户裁定推翻：两套辅助
+ * 配置统一跟随所选 provider 对应的主 API 配置，密钥与思维强度都不再单独填。若仍要求独立
+ * key，用户「只选 provider」时功能会静默失效——这正是本次验收要专防的形状。
+ * free 仍零配置可用；子代理的免费池门控见 resolveEffectiveSubagentProvider（#94/#223）。
  */
 export function isAuxiliaryConfigured(aux: AuxiliaryModelOverride | undefined): boolean {
-	if (!aux || !isAuxiliarySupportedProvider(aux.provider)) {
-		return false
-	}
-	return aux.provider === "free" || !!aux.apiKey?.trim()
+	return isAuxiliarySupportedProvider(aux?.provider)
 }
 
 /**
  * 解析辅助配置为一份完整的 ApiConfiguration（交给 buildApiHandler）。
  *
  * - 未配置 → undefined（消费点走主配置，零行为变化）；
- * - provider/密钥/入口/思考强度由辅助配置决定（mode 恒为调用方语义，辅助配置不分 plan/act）；
+ * - provider / 模型由辅助配置决定（mode 恒为调用方语义，辅助配置不分 plan/act）；
+ * - KB 08 #237：密钥、思维强度、Kimi 入口**全部沿用 base 主配置**——不再用辅助的独立值。
+ *   思维强度由 buildApiHandler 按解析出的 apiProvider 查各家自己的槽，因此「主模型是
+ *   Moonshot、子代理选 DeepSeek」读的是 DeepSeek 档；把主模型再切到别家也不变。
  * - modelId 优先级：agent YAML 显式覆盖 > 辅助配置所选（过归属纠偏；无需纠偏或 free 无
  *   内置清单时保留原值）> 两者皆空时**不写该字段**、保留 base 的主配置模型 id（#235①
  *   口径修正：兜底不是「读主配置 id 再写入」，而是「不写 = 留 base 值」，由归属闸兜底；
  *   保留 yaml 覆盖能力，不回归 #94/#112 的既有语义）；
- * - Kimi 入口由辅助配置的 moonshotApiLine 决定（仅 provider=moonshot 时写入）；
- * - 密钥只写入目标 provider 的槽位（buildApiHandler 按 provider 读固定字段）。
+ * - per-mode ModelInfo 仍写进目标 provider 的槽位（辅助 ModelInfo 保持独立，按推荐收敛）。
  *
  * @param aux          辅助配置值包
- * @param base         主配置（回落与「主配置当前模型 id」的来源）
+ * @param base         主配置（回落、主配置密钥 / 思维强度 / 入口、当前模型 id 的来源）
  * @param mode         调用方语义（enhance 恒 act；子代理跟父任务 mode）
  * @param yamlModelId  agent YAML 显式模型覆盖（仅子代理有，最高优先级）
  */
@@ -188,20 +245,23 @@ export function resolveAuxiliaryApiConfiguration(
 		ulid: base.ulid,
 		planModeApiProvider: auxProvider,
 		actModeApiProvider: auxProvider,
-		planModeReasoningEffort: aux!.reasoningEffort,
-		actModeReasoningEffort: aux!.reasoningEffort,
+		// KB 08 #237：不再覆盖 planModeReasoningEffort / actModeReasoningEffort。
+		// 覆盖成「辅助那一档」会让请求侧读不到各家自己的槽，正是用户举例要修的形状；
+		// 现在交给 buildApiHandler 按 apiProvider 查 PROVIDER_REASONING_EFFORT_KEY。
+		// 旧独立凭证也不进这份请求配置：两套辅助一律用主配置密钥。
+		enhanceApiKey: undefined,
+		subagentApiKey: undefined,
 	}
 
-	// 密钥写进目标 provider 的槽位（free 无需密钥）
+	// 密钥：付费 provider 直接沿用 {...base} 里主配置的目标槽（槽位表 PROVIDER_SECRET_KEY
+	// 仍是单源），不再写 aux.apiKey。free 无密钥且必须清空主配置付费凭证与 Kimi 入口（#235②）。
 	const secretKey = PROVIDER_SECRET_KEY[auxProvider]
-	if (secretKey) {
-		;(resolved as Record<string, unknown>)[secretKey] = aux!.apiKey?.trim()
-	} else {
-		// #235②：auxProvider=free（PROVIDER_SECRET_KEY 无条目的唯一受支持 provider）时，
-		// {...base} 会把主配置的付费密钥与 Kimi 入口残留进请求配置——free 请求本不该带
-		// 任何主配置凭证（泄漏面，也防止将来有代码误读这些槽位），显式清空。
+	if (!secretKey) {
+		// auxProvider=free 是 PROVIDER_SECRET_KEY 无条目的唯一受支持 provider；{...base} 会把
+		// 主配置的付费密钥与 Kimi 入口残留进请求配置——free 请求本不该带任何主配置凭证
+		// （泄漏面，也防止将来有代码误读这些槽位），显式清空。
 		// modelId 不清：free 无内置清单、resolvedModelId 为空时保留 base 值是「跟随主模型」
-		// 的既定语义（见下方 resolvedModelId 分支）。付费辅助不受影响（上面 if 已返回）。
+		// 的既定语义（见下方 resolvedModelId 分支）。付费辅助不受影响。
 		for (const key of Object.values(PROVIDER_SECRET_KEY)) {
 			;(resolved as Record<string, unknown>)[key] = undefined
 		}
@@ -223,10 +283,8 @@ export function resolveAuxiliaryApiConfiguration(
 		resolved.actModeApiModelId = resolvedModelId
 	}
 
-	// Kimi 双入口：仅 provider=moonshot 时由辅助配置的入口决定
-	if (auxProvider === "moonshot") {
-		resolved.moonshotApiLine = aux!.moonshotApiLine
-	}
+	// KB 08 #237：Kimi 双入口跟随主 moonshotApiLine（{...base} 原样保留），不再由辅助配置
+	// 单独覆盖——否则会出现「密钥跟随主配置、入口却还是辅助旧值」的半配置（两站密钥不互通）。
 
 	return resolved
 }

@@ -241,6 +241,7 @@ export const MimoProvider = ({ showModelOptions, isPopup, currentMode }: MimoPro
 								high: "开启（官方默认）",
 								none: "关闭（thinking: disabled）",
 							}}
+							provider="mimo"
 						/>
 					)}
 

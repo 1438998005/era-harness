@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 // P2-5 防同类回归（2026-11-04 复审）：辅助模型设置曾被 `!isFree &&` 隐藏，
 // 导致「主免费 + 辅助付费」这一跨厂商场景找不到入口。
-// 这里钉住「无论主 provider 是不是免费池，辅助设置都必须渲染」，
-// 且免费池页必须带自身限高（不破坏 FreePoolTable 内部滚动的高度链）。
+// KB 08 #236（2026-11-05 用户裁定）追加：这里同时钉住「辅助区不再限高自身滚动」——
+// 旧实现用 max-h-[40vh] overflow-y-auto 把辅助区塞进独立滚动容器，与整页滚争滚轮、
+// 从模型池往下滚会出现断点。现在整页滚由 SettingsView 的 TabContent 统一承担。
 
 const state = vi.hoisted(() => ({ provider: "free" as string }))
 
@@ -56,17 +57,22 @@ describe("ApiConfigurationSection 辅助模型设置常驻", () => {
 		state.provider = "free"
 	})
 
-	it("主模型是免费池时仍能看到辅助模型设置，且自身限高不挤压表格", () => {
+	it("主模型是免费池时仍能看到辅助模型设置，且交给整页滚、不再自身限高", () => {
 		state.provider = "free"
 		const { container } = render(<ApiConfigurationSection />)
 		const aux = container.querySelector("[data-aux-settings]")
 		expect(aux).not.toBeNull()
-		expect(aux?.parentElement?.className).toContain("max-h-[40vh]")
+		const wrapperClass = aux?.parentElement?.className ?? ""
+		expect(wrapperClass).not.toContain("max-h-[40vh]")
+		expect(wrapperClass).not.toContain("overflow-y-auto")
+		// #224 防回归：免费池判据仍与 ApiOptions 的 currentMode 同源，不能只看全局 mode
+		expect(container.querySelector('[data-free-provider="true"]')).not.toBeNull()
 	})
 
-	it("主模型是付费 provider 时同样可见", () => {
+	it("主模型是付费 provider 时同样可见，且不打免费池标记", () => {
 		state.provider = "deepseek"
 		const { container } = render(<ApiConfigurationSection />)
 		expect(container.querySelector("[data-aux-settings]")).not.toBeNull()
+		expect(container.querySelector('[data-free-provider="true"]')).toBeNull()
 	})
 })

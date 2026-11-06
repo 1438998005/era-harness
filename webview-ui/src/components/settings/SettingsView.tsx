@@ -268,6 +268,9 @@ const SettingsView = ({ onDone, targetSection }: SettingsViewProps) => {
 					{SETTINGS_TABS.filter((tab) => !tab.hidden?.()).map(renderTabItem)}
 				</TabList>
 
+				{/* KB 08 #236：整页滚的唯一主滚动容器。免费池页不再有 h-full / flex-1 / min-h-0
+			    高度链，模型池表格只按保底行数限高、内滚条仅在该区域生效；从这里往下滚
+			    能连续经过模型池 → 辅助模型区，中间无断点。非 free 页行为零变化。 */}
 				<TabContent className="flex-1 overflow-auto">{ActiveContent}</TabContent>
 			</div>
 		</Tab>

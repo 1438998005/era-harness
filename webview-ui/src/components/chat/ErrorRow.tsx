@@ -1,7 +1,11 @@
 import { ClineMessage } from "@shared/ExtensionMessage"
-import { memo } from "react"
+import { FREE_PINNED_RECOVERY_MARKER } from "@shared/free-pools"
+import { AskResponseRequest } from "@shared/proto/cline/task"
+import { memo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import CreditLimitError from "@/components/chat/CreditLimitError"
+import { useApiConfigurationHandlers } from "@/components/settings/utils/useApiConfigurationHandlers"
+import { TaskServiceClient } from "@/services/grpc-client"
 import { ClineError, ClineErrorType } from "../../../../src/services/error/ClineError"
 import { isDuplicateErrorCode } from "../../../../src/services/error/error-code"
 import { extractBigmodelError } from "../../../../src/shared/bigmodel-request"
@@ -17,7 +21,16 @@ interface ErrorRowProps {
 
 const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStreamingFailedMessage }: ErrorRowProps) => {
 	const { t } = useTranslation("common")
-	const rawApiError = apiRequestFailedMessage || apiReqStreamingFailedMessage
+	const { handleFieldChange } = useApiConfigurationHandlers()
+	const [recovered, setRecovered] = useState(false)
+
+	// KB 08 #242：host 侧 composePinnedError 在错误文本尾部写恢复标记；webview 据此渲染
+	// 「切回自动路由并重试」按钮。标记**先剥掉**再交给 ClineError.parse / 展示，
+	// 否则用户会看到裸 [ERA_FREE_PINNED_RECOVERY]，且可能干扰 JSON 错误解析。
+	const errorText = apiRequestFailedMessage || apiReqStreamingFailedMessage
+	const pinnedRecovery = [errorText, message.text].some((text) => text?.includes(FREE_PINNED_RECOVERY_MARKER))
+	const clean = (text: string | undefined): string | undefined => text?.split(FREE_PINNED_RECOVERY_MARKER).join("")
+	const rawApiError = clean(errorText)?.trim()
 
 	const renderErrorContent = () => {
 		switch (errorType) {
@@ -36,8 +49,9 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 						providerId === "bigmodel" || providerId === "bigmodel-plan"
 							? extractBigmodelError(clineError?._error)
 							: undefined
-					const errorMessage =
-						bigmodelError?.humanMessage || clineError?._error?.message || clineError?.message || rawApiError
+					const errorMessage = clean(
+						bigmodelError?.humanMessage || clineError?._error?.message || clineError?.message || rawApiError,
+					)
 					// code 常常就是 status 的字符串形式（服务端回 "401"），而 message 自己也以
 					// "401 Invalid API Key" 开头 → 直接拼会渲染成 `[MIMO] 401401 Invalid API Key`。
 					const showErrorCode = !!errorCode && !isDuplicateErrorCode(clineError?._error?.status, errorCode)
@@ -65,7 +79,7 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 					}
 
 					if (clineError?.isErrorType(ClineErrorType.QuotaExceeded)) {
-						const detailMessage = clineError?._error?.details?.message || errorMessage
+						const detailMessage = clean(clineError?._error?.details?.message || errorMessage)
 						return <p className="m-0 whitespace-pre-wrap text-error wrap-anywhere">{detailMessage}</p>
 					}
 
@@ -105,7 +119,7 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 				}
 
 				// Regular error message
-				return <p className="m-0 mt-0 whitespace-pre-wrap text-error wrap-anywhere">{message.text}</p>
+				return <p className="m-0 mt-0 whitespace-pre-wrap text-error wrap-anywhere">{clean(message.text)}</p>
 
 			case "diff_error":
 				return (
@@ -130,13 +144,40 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 		}
 	}
 
-	// For diff_error and clineignore_error, we don't show the header separately
-	if (errorType === "diff_error" || errorType === "clineignore_error") {
-		return renderErrorContent()
+	const content = renderErrorContent()
+	if (!pinnedRecovery) {
+		return content
 	}
 
-	// For other error types, show header + content
-	return renderErrorContent()
+	// 用户裁定：失败时**只给按钮**，绝不自动切回自动路由。点了才清 pinned + 触发重试。
+	return (
+		<div className="flex flex-col gap-2">
+			{content}
+			<button
+				className="text-xs px-2 py-1 cursor-pointer border border-(--vscode-panel-border) rounded"
+				disabled={recovered}
+				onClick={async () => {
+					try {
+						// 先落配置：即使下面的重试触发失败，也已经切回自动路由，不该让用户反复点
+						await handleFieldChange("pinnedModelId", undefined)
+						setRecovered(true)
+						await TaskServiceClient.askResponse(AskResponseRequest.create({ responseType: "yesButtonClicked" }))
+					} catch (error) {
+						console.error("Failed to clear pinned free model / retry:", error)
+					}
+				}}
+				style={{
+					color: "var(--vscode-textLink-foreground, #3794FF)",
+					background: "transparent",
+				}}
+				type="button">
+				{t("error.freePinnedRecovery")}
+			</button>
+			<span className="text-[11px]" style={{ color: "var(--vscode-descriptionForeground, #AAAAAA)" }}>
+				{t("error.freePinnedRecoveryHint")}
+			</span>
+		</div>
+	)
 })
 
 export default ErrorRow

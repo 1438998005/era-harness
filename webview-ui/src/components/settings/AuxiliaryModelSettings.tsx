@@ -9,16 +9,17 @@ import {
 } from "@shared/api"
 import { AUXILIARY_CONFIG_KEYS, AUXILIARY_SUPPORTED_PROVIDERS } from "@shared/aux-model"
 import { useExtensionState } from "@/context/ExtensionStateContext"
-import { ApiKeyField } from "./common/ApiKeyField"
 import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers"
 
 /**
- * 「提示词增强 / 子代理」独立模型配置（2026-11-04，用户裁定各一套完整独立配置、可跨厂商）。
+ * 「提示词增强 / 子代理」独立模型配置（2026-11-04 建立；2026-11-05 KB 08 #237 修订）。
  *
  * - 未选 provider = 跟随主模型（默认态，零行为变化）；
- * - 判据单源在 @shared/aux-model（回落/密钥槽/归属纠偏/yaml 优先级），这里只做表单接线；
+ * - 判据单源在 @shared/aux-model（回落/配置槽/归属纠偏/yaml 优先级），这里只做表单接线；
  * - 模型下拉用内置清单（不做在线同步：更多模型可在主配置区同步后原样填 id，读侧按未知 id 保留）；
- * - Kimi 双入口由辅助配置独立选择（与主配置互不影响）。
+ * - ⚠️ #237 用户裁定：两套都**只选 provider + 模型**。密钥、思维强度、Kimi 入口一律跟随
+ *   所选服务的主 API 配置（「各存各的」「一起改」），因此这里不再渲染密钥框 / 思考强度下拉 /
+ *   Kimi 入口下拉——**只选服务即生效**。旧字段保留在存储与清空清单里但四处都不读。
  */
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -50,12 +51,7 @@ const AuxModelCard = ({ prefix, title, description }: AuxCardProps) => {
 	const provider = apiConfiguration?.[`${prefix}ApiProvider` as keyof typeof apiConfiguration] as string | undefined as
 		| ApiProvider
 		| undefined
-	const apiKey = (apiConfiguration?.[`${prefix}ApiKey` as keyof typeof apiConfiguration] as string | undefined) ?? ""
 	const modelId = (apiConfiguration?.[`${prefix}ApiModelId` as keyof typeof apiConfiguration] as string | undefined) ?? ""
-	const reasoningEffort =
-		(apiConfiguration?.[`${prefix}ReasoningEffort` as keyof typeof apiConfiguration] as string | undefined) ?? ""
-	const moonshotApiLine =
-		(apiConfiguration?.[`${prefix}MoonshotApiLine` as keyof typeof apiConfiguration] as string | undefined) ?? "china"
 
 	const models = provider ? PROVIDER_MODELS[provider] : undefined
 
@@ -104,31 +100,11 @@ const AuxModelCard = ({ prefix, title, description }: AuxCardProps) => {
 				</select>
 			</label>
 
+			{/* KB 08 #237：密钥 / 思维强度 / Kimi 入口不再单独配置，一律跟随所选服务的主配置 */}
 			{provider && provider !== "free" && (
-				<ApiKeyField
-					initialValue={apiKey}
-					onChange={(value) => setAuxField(`${prefix}ApiKey`, value)}
-					providerName={PROVIDER_LABELS[provider] ?? provider}
-					signupUrl=""
-				/>
-			)}
-
-			{provider === "moonshot" && (
-				<label className="flex flex-col gap-1">
-					<span className="text-xs font-medium">Kimi 入口（密钥不互通）</span>
-					<select
-						className="w-full text-xs rounded px-2 py-1.5 cursor-pointer"
-						onChange={(e) => setAuxField(`${prefix}MoonshotApiLine`, e.target.value)}
-						style={{
-							background: "var(--vscode-dropdown-background)",
-							color: "var(--vscode-dropdown-foreground)",
-							border: "1px solid var(--vscode-dropdown-border)",
-						}}
-						value={moonshotApiLine}>
-						<option value="china">国内站（api.moonshot.cn）</option>
-						<option value="international">国际站（api.moonshot.ai）</option>
-					</select>
-				</label>
+				<p className="text-xs m-0 leading-relaxed" style={{ color: "var(--vscode-descriptionForeground)" }}>
+					密钥与思维强度跟随该服务的主配置（在上方对应服务页设置），此处无需重复填写；只选服务即可生效。
+				</p>
 			)}
 
 			{provider && models && (
@@ -153,26 +129,6 @@ const AuxModelCard = ({ prefix, title, description }: AuxCardProps) => {
 					</select>
 				</label>
 			)}
-
-			{provider && provider !== "free" && (
-				<label className="flex flex-col gap-1">
-					<span className="text-xs font-medium">思考强度（可选）</span>
-					<select
-						className="w-full text-xs rounded px-2 py-1.5 cursor-pointer"
-						onChange={(e) => setAuxField(`${prefix}ReasoningEffort`, e.target.value || undefined)}
-						style={{
-							background: "var(--vscode-dropdown-background)",
-							color: "var(--vscode-dropdown-foreground)",
-							border: "1px solid var(--vscode-dropdown-border)",
-						}}
-						value={reasoningEffort}>
-						<option value="">跟随该服务默认</option>
-						<option value="low">低（low）</option>
-						<option value="high">高（high）</option>
-						<option value="xhigh">最大（xhigh/max）</option>
-					</select>
-				</label>
-			)}
 		</div>
 	)
 }
@@ -182,17 +138,17 @@ const AuxiliaryModelSettings = () => (
 		<div>
 			<div className="text-sm font-semibold">辅助模型（高级）</div>
 			<div className="text-xs mt-0.5 text-(--vscode-descriptionForeground) leading-relaxed">
-				为「提示词增强」与「子代理」单独指定模型服务与密钥，可与主模型不同厂商（例如主模型用 MiMo、辅助用便宜的
-				DeepSeek）。默认跟随主模型；只选服务不填密钥不会生效。
+				为「提示词增强」与「子代理」单独指定模型服务与模型，可与主模型不同厂商（例如主模型用 MiMo、辅助用便宜的
+				DeepSeek）。默认跟随主模型；密钥与思维强度跟随该服务的主配置，只选服务即可生效。
 			</div>
 		</div>
 		<AuxModelCard
-			description="输入框旁「增强提示词」按钮使用的模型。改写失败时保留原文。"
+			description="输入框旁「增强提示词」按钮使用的模型。改写失败时保留原文。密钥与思维强度跟随该服务的主配置。"
 			prefix="enhance"
 			title="提示词增强"
 		/>
 		<AuxModelCard
-			description="use_subagents 派生的探索子代理使用的模型（agent YAML 里的 modelId 覆盖仍优先）。免费池下子代理不可用的门控不变。"
+			description="use_subagents 派生的探索子代理使用的模型（agent YAML 里的 modelId 覆盖仍优先）。免费池下子代理不可用的门控不变。密钥与思维强度跟随该服务的主配置。"
 			prefix="subagent"
 			title="子代理"
 		/>

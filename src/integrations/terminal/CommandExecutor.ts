@@ -13,6 +13,7 @@
  * commands in hidden terminals without cluttering the visible terminal.
  */
 
+import { type CommandExecutionMeta, collectCommandStderrHints } from "@core/task/tool-outcome"
 import { findLastIndex } from "@shared/array"
 import { ClineToolResponseContent } from "@shared/messages"
 import { Logger } from "@/shared/services/Logger"
@@ -90,13 +91,13 @@ export class CommandExecutor {
 	 *
 	 * @param command The command to execute
 	 * @param timeoutSeconds Optional timeout in seconds
-	 * @returns [userRejected, result] tuple
+	 * @returns [userRejected, result, meta] tuple（第三项可选，只解构前两项的调用点保持兼容）
 	 */
 	async execute(
 		command: string,
 		timeoutSeconds: number | undefined,
 		options?: CommandExecutionOptions,
-	): Promise<[boolean, ClineToolResponseContent]> {
+	): Promise<[boolean, ClineToolResponseContent, CommandExecutionMeta?]> {
 		// Strip leading `cd` to workspace from command
 		const workspaceCdPrefix = `cd ${this.cwd} && `
 		if (command.startsWith(workspaceCdPrefix)) {
@@ -148,10 +149,31 @@ export class CommandExecutor {
 				result.outputLines.length > 0
 					? `\nOutput captured before cancellation:\n${manager.processOutput(result.outputLines)}`
 					: ""
-			return [true, `Command was cancelled by the user.${outputSoFar}`]
+			// 08 #238（review 修订）：取消分支原本返回二元组、不带 meta，文案又既不匹配
+			// DENIED_RE 也不含 toolError 前缀，ToolExecutor 会把它记成 ok。补 meta 让审计判 cancelled。
+			const cancelledMeta: CommandExecutionMeta = {
+				cancelled: true,
+				outputLength: result.outputLines.join("\n").length,
+				stderrHints: [],
+				truncated: false,
+			}
+			return [true, `Command was cancelled by the user.${outputSoFar}`, cancelledMeta]
 		}
 
-		return [result.userRejected, result.result]
+		// 08 #238：把 orchestrator 已给出的结构化字段组装成 meta，作为元组第三项透传给审计层；
+		// 不塞进 result 文本（给模型看的形状不变，现有只解构前两项的调用点保持兼容）。
+		const outputText = result.outputLines.join("\n")
+		const meta: CommandExecutionMeta = {
+			exitCode: result.exitCode ?? undefined,
+			signal: result.signal ?? undefined,
+			outputLength: outputText.length,
+			stderrHints: collectCommandStderrHints(outputText),
+			// 保守判定：现有链路无法可靠识别「多行命令被 shell 拆行后输出未回传」，
+			// 唯一可观测的「输出未完整回传」信号是输出过大被转储到日志文件。
+			// 这里只把它当近似信号，不假造多行拆行检测（仅置 suspect，不判 error）。
+			truncated: result.logFilePath != null,
+		}
+		return [result.userRejected, result.result, meta]
 	}
 
 	/**

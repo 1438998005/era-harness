@@ -36,6 +36,11 @@ export interface AuditEntry {
 	cacheHit?: boolean
 	readCount?: number
 	outcome?: AuditOutcome
+	/**
+	 * 08 #238：疑似静默失败提示位（exit 0 零输出 / stderr 特征 / 输出被转储）。
+	 * 不是 outcome 枚举，不计入「工具失败 N 次」；只供诊断包做「疑似静默失败」小计。
+	 */
+	suspect?: boolean
 	/** 耗时（毫秒） */
 	ms?: number
 	provider?: string
@@ -284,6 +289,9 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 
 	if (entry.outcome && OUTCOMES.has(entry.outcome)) record.outcome = entry.outcome
 
+	// 08 #238：suspect 只写真值（正常命令不带该字段），供诊断包单独小计；不碰 OUTCOMES 五态白名单。
+	if (entry.suspect === true) record.suspect = true
+
 	const ms = cleanNumber(entry.ms)
 	if (ms !== undefined) record.ms = Math.max(0, Math.round(ms))
 
@@ -496,6 +504,11 @@ export interface DiagnosticsHeader {
 	 */
 	errorStats?: ErrorEventStats
 	/**
+	 * 08 #240：按模型聚合的健康度表（**只做可观测，不参与路由**）。
+	 * 不传就整段不出现——保持「老调用方零改动」的兼容性。
+	 */
+	modelHealth?: readonly ModelHealthRow[]
+	/**
 	 * #184（2026-11-03）：本包审计事件覆盖窗口的说明行。
 	 * 不传就不输出（老调用方零改动）。
 	 */
@@ -541,6 +554,11 @@ export interface ErrorEventStats {
 	 * 可选字段：老调用方零改动。
 	 */
 	toolFailures?: number
+	/**
+	 * 08 #238：包内 `event:"tool" && suspect===true` 的条数。与 toolFailures **分列**：
+	 * suspect 不是 error，用户裁定不新增 outcome 枚举，也不得混进「工具失败 N 次」。
+	 */
+	silentSuspects?: number
 }
 
 /**
@@ -565,6 +583,144 @@ export function summarizeToolFailures(lines: readonly string[]): number {
 		}
 	}
 	return count
+}
+
+/**
+ * 08 #238：统计诊断包内「疑似静默失败」条数，口径与 `summarizeToolFailures` 同族——
+ * 只数**包内**（折叠之后）`event:"tool" && suspect===true` 的行、跳过折叠摘要与半行 JSON。
+ * 刻意与 `summarizeToolFailures` 分开：suspect 不是 error，绝不混入「工具失败 N 次」。
+ */
+export function summarizeSilentSuspects(lines: readonly string[]): number {
+	let count = 0
+	for (const line of lines) {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(line)
+		} catch {
+			continue
+		}
+		if (!parsed || typeof parsed !== "object") {
+			continue
+		}
+		const record = parsed as Record<string, unknown>
+		if (record.event === "tool" && record.suspect === true && record.action !== "folded") {
+			count++
+		}
+	}
+	return count
+}
+
+/**
+ * 08 #240：命令工具 id。与 `ClineDefaultTool.BASH`（src/shared/tools.ts）同源，由元测试钉住；
+ * 本模块刻意不 import `@shared/tools`（那边带 SDK 类型依赖），保持纯函数零依赖。
+ */
+export const MODEL_HEALTH_COMMAND_TOOL = "execute_command"
+
+/**
+ * 08 #240：按模型聚合的工具链健康度（**只可观测，⛔ 不改 failover / 候选链 / 池序**）。
+ * 数据源就是诊断包内的 `tool` 与 `parse` 事件本身（ToolExecutor/Task 已把 `model` 写进每条事件），
+ * 不新增采集字段、不新增事件类；口径与 `summarizeToolFailures` / `summarizeSilentSuspects` 同族。
+ */
+export interface ModelHealthRow {
+	/** 上游真实模型 ID；缺失时回落到 provider / "(未标注模型)"，绝不丢事件 */
+	model: string
+	toolCalls: number
+	toolErrors: number
+	commandCalls: number
+	/** 命令层失败：outcome=error 或 suspect=true 的 execute_command */
+	commandFailures: number
+	parseRepairs: number
+	silentSuspects: number
+}
+
+/** 从审计行里取分组键；已落盘的 model/provider 仍过一次脱敏截断，避免把长串写进诊断头部。 */
+function modelHealthKey(record: Record<string, unknown>): string {
+	const model = typeof record.model === "string" && record.model ? record.model : undefined
+	if (model) {
+		return cleanAuditText(model, 64) ?? "(未标注模型)"
+	}
+	const provider = typeof record.provider === "string" && record.provider ? record.provider : undefined
+	return provider ? `${cleanAuditText(provider, 64)}:(模型未标注)` : "(未标注模型)"
+}
+
+export function summarizeModelHealth(lines: readonly string[]): ModelHealthRow[] {
+	const rows = new Map<string, ModelHealthRow>()
+	for (const line of lines) {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(line)
+		} catch {
+			continue
+		}
+		if (!parsed || typeof parsed !== "object") {
+			continue
+		}
+		const record = parsed as Record<string, unknown>
+		if (record.action === "folded") {
+			continue // 折叠摘要不是一条真实事件，与另两个小计同口径
+		}
+		const isTool = record.event === "tool"
+		const isRepair = record.event === "parse" && record.action === "repair"
+		if (!isTool && !isRepair) {
+			continue
+		}
+		const key = modelHealthKey(record)
+		let row = rows.get(key)
+		if (!row) {
+			row = {
+				model: key,
+				toolCalls: 0,
+				toolErrors: 0,
+				commandCalls: 0,
+				commandFailures: 0,
+				parseRepairs: 0,
+				silentSuspects: 0,
+			}
+			rows.set(key, row)
+		}
+		if (isRepair) {
+			row.parseRepairs++
+			continue
+		}
+		row.toolCalls++
+		if (record.outcome === "error") {
+			row.toolErrors++
+		}
+		if (record.suspect === true) {
+			row.silentSuspects++
+		}
+		if (record.tool === MODEL_HEALTH_COMMAND_TOOL) {
+			row.commandCalls++
+			if (record.outcome === "error" || record.suspect === true) {
+				row.commandFailures++
+			}
+		}
+	}
+	// 最不健康的排前面：失败数降序 → 疑似静默 → parse repair → 模型名字典序（同一份包每次行序一致）
+	return [...rows.values()].sort(
+		(a, b) =>
+			b.toolErrors - a.toolErrors ||
+			b.silentSuspects - a.silentSuspects ||
+			b.parseRepairs - a.parseRepairs ||
+			a.model.localeCompare(b.model),
+	)
+}
+
+/** 08 #240：把健康度表渲染成诊断包里的几行（0 行时整段不出现，老调用方零改动）。 */
+export function describeModelHealth(rows: readonly ModelHealthRow[]): string[] {
+	if (rows.length === 0) {
+		return []
+	}
+	const pct = (n: number, d: number): string => (d === 0 ? "0%" : `${((n / d) * 100).toFixed(1)}%`)
+	return [
+		"按模型健康度（仅可观测，不影响路由；口径 = 本包内 tool/parse 事件）:",
+		...rows.map(
+			(r) =>
+				`  ${r.model}: 工具 ${r.toolCalls} 次 / 失败 ${r.toolErrors}（${pct(r.toolErrors, r.toolCalls)}）` +
+				`；命令 ${r.commandCalls} 次 / 失败 ${r.commandFailures}（${pct(r.commandFailures, r.commandCalls)}）` +
+				`；疑似静默 ${r.silentSuspects}；parse repair ${r.parseRepairs}`,
+		),
+	]
 }
 
 /**
@@ -625,14 +781,15 @@ export function summarizeErrorEvents(lines: readonly string[]): ErrorEventStats 
 export function describeErrorStats(stats: ErrorEventStats): string[] {
 	// #203：工具失败不是「运行时错误」，但用户刚吃过工具红字时头部不能只说 0 条。
 	const toolFailureSuffix = stats.toolFailures ? `；工具失败 ${stats.toolFailures} 次（见下方 tool 事件）` : ""
+	// 08 #238：疑似静默失败与工具失败分列；0 条时按既有风格省略（老调用方零改动）。
+	const silentSuspectSuffix = stats.silentSuspects ? `；疑似静默失败 ${stats.silentSuspects} 条` : ""
+	const suffix = `${toolFailureSuffix}${silentSuspectSuffix}`
 	if (stats.total === 0) {
-		return [
-			`运行时错误: 0 条（记录窗口内没有错误；若刚触发过失败操作仍为 0，说明该错误没被捕获链路覆盖）${toolFailureSuffix}`,
-		]
+		return [`运行时错误: 0 条（记录窗口内没有错误；若刚触发过失败操作仍为 0，说明该错误没被捕获链路覆盖）${suffix}`]
 	}
 
 	const sources = stats.bySource.map(({ source, count }) => `${ERROR_SOURCE_LABEL[source] ?? source} ${count}`).join(" / ")
-	const lines = [`运行时错误: ${stats.total} 条（${sources}）${toolFailureSuffix}`]
+	const lines = [`运行时错误: ${stats.total} 条（${sources}）${suffix}`]
 	for (const { source, kind, count } of stats.byKind) {
 		const sourceLabel = ERROR_SOURCE_LABEL[source] ?? source
 		const kindLabel = ERROR_KIND_LABEL[kind] ?? kind
@@ -665,6 +822,12 @@ export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
 	// #63：错误统计紧跟在环境信息后面——这是拿到包的人第一眼要找的东西
 	if (header.errorStats) {
 		lines.push(...describeErrorStats(header.errorStats))
+	}
+	// 08 #240：按模型健康度表紧随错误小计，给下一次池序重排提供本插件实弹数据。
+	// 只展示、不判分、不回写路由；不传 modelHealth 时整段不出现。
+	if (header.modelHealth?.length) {
+		lines.push("")
+		lines.push(...describeModelHealth(header.modelHealth))
 	}
 
 	const settings = Object.entries(header.settings ?? {})

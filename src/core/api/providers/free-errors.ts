@@ -11,6 +11,7 @@
  * 空响应（流出零内容零工具调用）不是异常，由 handler 内部按 switchable 处理。
  */
 
+import { FREE_PINNED_RECOVERY_MARKER } from "@shared/free-pools"
 import { checkContextWindowExceededError } from "@/core/context/context-management/context-error-handling"
 
 export type FreeFailureKind = "switchable" | "context-exceeded" | "fatal"
@@ -79,4 +80,49 @@ export function composeFinalError(lastError: unknown, triedCount: number): Error
 		`免费模型当前均不可用（已尝试 ${triedCount} 个候选${suffix}）。` +
 			`该车道为逆向免费通道，可能暂时被上游关闭或所在网络不可达；请稍后重试、更换网络环境，或在 API 设置中配置 DeepSeek API Key。`,
 	)
+}
+
+/**
+ * KB 08 #242：指定模型（pinned）失败时的**专门错误**。
+ *
+ * 与 `composeFinalError` 刻意分开：pinned 后候选链长度恒为 1，「已尝试 N 个候选」这类
+ * 自动路由文案会误导用户以为系统已经换过模型；实际上 switchable 失败无处可切。
+ * 错误文本尾部带 `FREE_PINNED_RECOVERY_MARKER`，webview 的 ErrorRow 据此渲染
+ * 「切回自动路由」按钮——**只有用户点了才切，这里绝不自动回退**。
+ *
+ * `reason` 由调用方给出：可能是 `describePinnedGateConflict` 的门控原因，
+ * 也可能是上游最后一次错误文本；`triedCount === 0` 表示四道门/车道冷却拦下、请求未发出。
+ */
+export function composePinnedError(pinnedModelId: string, reason: string, triedCount: number): Error {
+	const detail = reason.trim()
+	return new Error(
+		`指定的免费模型「${pinnedModelId}」本次不可用` +
+			(triedCount > 0 ? `（已尝试 ${triedCount} 次）` : "（本次请求未发出）") +
+			(detail ? `：${detail.slice(0, 300)}` : "。") +
+			`指定模型时候选链长度固定为 1，限流（429）、区域封锁、超时、空响应与 5xx 都没有下一个模型可切换，` +
+			`自动 failover 自愈不再生效；请稍后重试，或切回自动路由。${FREE_PINNED_RECOVERY_MARKER}`,
+	)
+}
+
+/** 把恢复标记从展示文案里剥掉（webview 用它识别按钮，不该让用户看到裸标记） */
+export function stripPinnedRecoveryMarker(text: string): string {
+	return text.split(FREE_PINNED_RECOVERY_MARKER).join("").trim()
+}
+
+/**
+ * KB 08 #242（review 修订）：pinned 下「原样上抛」的分支也要带恢复标记。
+ *
+ * 中途断流时 handler 直接 `throw error` 交给 Task 层，绕过 `composePinnedError()`，
+ * 错误文本里就没有 `FREE_PINNED_RECOVERY_MARKER`，webview 的 `ErrorRow` 也不会渲染
+ * 「切回自动路由并重试」按钮——而链长=1 时中途断流恰恰是高发失败形态。
+ *
+ * 这里**原地**修改同一个 Error 对象的 message：保留类型、stack、status 等上游字段
+ * （Task 层的错误分类/截断重试都依赖它们），⛔ 绝不用 `new Error` 包装。
+ * 幂等：重复调用不会叠加标记。
+ */
+export function withPinnedRecoveryMarker<T extends Error>(error: T): T {
+	if (!error.message.includes(FREE_PINNED_RECOVERY_MARKER)) {
+		error.message += FREE_PINNED_RECOVERY_MARKER
+	}
+	return error
 }

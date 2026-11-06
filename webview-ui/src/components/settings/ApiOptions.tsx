@@ -237,9 +237,10 @@ const ApiOptions = ({
 				flexDirection: "column",
 				gap: 5,
 				marginBottom: isPopup ? -10 : 0,
-				// 免费模型页：本容器参与高度链（父容器 flex-col flex-1 min-h-0），把剩余高度
-				// 交给 FreeModelProvider 的表格内滚区；其他提供商保持自然高度、整页滚动。
-				...(selectedProvider === "free" ? { flex: "1 1 0%", minHeight: 0 } : {}),
+				// KB 08 #236（用户裁定：整页滚为主）：不再给免费池页注入 flex/minHeight 高度链。
+				// 整页滚动由 SettingsView 的 TabContent 统一承担，模型池表格自己按
+				// FREE_POOL_MIN_VISIBLE_ROWS 限高；与 ApiConfigurationSection 的 isFree 分支一起收口，
+				// 避免两个注入源不一致导致 plan/act 某一形态塌缩。
 			}}>
 			<style>
 				{`

@@ -60,14 +60,19 @@ describe("P1：辅助密钥只能在 Secrets 名单注册一次", () => {
 		)
 	})
 
-	it("密钥存在时辅助配置才被判为已配置（读回链路修好后功能才会生效）", () => {
+	it("KB 08 #237：只选 provider 即生效，旧独立密钥在解析与请求两层都不读", () => {
 		const config = {
 			enhanceApiProvider: "deepseek",
-			enhanceApiKey: "sk-enhance",
+			enhanceApiKey: "sk-enhance-old",
+			subagentApiKey: "sk-subagent-old",
 		} as unknown as ApiConfiguration
 		const aux = extractAuxiliaryOverride(config, "enhance")
-		assert.equal(aux.apiKey, "sk-enhance")
-		assert.ok(resolveAuxiliaryApiConfiguration(aux, config, "act"), "密钥读得回来 → 辅助配置应生效")
+		assert.equal(aux.provider, "deepseek")
+		assert.equal(aux.apiKey, undefined, "解析层不再抽旧独立密钥")
+		const resolved = resolveAuxiliaryApiConfiguration(aux, config, "act")
+		assert.ok(resolved, "只选 provider 就应生效（旧判据会在这里静默失效）")
+		assert.equal(resolved.enhanceApiKey, undefined, "旧密钥不进请求配置")
+		assert.equal(resolved.subagentApiKey, undefined, "另一套旧密钥也不进请求配置")
 	})
 })
 
@@ -93,7 +98,7 @@ describe("P2-1：Kimi 模型元数据的 proto 往返 plan/act 对称", () => {
 		assert.equal(back.actModeApiProvider, "moonshot")
 	})
 
-	it("辅助配置的 ModelInfo 与 provider 也往返一致", () => {
+	it("辅助配置的 ModelInfo 与 provider 也往返一致（旧密钥仅存储往返、不进请求）", () => {
 		const proto = convertApiConfigurationToProto({
 			enhanceApiProvider: "moonshot",
 			enhanceApiKey: "sk-enhance",
@@ -101,6 +106,7 @@ describe("P2-1：Kimi 模型元数据的 proto 往返 plan/act 对称", () => {
 		})
 		const back = convertProtoToApiConfiguration(proto)
 		assert.equal(back.enhanceApiProvider, "moonshot")
+		// KB 08 #237：旧字段保留存储往返（存量值要能被清空通道读到），但解析/请求/诊断不读。
 		assert.equal(back.enhanceApiKey, "sk-enhance")
 		assert.equal(back.enhanceModelInfo?.contextWindow, 500_000)
 	})
@@ -141,15 +147,17 @@ describe("P2-4：子代理门控读实际生效 provider（#94 免费池禁令�
 		assert.equal(resolveSubagentsEnabled(true, provider), true)
 	})
 
-	it("只填 provider 不填密钥 = 半配置，不生效，仍回落到主配置", () => {
+	it("KB 08 #237：只填 provider、不给任何辅助凭证也生效（推翻旧「半配置」判据）", () => {
 		const config = {
 			...base("mimo", "mimo"),
-			subagentApiProvider: "free",
-			subagentApiKey: "sk-orphan",
+			subagentApiProvider: "deepseek",
+			subagentApiKey: undefined,
 		} as ApiConfiguration
-		// free 不需要密钥即视为已配置；其余 provider 必须有密钥
-		const nonFree = { ...config, subagentApiProvider: "deepseek", subagentApiKey: undefined } as ApiConfiguration
-		assert.equal(resolveEffectiveSubagentProvider(nonFree, "act"), "mimo")
+		assert.equal(resolveEffectiveSubagentProvider(config, "act"), "deepseek")
+		// 门控读的是「实际生效 provider」：主 free + 辅助付费仍放行，主付费 + 辅助 free 仍拦住
+		const free = { ...config, subagentApiProvider: "free" } as ApiConfiguration
+		assert.equal(resolveEffectiveSubagentProvider(free, "act"), "free")
+		assert.equal(providerSupportsSubagents("free"), false)
 	})
 })
 

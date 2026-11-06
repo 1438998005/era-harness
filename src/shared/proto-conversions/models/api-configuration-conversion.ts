@@ -210,6 +210,13 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		subagentMoonshotApiLine: config.subagentMoonshotApiLine,
 		ovhAiEndpointsApiKey: config.ovhAiEndpointsApiKey,
 		freeExcludeCollecting: config.freeExcludeCollecting,
+		pinnedModelId: config.pinnedModelId,
+		// KB 08 #237：per-provider 思维强度槽（设置页各家控件写、请求侧按 apiProvider 读）
+		deepSeekReasoningEffort: config.deepSeekReasoningEffort,
+		mimoReasoningEffort: config.mimoReasoningEffort,
+		bigmodelReasoningEffort: config.bigmodelReasoningEffort,
+		bigmodelPlanReasoningEffort: config.bigmodelPlanReasoningEffort,
+		moonshotReasoningEffort: config.moonshotReasoningEffort,
 		requestTimeoutMs: config.requestTimeoutMs,
 
 		// Plan mode configurations
@@ -273,6 +280,12 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		subagentMoonshotApiLine: protoConfig.subagentMoonshotApiLine,
 		ovhAiEndpointsApiKey: protoConfig.ovhAiEndpointsApiKey,
 		freeExcludeCollecting: protoConfig.freeExcludeCollecting,
+		pinnedModelId: protoConfig.pinnedModelId,
+		deepSeekReasoningEffort: protoConfig.deepSeekReasoningEffort,
+		mimoReasoningEffort: protoConfig.mimoReasoningEffort,
+		bigmodelReasoningEffort: protoConfig.bigmodelReasoningEffort,
+		bigmodelPlanReasoningEffort: protoConfig.bigmodelPlanReasoningEffort,
+		moonshotReasoningEffort: protoConfig.moonshotReasoningEffort,
 		requestTimeoutMs: protoConfig.requestTimeoutMs,
 
 		// Plan mode configurations
