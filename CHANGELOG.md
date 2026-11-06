@@ -3,6 +3,73 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.102.0 — 2026-11-06
+
+> 功能版 + 修复版：知识库 08 待修复清单 **#236–#242 全量实施**（4 批一次性完成），
+> 并经一次独立 review 补齐 3 处边界漏接线；含免费池「指定模型」、辅助配置收窄、
+> `execute_command` 失败判定与设置页滚动重裁。
+
+### 新增 · 免费模型池「指定模型」（#242）
+
+- 模型池每行增加「指定」单选；存**真实上游模型 ID**（不是显示名 / 数组下标），全局一份、不分 plan/act。
+- 指定后候选链钳制为长度 1，绕过 #241 池序与自动 failover；设置页**中英双语常驻**风险告知，
+  写清 429 / 区域封锁 / 超时 / 空响应 / 5xx 都无下一个模型可切换。
+- 失败后提供「切回自动路由并重试」按钮，**点了才切、绝不自动切**；链空 / 未发请求使用专用报错，
+  不再出现「已尝试 0 个候选」的自动路由文案。
+- `providerUtils` 按指定模型真实 ID 取 contextWindow；快捷切换菜单不显示指定模型。
+
+### 修复 · 判定层（#238 / #239）
+
+- **#238**：`execute_command` 的 `exitCode` / `signal` 经 `CommandExecutionMeta` 从 `CommandExecutor`
+  透传到 `ToolExecutor`，由 `commandOutcomeFromMeta()` 单源覆写 outcome；审计 `AuditOutcome` 仍五态，
+  新增 `suspect` 只进诊断包「疑似静默失败」小计、不计入工具失败数。用户取消分支同样不再记为 `ok`。
+- **#239**：`ToolExecutor.handleCompleteBlock()` 前置通用防线拦截畸形工具标签残片，复用
+  `dialect-guard.ts` 单源归因（疑似工具标签未闭合 + 实际参数 + 正确写法示例），参数快照与示例
+  在生成处即经 `scrubSecrets` 脱敏；正常搜索结果零改动。
+
+### 修复 · 配置层（#237）
+
+- 提示词增强 / 子代理两套辅助配置统一收窄为「只选 provider + 模型」：密钥与思维强度跟随
+  **所选 provider 对应的主 API 配置**（例如子代理选 DeepSeek，即用主 DeepSeek 的 Key 与思维强度档，
+  哪怕当前主模型是别家）。`isAuxiliaryConfigured` 改为「显式选了受支持 provider 即生效」。
+- 思维强度按 provider **各存各的**：新增 5 个 per-provider 槽（DeepSeek / MiMo / 智谱 / 智谱计划 / Kimi），
+  由 `PROVIDER_REASONING_EFFORT_KEY` + `resolveReasoningEffort()` 单源驱动设置页写、请求侧读与测试期望。
+- 旧独立字段（`enhanceApiKey` / `subagentApiKey` / 旧 `*ReasoningEffort` / `*MoonshotApiLine`）
+  仅为兼容存量存储而保留，解析 / 请求 / 诊断摘要 / UI 四处一律不读；推翻 3.101.0 #217 的独立配置裁定。
+
+### 修复 · 池序与可观测（#241 / #240）
+
+- **#241**：免费池按定稿 1–18 重排，仅把 NVIDIA 家族 4 项移到 #15–18（Super VL 末位隔离），
+  其余 14 项相对顺序不动；带图链由 `filter(vision)` 派生，首位 `stealth/crouton-alpha`。
+- **#240**：诊断包新增按模型分组的健康度表（工具调用/错误、命令调用/失败、解析修复、疑似静默失败），
+  **只做展示层聚合，零路由改动**。
+
+### 修复 · 设置页布局（#236）
+
+- 免费模型设置页撤销「凑满一屏」的 `flex h-full / flex-1 min-h-0` 高度链与辅助区 `max-h-[40vh]`
+  自滚容器，改由 `TabContent` 承担**唯一主滚动**；模型池表格保底可见 **10 行**（单源常量
+  `FREE_POOL_MIN_VISIBLE_ROWS`），内滚只在表格区域生效。
+
+### review 修订
+
+- pinned 中途断流补恢复标记（原地改 message、保留 error 类型/stack；`context-exceeded` 刻意不加）；
+- #239 回显从「只截断」改为真正脱敏并订正不实文案；
+- 用户取消命令补 `cancelled` 判定；`lastCommandMeta` 清理移到 `finally`。
+
+### 工程
+
+- 7 条每条均补行为 / 结构性 / 元测试，全部追加进已登记 spec（未新增独立 spec 文件，无假绿）。
+- proto 号段：`models.proto` 270–275、`state.proto` 214–219（5 个 effort 槽 + `pinned_model_id`）。
+- 双产物按 production 形态重打（host 13,603,200 B、webview 5,930,573 B）。
+
+**回归**：`check-types`（含 protos）0 错、`test:free` 38/38、`test:update` 959/959、
+`test:toolcall` 58/58、`test:ui` 80/80、`test:webview` 80/80；提交后树复跑
+`test:free` 38/38、`test:update` 959/959 仍全绿。
+
+**已知项 / 人工验收**：#236 矮视口（<800px）可视行数、连续下滚无断点与 plan/act 两形态需人工截图验收；
+#242 恢复按钮建议在真实 429 / 超时场景实弹点一次；#239 正则误伤面（通用参数名 + 闭标签任意位置命中）
+属判据口径变更，待用户裁定后再收窄；#234 Moonshot 多轮 `reasoning_content` 仍待真实 Key 实弹回放。
+
 ## 3.101.0 — 2026-11-05
 
 > 功能版：Kimi（月之暗面 / Moonshot）接入 + 提示词增强/子代理各一套独立模型配置；
