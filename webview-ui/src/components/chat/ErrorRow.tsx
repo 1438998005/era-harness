@@ -158,8 +158,10 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 				disabled={recovered}
 				onClick={async () => {
 					try {
-						// 先落配置：即使下面的重试触发失败，也已经切回自动路由，不该让用户反复点
-						await handleFieldChange("pinnedModelId", undefined)
+						// 先落配置：即使下面的重试触发失败，也已经切回自动路由，不该让用户反复点。
+						// #243：写空串才能真正清除——setApiConfiguration 跳过 undefined；host 侧的
+						// 显式删除通道会把空串从磁盘删掉，读侧再归一成 undefined。
+						await handleFieldChange("pinnedModelId", "")
 						setRecovered(true)
 						await TaskServiceClient.askResponse(AskResponseRequest.create({ responseType: "yesButtonClicked" }))
 					} catch (error) {

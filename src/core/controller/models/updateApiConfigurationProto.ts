@@ -1,4 +1,4 @@
-import { auxiliaryFieldsToClear } from "@shared/aux-model"
+import { apiConfigurationFieldsToClear } from "@shared/aux-model"
 import { Empty } from "@shared/proto/cline/common"
 import { UpdateApiConfigurationRequest } from "@shared/proto/cline/models"
 import { convertProtoToApiProvider } from "@shared/proto-conversions/models/api-configuration-conversion"
@@ -175,11 +175,13 @@ export async function updateApiConfigurationProto(
 		}
 
 		// Update the API configuration in storage.
-		// #230：设置页的写入恒为「完整配置」（useApiConfigurationHandlers 的 {...apiConfiguration, ...updates}），
-		// 因此 proto 里为空的辅助字段就是用户想清掉的字段。setApiConfiguration 会跳过 undefined，
-		// 必须额外走显式删除通道，否则「跟随主模型 / 清空密钥」只是 UI 假动作，旧值永不消失。
+		// #230 / #243：设置页的写入恒为「完整配置」（useApiConfigurationHandlers 的
+		// {...apiConfiguration, ...updates}），因此 proto 里为空的字段就是用户想清掉的字段。
+		// setApiConfiguration 会跳过 undefined，必须额外走显式删除通道，否则「跟随主模型 /
+		// 清空密钥 / 指定模型切回自动路由」只是 UI 假动作，旧值永不消失。
+		// ⛔ 清单判据单源在 aux-model.ts，别在这里另写一份字段名（#219/#230/#235/#243 同族复发）。
 		controller.stateManager.setApiConfiguration(convertedApiConfigurationFromProto)
-		controller.stateManager.clearApiConfigurationFields(auxiliaryFieldsToClear(convertedApiConfigurationFromProto))
+		controller.stateManager.clearApiConfigurationFields(apiConfigurationFieldsToClear(convertedApiConfigurationFromProto))
 
 		// Update the task's API handler if there's an active task
 		if (controller.task) {

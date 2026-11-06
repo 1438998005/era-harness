@@ -70,6 +70,13 @@ export interface AuditEntry {
 	maxAttempts?: number
 	/** api 事件：重试退避（毫秒） */
 	delayMs?: number
+	/**
+	 * KB 08 #247：连续同因流式失败的当前累计次数（从 1 起）。
+	 * 只写在 `action:"stream_error_streak"` 的 api 事件上，供诊断包头部小计使用。
+	 */
+	streak?: number
+	/** KB 08 #247：该次失败是否已达到升级阈值（N=3），只提示不退避、不阻断重试。 */
+	streakEscalated?: boolean
 	/** parse 事件：归一化/修复命中摘要（如 `dsml=3,dots=1`），仅非零时携带 */
 	repairs?: string
 	/** error 事件：错误来自哪一侧；subagent 用于子代理的独立费用行 */
@@ -329,6 +336,11 @@ export function sanitizeAuditEntry(entry: AuditEntry, now = Date.now()): Record<
 	const delayMs = cleanNumber(entry.delayMs)
 	if (delayMs !== undefined) record.delayMs = delayMs
 
+	// KB 08 #247：连续同因失败计数（api / stream_error_streak）。
+	const streak = cleanNumber(entry.streak)
+	if (streak !== undefined) record.streak = Math.max(0, Math.round(streak))
+	if (entry.streakEscalated === true) record.streakEscalated = true
+
 	// parse 事件的修复命中摘要
 	const repairs = cleanAuditText(entry.repairs, 200)
 	if (repairs) record.repairs = repairs
@@ -504,6 +516,11 @@ export interface DiagnosticsHeader {
 	 */
 	errorStats?: ErrorEventStats
 	/**
+	 * KB 08 #247：包内连续同因流式失败的小计。
+	 * 不传就整段不出现——保持「老调用方零改动」的兼容性。
+	 */
+	streamErrorStreak?: StreamErrorStreakSummary
+	/**
 	 * 08 #240：按模型聚合的健康度表（**只做可观测，不参与路由**）。
 	 * 不传就整段不出现——保持「老调用方零改动」的兼容性。
 	 */
@@ -559,6 +576,64 @@ export interface ErrorEventStats {
 	 * suspect 不是 error，用户裁定不新增 outcome 枚举，也不得混进「工具失败 N 次」。
 	 */
 	silentSuspects?: number
+}
+
+/**
+ * KB 08 #247：包内 `action:"stream_error_streak"` 事件的小计。
+ * 与 `ErrorEventStats` 分开：这类事件是 `event:"api"`，不是「运行时错误」，
+ * 混进错误小计会让「错误 28 条」看起来像插件崩了 28 次，实为同一渠道空响应重试。
+ */
+export interface StreamErrorStreakSummary {
+	/** 包内这类事件条数 */
+	total: number
+	/** 观察到的最长连续同因失败次数 */
+	maxStreak: number
+	/** 达到升级阈值（streakEscalated === true）的条数 */
+	escalated: number
+	/** 涉及的任务数 */
+	tasks: number
+}
+
+/**
+ * KB 08 #247：诊断包头部统计。只数**包内**（折叠之后）的行，
+ * 口径与 `summarizeErrorEvents` / `summarizeToolFailures` 一致；解析失败的行跳过。
+ * `streak` 走白名单数字字段，⛔ 不从 `detail` 里正则抠数字（格式漂移就静默失效）。
+ */
+export function summarizeStreamErrorStreaks(lines: readonly string[]): StreamErrorStreakSummary {
+	const tasks = new Set<string>()
+	let total = 0
+	let maxStreak = 0
+	let escalated = 0
+
+	for (const line of lines) {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(line)
+		} catch {
+			continue
+		}
+		if (!parsed || typeof parsed !== "object") continue
+		const record = parsed as Record<string, unknown>
+		if (record.event !== "api" || record.action !== "stream_error_streak") continue
+		total++
+		if (typeof record.streak === "number" && Number.isFinite(record.streak)) {
+			maxStreak = Math.max(maxStreak, Math.max(0, Math.round(record.streak)))
+		}
+		if (record.streakEscalated === true) escalated++
+		if (typeof record.taskId === "string" && record.taskId) tasks.add(record.taskId)
+	}
+
+	return { total, maxStreak, escalated, tasks: tasks.size }
+}
+
+/** 0 条也必须写出来：拿到包的人要能区分「没发生」和「功能没接上」。 */
+export function describeStreamErrorStreaks(stats: StreamErrorStreakSummary): string[] {
+	if (stats.total === 0) {
+		return ["连续同因流式失败: 0 条（记录窗口内没有累计失败事件）"]
+	}
+	return [
+		`连续同因流式失败: ${stats.total} 条（涉及 ${stats.tasks} 个任务，最长连续 ${stats.maxStreak} 次，达到升级阈值 ${stats.escalated} 条）`,
+	]
 }
 
 /**
@@ -822,6 +897,10 @@ export function buildDiagnosticsHeader(header: DiagnosticsHeader): string {
 	// #63：错误统计紧跟在环境信息后面——这是拿到包的人第一眼要找的东西
 	if (header.errorStats) {
 		lines.push(...describeErrorStats(header.errorStats))
+	}
+	// KB 08 #247：连续同因失败紧跟错误小计——渠道持续异常时这是第一眼要看的数字。
+	if (header.streamErrorStreak) {
+		lines.push(...describeStreamErrorStreaks(header.streamErrorStreak))
 	}
 	// 08 #240：按模型健康度表紧随错误小计，给下一次池序重排提供本插件实弹数据。
 	// 只展示、不判分、不回写路由；不传 modelHealth 时整段不出现。

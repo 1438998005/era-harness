@@ -48,20 +48,47 @@ function decodeCommandEntities(text: string): string {
 		.replace(/&amp;/g, "&")
 }
 
-// era harness: some models (observed GLM-5.3-Flash) emit <task_progress>...</task_progress>
-// as standalone body text instead of a tool parameter. The focus-chain routing reads the raw
-// text separately (see task/index.ts), but the parser would otherwise render these tags as
-// plain text in the chat. Strip them from the parsed text so they never surface to the user;
-// surrounding prose is preserved. Also drops a trailing unclosed block during streaming.
+// era harness / KB 08 #246：<task_progress> 会出现在两种**语义完全不同**的位置——
+// ① 工具标签内部的参数：系统提示 system-prompt/types.ts 的既有契约（"must be included as
+//    a separate parameter inside of the parent tool call"），是**合法形状**；
+// ② 正文里独立成段：#87 要防的「整段清单当正文吐出来」，本回合零推进，模型下一轮会复读。
+// 两者都要从解析文本里剥掉（focus-chain 读的是 raw text，不受影响），但**统计口径必须分开**：
+// 只有 ② 算 parse 修复、计入 #87 的字数阈值；① 只是正常协议形状，不该被记成「模型方言出错」，
+// 更不该推高诊断包 parseRepairs、误导「模型不行」的判断。⛔ 系统提示一字不改。
 function stripTaskProgressMarkup(text: string, stats?: ParseRepairStats): string {
 	if (!text || text.indexOf("<task_progress>") === -1) return text
-	const stripped = text.replace(/<task_progress>[\s\S]*?<\/task_progress>/g, "").replace(/<task_progress>[\s\S]*$/, "")
+	const toolNames = new Set(getToolUseNames())
+	// 该位置之前「未闭合的工具开标签」深度 > 0 → 这个块是工具调用的参数。
+	const isToolParameter = (offset: number): boolean => {
+		let depth = 0
+		for (const tag of text.slice(0, offset).matchAll(/<\/?([a-z_][a-z0-9_]*)>/g)) {
+			if (!toolNames.has(tag[1])) continue
+			depth += tag[0].startsWith("</") ? -1 : 1
+			if (depth < 0) depth = 0
+		}
+		return depth > 0
+	}
+	let standaloneBlocks = 0
+	let standaloneChars = 0
+	let parameterBlocks = 0
+	const strip = (block: string, offset: number): string => {
+		if (isToolParameter(offset)) {
+			parameterBlocks++
+		} else {
+			standaloneBlocks++
+			standaloneChars += block.length
+		}
+		return ""
+	}
+	// 一次 replace 完成，offset 恒为**原始 text** 的下标；先删闭合块再删尾部未闭合块会让
+	// 第二次的 offset 相对被改写过的字符串，位置判断会错位。
+	const stripped = text.replace(/<task_progress>[\s\S]*?(?:<\/task_progress>|$)/g, strip)
 	if (stats && stripped !== text) {
-		stats.taskProgressStrip++
+		stats.taskProgressStrip += standaloneBlocks
+		stats.taskProgressInTool += parameterBlocks
 		// 08 #87：流式期间每个 chunk 都拿「已累积的全文」重解析一次，同一段清单会被反复计到，
-		// 累加会按 chunk 数倍增（一段 300 字能记成几万）。取**单次最大值**——它约等于本轮
-		// 输出过的清单体积，正是熔断要判的量。
-		stats.taskProgressStrippedChars = Math.max(stats.taskProgressStrippedChars, text.length - stripped.length)
+		// 累加会按 chunk 数倍增。取**单次最大值**；只算正文块，合法的工具参数不推高阈值。
+		stats.taskProgressStrippedChars = Math.max(stats.taskProgressStrippedChars, standaloneChars)
 	}
 	return stripped
 }
@@ -103,14 +130,24 @@ export interface ParseRepairStats {
 	orphanRepair: number
 	/** 开标签杂引号修复次数 */
 	strayQuote: number
-	/** 独立 task_progress 段剥离次数 */
+	/** 正文里**独立成段**的 task_progress 剥离次数（#87 要防的「整段清单当正文吐出来」） */
 	taskProgressStrip: number
-	/** 单次被剥掉的**最大字数**（流式重解析下累加会倍增，见 stripTaskProgressMarkup） */
+	/** 工具标签内部作为**参数**的 task_progress 剥离次数（系统提示的合法形状，KB 08 #246） */
+	taskProgressInTool: number
+	/** 单次被剥掉的**正文块最大字数**（流式重解析下累加会倍增，见 stripTaskProgressMarkup） */
 	taskProgressStrippedChars: number
 }
 
 export function createParseRepairStats(): ParseRepairStats {
-	return { dsml: 0, dots: 0, orphanRepair: 0, strayQuote: 0, taskProgressStrip: 0, taskProgressStrippedChars: 0 }
+	return {
+		dsml: 0,
+		dots: 0,
+		orphanRepair: 0,
+		strayQuote: 0,
+		taskProgressStrip: 0,
+		taskProgressInTool: 0,
+		taskProgressStrippedChars: 0,
+	}
 }
 
 function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {

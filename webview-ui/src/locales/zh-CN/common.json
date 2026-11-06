@@ -355,6 +355,7 @@
 		"autoRetryFailed": "自动重试失败",
 		"autoRetryInProgress": "自动重试进行中",
 		"autoRetryFailedAfter": "自动重试在",
+		"streamErrorStreak": "已连续 {{streak}} 次遇到同一错误（升级阈值 {{threshold}} 次）。该渠道当前大概率仍不可用：建议切回自动路由、换个模型或换时段再试。继续重试不会改变结果，但会持续消耗 token。",
 		"attempts": "次尝试后失败。需要手动干预。",
 		"attemptOf": "第",
 		"of": "次，共",

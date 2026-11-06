@@ -172,7 +172,8 @@ const FreePoolTable: React.FC<FreePoolTableProps> = ({ candidates, excludeCollec
  * 免费模型配置卡片：两渠道（Kilo / OVHcloud AI Endpoints）单一优先级池清单（Zen 已暂时移出池，
  * 代码保留待恢复）。KB 08 #236：整页滚为主，表格自己按保底 10 行限高、内滚只在表格区域生效，
  * 从表格往下滚可连续到达辅助模型区。零配置开箱即用——无 API Key 输入框。
- * KB 08 #242：可指定单个模型（存真实上游 ID，全局一份），并强制中英双语限流风险告知。
+ * KB 08 #242：可指定单个模型（存真实上游 ID，全局一份），常驻限流风险告知。
+ * KB 08 #244：告知按 locale 单语（zh-CN 中文 / en 英文），推翻 #242 原「强制中英双语」裁定。
  */
 export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const { t } = useTranslation("settings")
@@ -187,8 +188,11 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const pinnedExcluded = excludeCollecting && pinnedCandidate ? LANE_META[pinnedCandidate.lane].collectsData : false
 
 	// 点了才写；⛔ 失败时不在这里、也不在路由层自动清掉 pinned（用户裁定）
+	// #243：清空必须写**空串**而不是 undefined —— setApiConfiguration 跳过 undefined，
+	// 传 undefined 只会让旧值留在磁盘上（UI 假动作）。所有消费点都做 `.trim() || undefined`
+	// 归一化，空串等价于未指定；host 侧的显式删除通道会把这个空串从磁盘删掉。
 	const pin = (id: string | undefined) => {
-		void handleFieldChange("pinnedModelId", id)
+		void handleFieldChange("pinnedModelId", id ?? "")
 		setJustPinned(!!id)
 	}
 
@@ -216,7 +220,7 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 					<input checked={!pinnedModelId} name="free-pinned-model" onChange={() => pin(undefined)} type="radio" />
 					{t("settings.freePinnedAuto")}
 				</label>
-				{/* 常驻 + 中英双语：写清「链长=1 → switchable 无处可切」的因果，不是泛泛警示 */}
+				{/* 常驻 + 按 locale 单语：写清「链长=1 → switchable 无处可切」的因果，不是泛泛警示 */}
 				<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
 					{t("settings.freePinnedRisk")}
 				</p>

@@ -355,6 +355,7 @@
 		"autoRetryFailed": "Auto-Retry Failed",
 		"autoRetryInProgress": "Auto-Retry in Progress",
 		"autoRetryFailedAfter": "Auto-retry failed after",
+		"streamErrorStreak": "The same error has occurred {{streak}} times in a row (escalation threshold: {{threshold}}). This channel is likely still unavailable. Consider switching back to auto-routing, choosing another model, or trying later. Retrying will not change the outcome but will keep consuming tokens.",
 		"attempts": "attempts. Manual intervention required.",
 		"attemptOf": "Attempt",
 		"of": "of",

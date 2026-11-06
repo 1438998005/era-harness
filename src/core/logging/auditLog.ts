@@ -35,6 +35,7 @@ import {
 	summarizeErrorEvents,
 	summarizeModelHealth,
 	summarizeSilentSuspects,
+	summarizeStreamErrorStreaks,
 	summarizeToolFailures,
 } from "./audit-log-format"
 
@@ -236,12 +237,15 @@ export async function exportDiagnostics(header: DiagnosticsHeader): Promise<Diag
 	// 08 #240：健康度表同样只统计**包内**（折叠之后）的行，与上面三个小计同源；
 	// 纯展示，不参与 failover / 候选链 / 池序决策。
 	const modelHealth = summarizeModelHealth(lines)
+	// KB 08 #247：连续同因失败同样只统计包内的行，与上面三个小计同源。
+	const streamErrorStreak = summarizeStreamErrorStreaks(lines)
 
 	const body = [
 		buildDiagnosticsHeader({
 			...header,
 			generatedAt: now,
 			errorStats,
+			streamErrorStreak,
 			modelHealth,
 			auditWindow: { sinceIso: new Date(auditWindow.sinceMs).toISOString(), source: auditWindow.source },
 		}),

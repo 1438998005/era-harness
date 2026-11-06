@@ -800,7 +800,9 @@ test("#242 元测试：存真实 ID、四道门复用、失败不自动切、双
 	assert.match(errors, /FREE_PINNED_RECOVERY_MARKER/, "host 错误须写恢复标记")
 	const errorRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ErrorRow.tsx", "utf8"))
 	assert.match(errorRow, /FREE_PINNED_RECOVERY_MARKER/, "webview 与 host 从同一常量识别标记")
-	assert.match(errorRow, /handleFieldChange\("pinnedModelId", undefined\)/, "点了才切回自动路由")
+	// #243：清空必须写空串，⛔ 不能用 undefined（setApiConfiguration 会跳过、旧值永不消失）
+	assert.match(errorRow, /handleFieldChange\("pinnedModelId", ""\)/, "点了才切回自动路由")
+	assert.doesNotMatch(errorRow, /handleFieldChange\("pinnedModelId", undefined\)/, "⛔ 不得退回 undefined 清空")
 	assert.match(errorRow, /TaskServiceClient\.askResponse/, "点了才重试")
 	// 恢复标记必须能穿过 host 的 ClineError → api_req_failed 文案链路到达 ErrorRow
 	const taskIndex = stripComments(fs.readFileSync("src/core/task/index.ts", "utf8"))
@@ -809,17 +811,28 @@ test("#242 元测试：存真实 ID、四道门复用、失败不自动切、双
 	// 用户裁定：快捷切换菜单不显示指定模型、不参与 per-provider 记忆
 	const quickSwitch = stripComments(fs.readFileSync("webview-ui/src/components/chat/ModelQuickSwitchMenu.tsx", "utf8"))
 	assert.doesNotMatch(quickSwitch, /pinnedModelId/, "快捷菜单不得读取/展示指定模型")
-	// 风险告知「强制中英双语」：两种语言环境里都必须同时含中文与英文，并写清 429 因果
+	// KB 08 #244：风险告知按 locale 单语（推翻 #242「强制中英双语」裁定）。
+	// 单语不等于删因果：链长=1 → 429 / 区域封锁 / 超时 / 空响应 / 5xx 无 failover 必须保留。
 	for (const lng of ["en", "zh-CN"]) {
 		const settings = JSON.parse(fs.readFileSync(`webview-ui/src/locales/${lng}/settings.json`, "utf8")) as {
 			settings: Record<string, string>
 		}
 		const risk = settings.settings.freePinnedRisk
+		const confirm = settings.settings.freePinnedConfirm
 		assert.equal(typeof risk, "string", `${lng} 缺 freePinnedRisk`)
-		assert.match(risk, /[一-龥]/, `${lng} 风险告知必须含中文`)
-		assert.match(risk, /Warning:.*[A-Za-z]{4,}/, `${lng} 风险告知必须含完整的英文警示句`)
-		assert.match(risk, /警告：/, `${lng} 风险告知必须含中文警示句`)
+		assert.equal(typeof confirm, "string", `${lng} 缺 freePinnedConfirm`)
 		assert.match(risk, /429/, `${lng} 风险告知必须点名限流`)
+		assert.match(risk, /5xx/, `${lng} 风险告知必须保留 5xx 因果`)
+		assert.match(risk, /failover/, `${lng} 风险告知必须保留 failover 因果`)
+		if (lng === "zh-CN") {
+			assert.match(risk, /警告：/, "zh-CN 必须含中文警示句")
+			assert.doesNotMatch(risk, /Warning:/, "zh-CN 不得再夹带英文警示段")
+			assert.doesNotMatch(confirm, /Pinned:/, "zh-CN 确认文案不得再夹带英文段")
+		} else {
+			assert.match(risk, /Warning:.*[A-Za-z]{4,}/, "en 必须含完整英文警示句")
+			assert.doesNotMatch(risk, /[一-龥]/, "en 风险告知不得再夹带中文段")
+			assert.doesNotMatch(confirm, /[一-龥]/, "en 确认文案不得再夹带中文段")
+		}
 		const common = JSON.parse(fs.readFileSync(`webview-ui/src/locales/${lng}/common.json`, "utf8")) as {
 			error: Record<string, string>
 		}

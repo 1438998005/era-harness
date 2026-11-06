@@ -337,6 +337,32 @@ export function shouldCountTaskProgressAsMistake(strippedChars: number): boolean
 }
 
 /**
+ * KB 08 #245：`noToolsUsed` 回合要不要累加 `consecutiveMistakeCount` 的**唯一判据**。
+ *
+ * 背景：`recursivelyMakeClineRequests` 在流式结束判「没调工具」时注入 `noToolsUsed`，
+ * 且已有「有实质文本或思考就不算错」的保护；但 `initiateTaskLoop` 主循环尾部在
+ * `didEndLoop=false` 时**再次**注入并**无条件** +1，于是同一轮被计两次，且
+ * 「模型已经把答案写完了、只是没走 `attempt_completion` 收尾」也被误计为错误，
+ * 累积触发 `mistake_limit` 熔断。
+ *
+ * 判定与累加统一收口：`recursivelyMakeClineRequests` 调本函数决定是否 +1；
+ * `initiateTaskLoop` 只负责注入收尾提示，⛔ 不再重复累加。结束契约不变——
+ * 零文本零思考的真正空转仍必须被推进与熔断，这里只区分「已答完」与「空转」。
+ *
+ * ⛔ 不要另写第二份「有文本就不算错」的判据（#219/#230/#235 同族的跨层漂移）。
+ */
+export function shouldCountNoToolsUsedAsMistake(
+	blocks: readonly { type: string; content?: unknown }[],
+	reasoningThinking: string | undefined,
+): boolean {
+	const producedSubstantiveText = blocks.some(
+		(block) => block.type === "text" && typeof block.content === "string" && block.content.trim().length > 0,
+	)
+	const hasReasoning = Boolean(reasoningThinking?.trim())
+	return !producedSubstantiveText && !hasReasoning
+}
+
+/**
  * 08 #86：请求体指纹刹车。
  *
  * 抓的是「零工具空转」：模型连续多轮不调工具，每轮都对着同一段提示重新开大会，

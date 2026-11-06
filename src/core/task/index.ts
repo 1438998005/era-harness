@@ -74,6 +74,7 @@ import { HistoryItem } from "@shared/HistoryItem"
 import { getLanguageDisplayName, getLanguageKey, LanguageDisplay } from "@shared/Languages"
 import { USER_CONTENT_TAGS } from "@shared/messages/constants"
 import { convertClineMessageToProto } from "@shared/proto-conversions/cline-message"
+import { buildErrorRetryStreakFields, STREAM_ERROR_STREAK_THRESHOLD } from "@shared/stream-error-streak"
 import { resolveSubagentsEnabled } from "@shared/subagents"
 import { ClineDefaultTool, READ_ONLY_TOOLS } from "@shared/tools"
 import { ClineAskResponse } from "@shared/WebviewMessage"
@@ -135,11 +136,17 @@ import {
 	isRemoteWorkspaceEnvironment,
 	type TaskLatencyTrigger,
 } from "./latency"
-import { advanceRequestFingerprint, dialectLoopSignature, shouldCountTaskProgressAsMistake } from "./loop-detection"
+import {
+	advanceRequestFingerprint,
+	dialectLoopSignature,
+	shouldCountNoToolsUsedAsMistake,
+	shouldCountTaskProgressAsMistake,
+} from "./loop-detection"
 import { MessageStateHandler } from "./message-state"
 import type { PresentationPriority } from "./presentation-types"
 import { StreamChunkCoordinator } from "./StreamChunkCoordinator"
 import { StreamResponseHandler } from "./StreamResponseHandler"
+import { peekStreamErrorStreak, recordStreamError, resetStreamErrorStreak } from "./stream-error-streak-store"
 import { TaskPresentationScheduler } from "./TaskPresentationScheduler"
 import { TaskState } from "./TaskState"
 import { ToolExecutor } from "./ToolExecutor"
@@ -1123,6 +1130,27 @@ export class Task {
 		}
 	}
 
+	/**
+	 * KB 08 #247：一次失败 → 按 `(taskId, 错误签名)` 推进连续计数并落一条审计。
+	 * 状态放在 `stream-error-streak-store.ts` 的模块级 Map，因为
+	 * `reinitExistingTaskFromId()` 每次重试都会重建 Task 实例，实例字段恒为 1。
+	 * ⛔ 只记数与提示：不退避、不阻断手动重试、不自动切模型、不清 `pinnedModelId`。
+	 */
+	private recordStreamErrorStreak(message: string | undefined): void {
+		const state = recordStreamError(this.taskId, message)
+		recordAudit({
+			event: "api",
+			action: "stream_error_streak",
+			taskId: this.taskId,
+			turn: this.taskState.apiRequestCount,
+			...this.auditTaskMeta(),
+			streak: state.streak,
+			streakEscalated: state.streak >= STREAM_ERROR_STREAK_THRESHOLD,
+			// signature 已归一化 / 截断，不含请求正文；走结构化摘要通道。
+			detail: `signature=${state.signature},threshold=${STREAM_ERROR_STREAK_THRESHOLD}`,
+		})
+	}
+
 	public async startTask(task?: string, images?: string[], files?: string[]): Promise<void> {
 		try {
 			await this.clineIgnoreController.initialize()
@@ -1577,7 +1605,11 @@ export class Task {
 					text: formatResponse.noToolsUsed(this.useNativeToolCalls),
 				},
 			]
-			this.taskState.consecutiveMistakeCount++
+			// KB 08 #245：⛔ 这里曾无条件 consecutiveMistakeCount++，与流式结束处的保护
+			// 口径分叉：同一轮被计两次，且「答完了但没走 attempt_completion 收尾」被误计为
+			// 错误、累积触发 mistake_limit 熔断。判定与累加现在**单源**在
+			// recursivelyMakeClineRequests 的 shouldCountNoToolsUsedAsMistake()；
+			// 本处只负责注入收尾提示，结束契约不变（零文本零思考空转仍会被计数与熔断）。
 		}
 	}
 
@@ -2259,6 +2291,8 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				model: model.id,
 				message: clineError.message,
 			})
+			// KB 08 #247：首 chunk 失败也要进连续同因计数（与下面的中流失败共用一个 store）。
+			this.recordStreamErrorStreak(clineError.message)
 
 			// Capture provider failure telemetry using clineError
 			ErrorService.get().logMessage(clineError.message)
@@ -2388,6 +2422,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 							maxAttempts: 3,
 							delaySeconds: delay / 1000,
 							errorMessage: humanErrorMessage,
+							...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 						}),
 					)
 
@@ -2426,6 +2461,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								delaySeconds: 0,
 								failed: true, // Special flag to indicate retries exhausted
 								errorMessage: humanErrorMessage,
+								...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 							}),
 						)
 					}
@@ -3268,6 +3304,8 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						...this.auditTaskMeta(),
 						message: clineError.message,
 					})
+					// KB 08 #247：28 次「重试」全是同一条错误却零提示的缺口就在这里。
+					this.recordStreamErrorStreak(clineError.message)
 					const isStreamingSpendLimitError = clineError.isErrorType(ClineErrorType.SpendLimit)
 					// 08 #84：确定性 4xx 不重试（与首 chunk 路径同口径），也不该弹「3 次耗尽」卡片
 					const streamingStatus = (clineError as unknown as { _error?: { status?: number } })._error?.status
@@ -3291,6 +3329,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								maxAttempts: 3,
 								delaySeconds: delay / 1000,
 								errorMessage: humanErrorMessage,
+								...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 							}),
 						)
 
@@ -3317,6 +3356,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								delaySeconds: 0,
 								failed: true, // Special flag to indicate retries exhausted
 								errorMessage: humanErrorMessage,
+								...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 							}),
 						)
 					}
@@ -3377,6 +3417,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						parseStats.orphanRepair > 0 ? `orphan=${parseStats.orphanRepair}` : "",
 						parseStats.strayQuote > 0 ? `strayQuote=${parseStats.strayQuote}` : "",
 						parseStats.taskProgressStrip > 0 ? `taskProgress=${parseStats.taskProgressStrip}` : "",
+						// KB 08 #246：工具标签内部的 task_progress 是系统提示规定的**合法参数**，
+						// 单独记数但不计入 totalRepairs（也不会推高 #87 的字数阈值）。
+						parseStats.taskProgressInTool > 0 ? `taskProgressInTool=${parseStats.taskProgressInTool}` : "",
 						// 08 #202：#87 的诊断信息改走审计，诊断包仍能看到剥离字数与是否记 mistake。
 						parseStats.taskProgressStrippedChars > 0
 							? `taskProgressChars=${parseStats.taskProgressStrippedChars}`
@@ -3536,6 +3579,10 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			// need to save assistant responses to file before proceeding to tool use since user can exit at any moment and we wouldn't be able to save the assistant's response
 			let didEndLoop = false
 			if (assistantHasContent) {
+				// KB 08 #247：仅在「本轮拿到了可消费的助手内容」时归零。流正常结束但正文与工具均为空
+				// 的空响应不算成功，不能与抛错路径对同一次失败重复记数；空响应在 else 里单独 record。
+				resetStreamErrorStreak(this.taskId)
+
 				// NOTE: this comment is here for future reference - this was a workaround for userMessageContent not getting set to true. It was due to it not recursively calling for partial blocks when didRejectTool, so it would get stuck waiting for a partial block to complete before it could continue.
 				// in case the content blocks finished
 				// it may be the api stream finished after the last parsed content block was executed, so  we are able to detect out of bounds and set userMessageContentReady to true (note you should not call presentAssistantMessage since if the last block is completed it will be presented again)
@@ -3558,18 +3605,14 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 						type: "text",
 						text: formatResponse.noToolsUsed(this.useNativeToolCalls),
 					})
-					// era harness（0 门槛）：本轮虽未调用工具，但只要模型产出了实质性文本（分析/汇报/计划）
-					// 或思考内容（尤其 PLAN 模式下用文本/推理沟通是正当行为），就视为正常推进，不计为错误。
-					// 仅当本轮既无工具、也无任何有效文本与思考（真正空转/卡住）时才累加计数。
-					// 真正的重复失控由 loop-detection（连续相同工具调用）兜底，无需靠此计数误杀正常任务。
-					const producedSubstantiveText = this.taskState.assistantMessageContent.some(
-						(block) => block.type === "text" && typeof block.content === "string" && block.content.trim().length > 0,
-					)
+					// era harness（0 门槛）+ KB 08 #245：本轮虽未调用工具，但只要模型产出了实质性文本
+					// （分析/汇报/计划）或思考内容（尤其 PLAN 模式下用文本/推理沟通是正当行为），
+					// 就视为正常推进，不计为错误。仅当既无工具、也无任何有效文本与思考（真正空转）
+					// 时才累加。判定收口到 loop-detection 的纯函数，主循环尾部不再重复累加。
 					const reasoning = this.streamHandler.getHandlers().reasonsHandler.getCurrentReasoning() as
 						| { thinking?: string; summary?: unknown }
 						| undefined
-					const hasReasoning = Boolean(reasoning?.thinking && reasoning.thinking.trim().length > 0)
-					if (!producedSubstantiveText && !hasReasoning) {
+					if (shouldCountNoToolsUsedAsMistake(this.taskState.assistantMessageContent, reasoning?.thinking)) {
 						this.taskState.consecutiveMistakeCount++
 					}
 
@@ -3644,6 +3687,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				let response: ClineAskResponse
 
 				const noResponseErrorMessage = "No assistant message was received. Would you like to retry the request?"
+				// KB 08 #247：HTTP 抛错路径在 catch 里已 record；这条「流走完了但零内容」路径此前
+				// 既不计次、又会在流尾部被误归零，单独用稳定文案签一次名。
+				this.recordStreamErrorStreak(noResponseErrorMessage)
 
 				if (this.taskState.autoRetryAttempts < 3) {
 					// Auto-retry enabled with max 3 attempts: automatically approve the retry
@@ -3659,6 +3705,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 							maxAttempts: 3,
 							delaySeconds: delay / 1000,
 							errorMessage: noResponseErrorMessage,
+							...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 						}),
 					)
 					await setTimeoutPromise(delay)
@@ -3672,6 +3719,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 							delaySeconds: 0,
 							failed: true, // Special flag to indicate retries exhausted
 							errorMessage: noResponseErrorMessage,
+							...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 						}),
 					)
 					const askResult = await this.ask("api_req_failed", noResponseErrorMessage)

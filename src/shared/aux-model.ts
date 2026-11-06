@@ -103,6 +103,41 @@ export function auxiliaryFieldsToClear(config: Partial<ApiConfiguration> | undef
 	return result
 }
 
+/**
+ * KB 08 #243：非辅助配置、但同样由设置页「清空」编码成 undefined / 空串的字段。
+ *
+ * 为什么单独成清单：`AUXILIARY_CONFIG_KEYS` 的语义是「提示词增强 / 子代理两套辅助配置」，
+ * 把 free 池的 `pinnedModelId` 塞进去会污染 #237 的判据（provider 清空时整组删 6 个字段）。
+ * 但坑是同一个：`StateManager.setApiConfiguration()` 跳过 undefined，UI 用 undefined 表达
+ * 「清空」时磁盘里的旧值永远不消失，于是「指定模型 → 切回自动路由」只剩 UI 假动作。
+ *
+ * ⛔ 新增任何「设置页可清空」的 ApiConfiguration 字段必须登记进本清单；配套元测试从
+ * `state-keys.ts` 的 API_HANDLER_SETTINGS_FIELDS 派生，防止 #219 / #230 / #235 之后的第 N 次复发。
+ */
+export const CLEARABLE_ON_EMPTY_KEYS = ["pinnedModelId"] as const satisfies readonly (keyof ApiConfiguration)[]
+
+/**
+ * 一次完整配置写入后应显式删除的全部字段（#230 辅助配置 + #243 其它 UI 可清空字段）。
+ *
+ * host 侧 `updateApiConfigurationProto` 在 `setApiConfiguration()` 之后调用
+ * `clearApiConfigurationFields(apiConfigurationFieldsToClear(config))`——后者会跳过
+ * undefined，所以「删」必须另走这一步。判据只在本函数里解释一次，绝不改
+ * `setApiConfiguration` 的 undefined 跳过语义（#219 的 `{...secrets, ...settings}` 保护）。
+ */
+export function apiConfigurationFieldsToClear(config: Partial<ApiConfiguration> | undefined): (keyof ApiConfiguration)[] {
+	const result = auxiliaryFieldsToClear(config)
+	if (!config) {
+		return result
+	}
+	for (const key of CLEARABLE_ON_EMPTY_KEYS) {
+		const value = config[key]
+		if (value === undefined || value === "") {
+			result.push(key)
+		}
+	}
+	return result
+}
+
 /** provider → 密钥槽位（buildApiHandler 按 provider 读固定字段，主配置密钥存在这里）。 */
 const PROVIDER_SECRET_KEY: Partial<Record<ApiProvider, keyof ApiConfiguration>> = {
 	deepseek: "deepSeekApiKey",

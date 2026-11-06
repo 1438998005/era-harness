@@ -116,6 +116,11 @@ const SPECS = [
 	"settings-i18n-keys.spec.ts",
 	// #233：ModelInfo proto 类型映射三方一致（proto 文本 ↔ 映射表 ↔ 手写转换清单）
 	"model-info-proto-mapping.spec.ts",
+	// 2026-11-06 第七批 BUG 修复（KB 08 #243–#247）
+	// #245 单源 mistake 计数 + #246 合法工具参数与正文独立段的统计口径分离
+	"task-loop-repair.spec.ts",
+	// #247 连续同因流式失败：跨实例计数 / 升级提示 / 审计与诊断包可见 / 守住 #242
+	"stream-error-streak.spec.ts",
 ]
 
 const aliasResolverPlugin = {

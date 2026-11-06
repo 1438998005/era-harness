@@ -1149,10 +1149,19 @@ export const ChatRowContent = memo(
 						try {
 							const retryInfo = JSON.parse(message.text || "{}")
 							const { attempt, maxAttempts, delaySeconds, failed, errorMessage } = retryInfo
+							const { streak, streakThreshold, streakEscalated } = retryInfo
 							const isFailed = failed === true
 
 							return (
 								<div className="flex flex-col gap-2">
+									{/* KB 08 #247：连续同因失败达到阈值时给醒目升级提示。
+									    ⛔ 只提示，不禁用「重试」、不自动切模型、不清 pinnedModelId。 */}
+									{streakEscalated === true && (
+										<div className="flex items-start gap-1.5 p-2 rounded-[3px] border border-error bg-[rgba(var(--vscode-errorForeground-rgb),0.1)] text-error text-[12px]">
+											<TriangleAlertIcon className="mt-0.5 size-3 shrink-0" />
+											<span>{t("chatRow.streamErrorStreak", { streak, threshold: streakThreshold })}</span>
+										</div>
+									)}
 									{errorMessage && (
 										<p className="m-0 whitespace-pre-wrap text-error wrap-anywhere text-xs">{errorMessage}</p>
 									)}

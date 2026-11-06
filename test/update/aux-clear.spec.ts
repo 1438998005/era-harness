@@ -153,7 +153,9 @@ describe("#230：清空通道接线没被拆掉（防「只改 UI 忘了 host」
 		assert.match(stateManagerCode, /clearApiConfigurationFields\(keys: readonly \(keyof ApiConfiguration\)\[\]\)/)
 		assert.match(stateManagerCode, /this\.pendingSecrets\.add/)
 		assert.match(stateManagerCode, /this\.pendingGlobalState\.add/)
-		assert.match(handlerCode, /clearApiConfigurationFields\(auxiliaryFieldsToClear\(/)
+		// #243：清单入口已扩成「辅助配置 + 其它 UI 可清空字段」的合并函数，保持不变式
+		// 「写入路径必须真的调用显式删除通道」，⛔ 不能因为改了函数名就悄悄跳过。
+		assert.match(handlerCode, /clearApiConfigurationFields\(\s*apiConfigurationFieldsToClear\(/)
 		// UI 侧字段名来自共享清单，不再手写 6 个键、不再用 never 断言逃逸类型检查。
 		// 源码文本断言前先剥注释：注释里常写「不要这么写」的反例（KB 08 同类型排查）。
 		const stripComments = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")
