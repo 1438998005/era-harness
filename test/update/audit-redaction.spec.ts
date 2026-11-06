@@ -104,6 +104,16 @@ test("#116 带固定前缀的云厂商密钥也要擦（AIza / AKIA / hf_ / glpa
 	// 这几种长度都够不上上面那两条「长十六进制 / 长 Base64」规则：
 	// AIza 共 39 字符（差 1 位不满足 {40,}）、AKIA 含非 hex 字母、hf_/glpat- 同理。
 	// 而 provider 的 401 文案常回显 key 片段，诊断包又是要发给别人排障的。
+	//
+	// ⚠️ 下面 4 条**全部是测试夹具用的假 key / 官方文档示例，不是真实凭据**：
+	//   google      —— `AIza` 前缀 + 顺序数字 + 顺序字母，确定性构造、没有随机性（真实 Google API key
+	//                  是随机 base64url 串，仅前缀与长度相同）；
+	//   aws         —— AWS 官方文档通用的 `AKIA…EXAMPLE` 示例 Access Key ID，EXAMPLE 后缀即占位标记；
+	//   huggingface —— `hf_` + 字母表顺序串；gitlab —— `glpat-` + 顺序字符；两者真实 token 均为随机串。
+	//   本文件其余 `sk-` / `ghp_` 样本同样是顺序占位串，均非真实凭据。
+	// 用途仅限验证 scrubSecrets 的前缀规则覆盖；GitHub secret scanning 只按前缀形态匹配会误报，
+	// 该告警属 false positive（关闭理由选 Used in tests / False positive），**无需轮换或撤销任何密钥**。
+	// ⛔ 本文件禁止放入真实密钥：审计文本会被回显进诊断包，写进来就等于外发凭证。
 	const cases: Array<[string, string]> = [
 		["google", `Incorrect API key provided: AIzaSyD-1234567890abcdefghijklmnopqrstu`],
 		["aws", `The security token included in the request is invalid: AKIAIOSFODNN7EXAMPLE`],
