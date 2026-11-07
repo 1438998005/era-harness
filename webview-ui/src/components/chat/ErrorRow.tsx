@@ -28,7 +28,12 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 	// 「切回自动路由并重试」按钮。标记**先剥掉**再交给 ClineError.parse / 展示，
 	// 否则用户会看到裸 [ERA_FREE_PINNED_RECOVERY]，且可能干扰 JSON 错误解析。
 	const errorText = apiRequestFailedMessage || apiReqStreamingFailedMessage
-	const pinnedRecovery = [errorText, message.text].some((text) => text?.includes(FREE_PINNED_RECOVERY_MARKER))
+	// KB 08 #249 代码审查修订：⛔ 不要只对短路后的 errorText 做检测 —— 若
+	// apiRequestFailedMessage 非空但不含 marker、而 apiReqStreamingFailedMessage 含 marker，
+	// 原写法会漏判「切回自动路由并重试」按钮（#243）。三个来源分别检测。
+	const pinnedRecovery = [apiRequestFailedMessage, apiReqStreamingFailedMessage, message.text].some((text) =>
+		text?.includes(FREE_PINNED_RECOVERY_MARKER),
+	)
 	const clean = (text: string | undefined): string | undefined => text?.split(FREE_PINNED_RECOVERY_MARKER).join("")
 	const rawApiError = clean(errorText)?.trim()
 
@@ -107,9 +112,13 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 								</div>
 							)}
 
-							{/* Display raw API error if different from parsed error message。
-								#60：BigModel 已翻人话时不再回显原始 JSON 块（那正是「裸 JSON 直显」的来源） */}
-							{errorMessage !== rawApiError && !bigmodelError && <div>{rawApiError}</div>}
+							{/* KB 08 #249：rawApiError 是 ClineError.serialize() 的结构化 JSON，只作
+								ClineError.parse() 的数据（还原 request id / provider 专属展示），⛔ 绝不作可见文本。
+								旧逻辑「人话 ≠ 原文就回显原文」对任何合法 JSON 恒真 —— parse 成功后 errorMessage
+								是纯人话、rawApiError 是整串 JSON，于是必然把裸 JSON 渲染成第二遍；#60 只给
+								BigModel 豁免、#84 只改 retry 卡片正文，都没收敛本分支（同族第三次复发）。
+								上游 cline PR #4984 维护者评论亦主张把 error parsing 下沉到 backend。 */}
+							{/* 解析失败时 rawApiError 本身就是人话，已由上面的 <header> 显示，无需兜底回显。 */}
 
 							<div className="mt-4">
 								<span className="text-description">{t("error.clickRetry")}</span>

@@ -36,6 +36,7 @@ import { handleResponsesApiStreamResponse } from "../utils/responses_api_support
 import {
 	classifyFreeFailure,
 	composeFinalError,
+	composeFreeEmptyStopMessage,
 	composePinnedError,
 	errorMessageOf,
 	isFreeTierGateError,
@@ -194,6 +195,10 @@ export class FreeModelHandler implements ApiHandler {
 			const controller = new AbortController()
 			this.abortController = controller
 			let sawContent = false
+			// KB 08 #250：区分「真零 chunk 空停」与「只吐 thinking 的伪空停」。
+			// ⛔ 刻意不把 reasoning 计入 sawContent：Task 层 assistantHasContent 同样不认 reasoning，
+			// 单侧放宽只会把「只有思考、任务无法推进」误判成成功轮次（见 08 #250 复核修订）。
+			let sawReasoningOnly = false
 
 			try {
 				const stream =
@@ -204,13 +209,20 @@ export class FreeModelHandler implements ApiHandler {
 				for await (const chunk of stream) {
 					if (chunk.type === "text" || chunk.type === "tool_calls") {
 						sawContent = true
+					} else if (chunk.type === "reasoning") {
+						sawReasoningOnly = true
 					}
 					yield chunk
 				}
 
 				if (!sawContent) {
-					// 空停：流出零内容零工具调用，按可切换失败处理
-					lastError = new Error(`${candidate.displayName} 返回了空响应`)
+					// 空停：流出零**可消费**内容（无正文、无工具调用），仍按可切换失败处理。
+					// #250 只改错误归因：reasoning-only 不再被说成「空响应／渠道不稳」；
+					// ⛔ 判定语义、链长=1、switchable 行为一律不变。
+					if (sawReasoningOnly) {
+						Logger.log(`[free] ${candidate.id} 仅产出 reasoning chunk（wire ${candidate.wire}），按可切换失败处理`)
+					}
+					lastError = new Error(composeFreeEmptyStopMessage(candidate.displayName, sawReasoningOnly))
 					switches++
 					continue
 				}
@@ -237,11 +249,24 @@ export class FreeModelHandler implements ApiHandler {
 					// 流程；在此弹「切回自动路由」会把用户引离正确的重试路径。
 					throw error
 				}
-				if (isFreeTierGateError(error)) {
+				const gateError = isFreeTierGateError(error)
+				if (gateError) {
 					// lane 级拒绝：冷却整条车道，避免后续候选逐个白烧
 					noteLaneCooldown(candidate.lane)
 				}
-				lastError = error
+				// KB 08 #250（代码审查修订）：只吐 reasoning 后上游断流（Kilo
+				// 「ConnectionClosed after reasoning」，上游 cline #14795 形态）同样进 catch。
+				// 若沿用上游原错误文本，用户又会被误导成网络/渠道问题，#250 的可诊断文案失效。
+				// ⛔ 只改错误归因：sawContent 仍为 false、仍可切下一候选（判定语义不变）；
+				// ⛔ 免费额度门槛等真实错误不被文案覆盖，原错误留在诊断日志里。
+				if (sawReasoningOnly && !gateError) {
+					Logger.log(
+						`[free] ${candidate.id} 仅产出 reasoning chunk 后断流（wire ${candidate.wire}），原错误：${errorMessageOf(error)}`,
+					)
+					lastError = new Error(composeFreeEmptyStopMessage(candidate.displayName, true))
+				} else {
+					lastError = error
+				}
 				switches++
 			} finally {
 				this.abortController = undefined

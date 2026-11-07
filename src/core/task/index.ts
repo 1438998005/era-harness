@@ -1,5 +1,6 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
 import { ApiHandler, ApiProviderInfo, buildApiHandler } from "@core/api"
+import { stripPinnedRecoveryMarker } from "@core/api/providers/free-errors"
 import { ApiStream } from "@core/api/transform/stream"
 import {
 	AssistantMessageContent,
@@ -2367,6 +2368,10 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 				// 结构化字段仍留在 api_req_started（ErrorRow 靠它还原 provider 专属展示），
 				// 而重试提示 / api_req_failed 的正文一律用人话（BigModel 的 1261/1210 已在上面改写 message）。
 				const humanErrorMessage = clineError.message || streamingFailedMessage
+				// KB 08 #251：error_retry 载荷的**可见文本**在此统一剥离内部恢复标记（数据层单源）。
+				// ⛔ ask("api_req_failed", ...) 与 api_req_started.streamingFailedMessage 必须保留标记：
+				// ErrorRow.tsx:31 靠这三个未 clean 的来源判定并渲染「切回自动路由并重试」按钮（#243）。
+				const visibleErrorMessage = stripPinnedRecoveryMarker(humanErrorMessage)
 
 				let response: ClineAskResponse
 				// Skip auto-retry for Cline provider insufficient credits, auth errors, or spend limit errors
@@ -2421,7 +2426,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 							attempt: this.taskState.autoRetryAttempts,
 							maxAttempts: 3,
 							delaySeconds: delay / 1000,
-							errorMessage: humanErrorMessage,
+							errorMessage: visibleErrorMessage,
 							...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 						}),
 					)
@@ -2460,7 +2465,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								maxAttempts: 3,
 								delaySeconds: 0,
 								failed: true, // Special flag to indicate retries exhausted
-								errorMessage: humanErrorMessage,
+								errorMessage: visibleErrorMessage,
 								...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 							}),
 						)
@@ -3294,6 +3299,9 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 					// 但重试卡片正文用人话（08 #84：裸 JSON 直显）。
 					const errorMessage = clineError.serialize()
 					const humanErrorMessage = clineError.message || errorMessage
+					// KB 08 #251：中流路径同样只让 error_retry 载荷消费剥离后的可见文本；
+					// ⛔ streamingFailedMessage / ask 文案保留标记（#243 按钮判定，见 08 #251 复核修订）。
+					const visibleErrorMessage = stripPinnedRecoveryMarker(humanErrorMessage)
 					// era harness（D1 请求层审计）：中流失败此前同样零痕迹；action=stream_error
 					// 与首 chunk 阶段（action=error）区分。
 					recordAudit({
@@ -3328,7 +3336,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								attempt: this.taskState.autoRetryAttempts,
 								maxAttempts: 3,
 								delaySeconds: delay / 1000,
-								errorMessage: humanErrorMessage,
+								errorMessage: visibleErrorMessage,
 								...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 							}),
 						)
@@ -3355,7 +3363,7 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 								maxAttempts: 3,
 								delaySeconds: 0,
 								failed: true, // Special flag to indicate retries exhausted
-								errorMessage: humanErrorMessage,
+								errorMessage: visibleErrorMessage,
 								...buildErrorRetryStreakFields(peekStreamErrorStreak(this.taskId)?.streak),
 							}),
 						)

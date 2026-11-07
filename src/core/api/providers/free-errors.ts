@@ -72,10 +72,28 @@ export function errorStatusOf(error: unknown): number | undefined {
 	return typeof status === "number" ? status : undefined
 }
 
+/**
+ * KB 08 #250：空停（流出零**可消费**内容）的错误归因**单源**。
+ *
+ * Kilo 等上游会把整段回答放进 `reasoning_content` / `reasoning` 字段、`content` 留空：
+ * 流是成功的、模型也确实产出了 token，但插件拿不到正文或工具调用。旧实现一律报
+ * 「返回了空响应」，用户据此误判成渠道不稳、反复换时段复测（两次共 40 轮零产出）。
+ *
+ * ⛔ 这里只改**文案**，不改判定：reasoning-only 仍算失败、仍按可切换失败处理；
+ * 真零 chunk 仍判空。文案会作为 detail 进 `composePinnedError()`，⛔ 不动其风险因果文案（#244）。
+ * ⛔ 不要把 reasoning 计入 `sawContent`：Task 层 `assistantHasContent` 同样不认 reasoning，
+ * 单侧放宽只会把「只有思考、任务无法推进」误判成成功轮次（08 #250 复核修订）。
+ */
+export function composeFreeEmptyStopMessage(displayName: string, reasoningOnly: boolean): string {
+	return reasoningOnly ? `${displayName} 只返回了思考内容，未产出正文或工具调用。` : `${displayName} 返回了空响应`
+}
+
 /** 全部候选失败时的最终错误（引导用户配置 DeepSeek / 切换 Provider） */
 export function composeFinalError(lastError: unknown, triedCount: number): Error {
 	const detail = errorMessageOf(lastError)
-	const suffix = detail ? `；最后一次错误：${detail.slice(0, 300)}` : ""
+	// #250 文案以句号结尾时若不去掉尾标点，这里会拼出「…工具调用。）。」双重标点。
+	// ⛔ 只清理 detail 的尾标点，不改后面的引导文案（#244 风险因果文案一字不删）。
+	const suffix = detail ? `；最后一次错误：${detail.slice(0, 300).replace(/[。！？.!?；;]+$/, "")}` : ""
 	return new Error(
 		`免费模型当前均不可用（已尝试 ${triedCount} 个候选${suffix}）。` +
 			`该车道为逆向免费通道，可能暂时被上游关闭或所在网络不可达；请稍后重试、更换网络环境，或在 API 设置中配置 DeepSeek API Key。`,
@@ -104,9 +122,13 @@ export function composePinnedError(pinnedModelId: string, reason: string, triedC
 	)
 }
 
-/** 把恢复标记从展示文案里剥掉（webview 用它识别按钮，不该让用户看到裸标记） */
-export function stripPinnedRecoveryMarker(text: string): string {
-	return text.split(FREE_PINNED_RECOVERY_MARKER).join("").trim()
+/**
+ * 把恢复标记从展示文案里剥掉（webview 用它识别按钮，不该让用户看到裸标记）。
+ * KB 08 代码审查修订：容错 —— 失败路径若给到非字符串，宁可返回空串，⛔ 也不要在错误展示阶段
+ * 抛 `text.split is not a function` 把真正的原始错误盖掉。现有调用点恒为 string。
+ */
+export function stripPinnedRecoveryMarker(text: string | undefined | null): string {
+	return typeof text === "string" ? text.split(FREE_PINNED_RECOVERY_MARKER).join("").trim() : ""
 }
 
 /**

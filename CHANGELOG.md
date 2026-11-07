@@ -3,6 +3,41 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.102.3 — 2026-11-07
+
+> 修复版：知识库 08 **#249–#251** 三条一次性销项，并经一次独立代码审查补齐 2 个 P0 回归与防御性边缘。
+> 没有新的提供商、工具或设置项。⛔「reasoning-only 不算一次成功响应」的裁定与 `sawContent`
+> 判定语义不变，自动路由 failover 行为也不变。
+
+### 修复 · pinned 错误重复显示与裸 JSON（#249）
+
+- `ErrorRow` 删除 raw API error 回显：`ClineError.serialize()` 的结构化 JSON 只作 `ClineError.parse()`
+  的数据，不再作为可见文本渲染。
+- `ChatRow` 恢复「失败原因始终渲染」：重试后 `ErrorRow` 不渲染时，卡片仍保留原因；
+  `case "error"` 分支改传 `message.text`，让 `say=error` 也走解析单源。
+- 「切回自动路由并重试」按钮的标记判定改为三来源分别检测，避免 `||` 短路漏判（#243）。
+
+### 修复 · 只输出 reasoning 的模型被判空响应（#250）
+
+- 空停归因收敛为 `composeFreeEmptyStopMessage()` 单源：只收到思考内容时报「只返回了思考内容，
+  未产出正文或工具调用」，真零 chunk 仍报「返回了空响应」。
+- catch 路径（上游断流）同样按该归因改写，原错误保留在日志；⛔ reasoning 不计入 `sawContent`、
+  不改 streak 归零口径，仍按可切换失败处理。
+- `composeFinalError()` 清理 detail 尾标点，避免拼出「。）。」。
+
+### 修复 · 内部恢复标记带进 UI 文案（#251）
+
+- 4 处 `error_retry` 载荷改消费 `stripPinnedRecoveryMarker()` 剥离后的 `visibleErrorMessage`；
+  ⛔ `ask("api_req_failed")` 与 `streamingFailedMessage` 保留标记，保住 #243 恢复按钮。
+- `stripPinnedRecoveryMarker()` 增加运行时类型防护，非字符串返回空串。
+
+### 验证
+
+- `test:free` 48/48、`test:update` 984/984、`test:ui` 80/80、`test:toolcall` 66/66；
+  `check-types` / `lint` 通过。
+- `npm run package` 重打 `dist/extension.js` 与 `webview-ui/build/`。
+- ⛔ 未做人工截图复核与实弹复测；序 1 `Beam 1.0` 仍按评分卡 §5 留 `—`，不重新打分。
+
 ## 3.102.2 — 2026-11-07
 
 > 修复版：`search_files` 被方言残片吞进 `path` / `file_pattern` 后，守卫阻断并空转重试（知识库 08 **#248**）。

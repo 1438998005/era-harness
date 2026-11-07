@@ -990,7 +990,9 @@ export const ChatRowContent = memo(
 							</div>
 						)
 					case "error":
-						return <ErrorRow errorType="error" message={message} />
+						// KB 08 #249 代码审查修订：把 say="error" 的文本也交给 ErrorRow 的
+						// ClineError.parse 单源，⛔ 避免结构化 JSON 落到裸文本兜底分支里直显（同族第四次坑）。
+						return <ErrorRow apiRequestFailedMessage={message.text} errorType="error" message={message} />
 					case "diff_error":
 						return <ErrorRow errorType="diff_error" message={message} />
 					case "clineignore_error":
@@ -1162,6 +1164,12 @@ export const ChatRowContent = memo(
 											<span>{t("chatRow.streamErrorStreak", { streak, threshold: streakThreshold })}</span>
 										</div>
 									)}
+									{/* KB 08 #249 代码审查修订：⛔ 不要按 failed 隐藏这里的文案。
+									    用户点重试后数据层会 delete streamingFailedMessage（index.ts:2496）
+									    且 api_req_failed ask 被顶掉 → ErrorRow 完全不渲染；
+									    而 combineErrorRetryMessages Case 2 仍保留 failed:true 卡片 ——
+									    两边都删文案会让失败原因彻底消失。首 chunk 自动重试路径已有
+									    index.ts:2443 的删除来避免 ErrorRow 与卡片重复，这里保持显示。 */}
 									{errorMessage && (
 										<p className="m-0 whitespace-pre-wrap text-error wrap-anywhere text-xs">{errorMessage}</p>
 									)}

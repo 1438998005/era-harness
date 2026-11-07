@@ -11,6 +11,7 @@ import { FreeModelHandler } from "@core/api/providers/free"
 import {
 	classifyFreeFailure,
 	composeFinalError,
+	composeFreeEmptyStopMessage,
 	composePinnedError,
 	isFreeTierGateError,
 	isRegionBlockedError,
@@ -838,4 +839,197 @@ test("#242 元测试：存真实 ID、四道门复用、失败不自动切、双
 		}
 		assert.equal(typeof common.error.freePinnedRecovery, "string", `${lng} 缺恢复按钮文案`)
 	}
+})
+
+// ---------------------------------------------------------------------------
+// KB 08 #249 / #250 / #251（2026-11-07）：失败路径的行为与结构性回归
+// ---------------------------------------------------------------------------
+
+/** #250：只吐思考内容、content 为空的伪空停流（Kilo 侧 reasoning_content 字段名） */
+async function* reasoningOnlyStream(): AsyncGenerator<Record<string, unknown>> {
+	yield { choices: [{ delta: { reasoning_content: "让我想想如何调用 search_files" } }] }
+}
+
+/** #250 代码审查：只吐 reasoning 后上游断流（Kilo「ConnectionClosed after reasoning」，上游 cline #14795） */
+async function* reasoningThenErrorStream(): AsyncGenerator<Record<string, unknown>> {
+	yield { choices: [{ delta: { reasoning_content: "让我想想" } }] }
+	throw new Error("Connection closed by upstream")
+}
+
+test("#250 review：reasoning-only 后断流（catch 路径）也给出可诊断归因", async () => {
+	const target = FREE_POOL.find((c) => c.lane === "ovh" && !c.vision)
+	assert.ok(target)
+	const handler = new FreeModelHandler({
+		ovhClient: fakeClient({ chat: () => reasoningThenErrorStream() }),
+		kiloFreeRows: [],
+		pinnedModelId: target.id,
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			const message = (error as Error).message
+			assert.match(message, /只返回了思考内容，未产出正文或工具调用/)
+			assert.doesNotMatch(message, /Connection closed/, "⛔ 上游网络错误不得再当主文案误导用户")
+			assert.ok(message.includes(FREE_PINNED_RECOVERY_MARKER), "⛔ #243 按钮标记不得丢")
+			return true
+		},
+	)
+})
+
+test("#250 review：自动路由下 reasoning-only 后断流仍可切换（判定语义不变）", async () => {
+	const ovh = fakeClient({
+		chat: (model) => (model === "Qwen3.6-27B" ? textStream("OK") : reasoningThenErrorStream()),
+	})
+	const handler = new FreeModelHandler({ ovhClient: ovh, kiloFreeRows: [] })
+
+	const types: string[] = []
+	for await (const chunk of handler.createMessage("sys", userMessages)) {
+		types.push(chunk.type)
+	}
+
+	assert.ok(types.includes("reasoning"))
+	assert.equal(handler.getModel().id, "Qwen3.6-27B")
+	assert.deepEqual(callsOf(ovh).chat, ["Qwen3.8-27B", "Qwen3.6-27B"])
+})
+
+test("#250 review：composeFinalError 不出现「。）。」双重标点", async () => {
+	const handler = new FreeModelHandler({
+		ovhClient: fakeClient({ chat: () => reasoningOnlyStream() }),
+		kiloFreeRows: [],
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			const message = (error as Error).message
+			assert.doesNotMatch(message, /。）。/, "⛔ 不得出现双重标点")
+			assert.match(message, /最后一次错误：.*未产出正文或工具调用/)
+			return true
+		},
+	)
+})
+
+test("#250 空停归因单源：真零 chunk 与 reasoning-only 文案可区分", () => {
+	const empty = composeFreeEmptyStopMessage("Beam 1.0", false)
+	assert.match(empty, /返回了空响应/)
+	assert.doesNotMatch(empty, /思考内容/)
+
+	const reasoningOnly = composeFreeEmptyStopMessage("Beam 1.0", true)
+	assert.match(reasoningOnly, /只返回了思考内容，未产出正文或工具调用/)
+	assert.doesNotMatch(reasoningOnly, /返回了空响应/, "⛔ 不再把只吐思考说成渠道空响应")
+})
+
+test("#250 reasoning-only 仍按可切换失败处理（判定语义不变），chunk 照常透传", async () => {
+	const ovh = fakeClient({
+		chat: (model) => (model === "Qwen3.6-27B" ? textStream("OK") : reasoningOnlyStream()),
+	})
+	const handler = new FreeModelHandler({ ovhClient: ovh, kiloFreeRows: [] })
+
+	const types: string[] = []
+	for await (const chunk of handler.createMessage("sys", userMessages)) {
+		types.push(chunk.type)
+	}
+
+	assert.ok(types.includes("reasoning"), "reasoning chunk 必须透传给上层")
+	assert.equal(handler.getModel().id, "Qwen3.6-27B")
+	assert.deepEqual(callsOf(ovh).chat, ["Qwen3.8-27B", "Qwen3.6-27B"])
+})
+
+test("#250 pinned + 全链 reasoning-only：错误说明「只返回了思考内容」，链长=1 与恢复标记不变", async () => {
+	const target = FREE_POOL.find((c) => c.lane === "ovh" && !c.vision)
+	assert.ok(target)
+	const handler = new FreeModelHandler({
+		ovhClient: fakeClient({ chat: () => reasoningOnlyStream() }),
+		kiloFreeRows: [],
+		pinnedModelId: target.id,
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => {
+			const message = (error as Error).message
+			assert.match(message, /只返回了思考内容，未产出正文或工具调用/)
+			assert.doesNotMatch(message, /返回了空响应/)
+			assert.match(message, /没有下一个模型可切换/, "⛔ #244 的风险因果文案一字不删")
+			assert.ok(message.includes(FREE_PINNED_RECOVERY_MARKER), "⛔ #243 按钮标记不得丢")
+			return true
+		},
+	)
+})
+
+test("#250 真零 chunk 空停仍判空响应（不放宽判定）", async () => {
+	const handler = new FreeModelHandler({
+		ovhClient: fakeClient({ chat: () => emptyStream() }),
+		kiloFreeRows: [],
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) {
+				void chunk
+			}
+		},
+		(error: unknown) => (error as Error).message.includes("返回了空响应"),
+	)
+})
+
+test("#249/#250/#251 结构性元测试：可见文本单源、标记剥离边界、chunk 类型集合对齐", () => {
+	const free = stripComments(fs.readFileSync("src/core/api/providers/free.ts", "utf8"))
+	// ① sawContent 仍只认可消费内容；reasoning 单独诊断，⛔ 不并入成功判定（KB 08 #250 复核修订）
+	assert.match(free, /chunk\.type === "text" \|\| chunk\.type === "tool_calls"/)
+	assert.match(free, /chunk\.type === "reasoning"/)
+	assert.match(free, /composeFreeEmptyStopMessage\(candidate\.displayName, sawReasoningOnly\)/)
+	// ② catch 分支（reasoning-only 后断流）也必须走同一个归因单源，⛔ 不能照抄上游网络错误
+	assert.match(free, /if \(sawReasoningOnly && !gateError\)/)
+	// ③ 两条 wire 实际 yield 的类型集合必须与诊断分支一致（防恢复 Responses wire 再漏）
+	assert.match(free, /yield \{ type: "reasoning", reasoning:/)
+	assert.match(free, /yield \{\s*type: "usage",/)
+	const responsesWire = stripComments(fs.readFileSync("src/core/api/utils/responses_api_support.ts", "utf8"))
+	assert.match(responsesWire, /type: "reasoning"/, "⛔ Responses wire 的 reasoning type 必须与 free.ts 判定一致")
+	assert.doesNotMatch(responsesWire, /type: "thinking"/, "⛔ 若上游改用别的类型名，诊断分支会漏判")
+
+	const taskIndex = stripComments(fs.readFileSync("src/core/task/index.ts", "utf8"))
+	// ④ 4 处 error_retry 载荷消费已剥离文本；2 个产生点；ask 与结构化字段保留 marker
+	assert.equal((taskIndex.match(/errorMessage: visibleErrorMessage,/g) ?? []).length, 4)
+	assert.equal((taskIndex.match(/const visibleErrorMessage = stripPinnedRecoveryMarker\(humanErrorMessage\)/g) ?? []).length, 2)
+	assert.match(taskIndex, /await this\.ask\("api_req_failed", humanErrorMessage\)/, "⛔ ask 必须保留 marker")
+	assert.match(taskIndex, /streamingFailedMessage,/, "⛔ api_req_started 结构化字段不得删")
+
+	const errorRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ErrorRow.tsx", "utf8"))
+	// ⑤ 放宽为「任何把 rawApiError 当 JSX 文本渲染」的写法都拦截，⛔ 别只防精确标签
+	assert.doesNotMatch(errorRow, /\{rawApiError\}/, "⛔ serialize() 产物不得作为可见文本")
+	assert.match(errorRow, /\[apiRequestFailedMessage, apiReqStreamingFailedMessage, message\.text\]/, "三源分别检测")
+	assert.match(errorRow, /FREE_PINNED_RECOVERY_MARKER/, "#243 按钮判定仍在")
+
+	const chatRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ChatRow.tsx", "utf8"))
+	// ⑥ ⛔ 不得按 failed 隐藏 error_retry 文案：用户点重试后 ErrorRow 完全不渲染，
+	//    而 combineErrorRetryMessages Case 2 仍保留 failed:true 卡片 —— 两边都删文案会让原因消失。
+	assert.doesNotMatch(chatRow, /errorMessage && !isFailed/, "⛔ 不得把「失败原因消失」钉成契约")
+	assert.match(chatRow, /\{errorMessage && \(/, "error_retry 必须始终渲染失败原因")
+})
+
+test("#249 review：stripPinnedRecoveryMarker 对非字符串输入安全兜底", () => {
+	assert.equal(stripPinnedRecoveryMarker(undefined), "")
+	assert.equal(stripPinnedRecoveryMarker(null), "")
+	assert.equal(stripPinnedRecoveryMarker(`出错了${FREE_PINNED_RECOVERY_MARKER}`), "出错了")
+})
+
+test("#249 review 结构性：say=error 分支也走 ClineError.parse 单源", () => {
+	const chatRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ChatRow.tsx", "utf8"))
+	// ⛔ 不要断言 JSX 属性顺序或空白：pre-commit 的 `biome check --write --staged` 会重排属性、
+	// 把多行压成单行（本批提交实测），精确正则会在提交后假红。只断言语义片段。
+	const errorCase = [...chatRow.matchAll(/case "error":[\s\S]{0,400}/g)]
+		.map((match) => match[0])
+		.find((block) => block.includes("<ErrorRow"))
+	assert.ok(errorCase, "⛔ say=error 分支必须渲染 ErrorRow")
+	assert.match(errorCase, /apiRequestFailedMessage=\{message\.text\}/, "⛔ say=error 的文本不得落到 ErrorRow 的裸文本兜底分支")
 })
