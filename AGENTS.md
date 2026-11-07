@@ -54,9 +54,9 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 > `test/update/run.mjs` 的 `SPECS`），否则新用例根本不跑**而且照样全绿**。`npm run gate` 的第 0 道就是查这个。
 >
 > 本机 shell 的 PATH 没有 node，且 `C:\Windows\System32\bash.exe` 是 WSL 存根会抢先解析 ⇒
-> PowerShell 前置 `$env:Path = "<node 所在目录>;D:\Program Files\Git\bin;$env:Path"`；
-> **Git Bash 必须用冒号分隔** `export PATH="<node 目录>:/d/Program Files/Git/bin:$PATH"`（分号会被当成一个目录名）。
-> ⛔ 把这个绝对路径写进仓内任何文件。
+> PowerShell 前置 `$env:Path = "<node 所在目录>;<Git 安装目录>\bin;$env:Path"`；
+> **Git Bash 必须用冒号分隔** `export PATH="<node 目录>:<Git 安装目录>/bin:$PATH"`（分号会被当成一个目录名）。
+> ⛔ 把本机绝对路径写进仓内任何文件。
 > protoc 走本地脚手架 `era-harness/tmp-protoc/bin/protoc.exe`（官方 v29.3 release，被 gitignore 排除）；
 > `grpc-tools` 自带的是调试构建、缺调试运行时，⛔ 用。
 
@@ -77,8 +77,7 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 | `proto/cline/state.proto` 的 `UpdateSettingsRequest` 新增字段 | 该字段必须∈设置目录 或 ∈ `overrides.ts` 的 `UNCOVERED_SETTINGS`（写一句为什么不收录），否则 gate 红。两侧命名不同名时在 `SETTING_KEY_ALIASES` 里对照 |
 | 写文件落盘形态（编码/BOM/行尾） | 判据在核心库 `src/encoding/write.ts`（纯函数，⛔ 不引 iconv-lite）；执行在 `src/integrations/editor/DiffViewProvider.ts#enforceWriteEncoding`；结论经 `saveChanges().encodingNote` → `WriteToFileToolHandler`，拼接在 `src/core/era/encoding-write.ts` |
 | 改 `state-keys.ts` | 先 `node scripts/generate-state-proto.mjs`，再 `npm run protos`；提交前看 `proto/cline/state.proto` 是否被带进暂存区 |
-| 动语言贡献 / `.erb` `.erh` 归属（`src/hosts/vscode/erabasic/index.ts`、`package.json` 的 `contributes.languages`） | 后缀写在 `contributes.languages.extensions`（随扩展注册/注销，禁用即归还 Ruby）。⛔ 不要用运行时写用户 `files.associations` 做「条件接管」——用户禁用/卸载后关联残留而语言 id 消失，`.erb` 会变纯文本（比不装还糟，见 3.89.0 修复）。让位/收回走显式命令；`npm run gate` 的「语言归属声明」会拦回归 |
-| 任何 `getConfiguration(...).update(...)` / `context.globalState.update(...)` | **不得自动写用户的编辑器设置**（`ConfigurationTarget.Global` 尤其）。只有「用户点了一条命令」的路径才能写，并且必须可撤回。实证两次：`files.associations`（3.89.0）与 `comments.openView`（3.89.2，`explainChanges` 建评论前偷偷改成 `never`，卸载后残留、影响所有项目）。扩展自己的状态请写 `state-manager` / `.era-harness/`，别碰 `settings.json` |
+| 动语言贡献 / `.erb` `.erh` 归属（`src/hosts/vscode/erabasic/index.ts`、`package.json` 的 `contributes.languages`） | 后缀写在 `contributes.languages.extensions`（随扩展注册/注销，禁用即归还 Ruby）。让位/收回走显式命令；`npm run gate` 的「语言归属声明」会拦回归 |
 
 ---
 
@@ -93,12 +92,11 @@ npm run gate:full     # 再加根 npm run compile（慢，批次收尾用）
 ## 5. 提交纪律与产品边界
 
 - 两仓**分别提交**；commit 风格＝`type(scope): 中文一句话`＋要点式 body。
-- husky＋lint-staged 会跑 `biome check --write --staged`，**它会改写你的文件** ⇒ 提交后复跑一次 `npm run compile` 确认仍绿。
+- husky＋lint-staged 会跑 `biome check --write --staged`，**它会改写你的文件** ⇒ 提交后复跑一次 `npm run compile` 确认仍绿。pre-commit 还在暂存区上跑 `lint-repo-rules.mjs --staged`（全库守门见 `npm run lint`）。同一钩子还会拒绝新出现的、超过 20KB 的源码文件（lockfile 和生成物除外）；报错时按功能把文件拆开。HEAD 里已经超过 20KB 的旧文件仍可提交。
 - `git add` **用显式路径**，⛔ `git add -A`：shared-trae 里有别的窗口留下的脏文件。
 - ⛔ **不推远程**：`git push`、`gh pr create/merge`、PR 合并、Release 发布一律由用户手动执行，AI 只做到本地 commit 为止。项目级硬约束见工作区根 `AGENTS.md` §3.8（用户 GitHub 账号已因自动化推送被风控）；仓内 `.clinerules/workflows/{release,hotfix-release,pr-review}.md`、`.agents/skills/create-pull-request/` 的推送步骤据此作废，只保留本地部分。
 - ⛔ 经 `.trae/knowledge`、`.trae/documents`、`.trae/rules` 链接「顺手改」共享文档——改正本走 shared-trae 本仓（git）。`.trae/` 本身被 gitignore。
 - 落点三层分流：长期事实 → shared-trae `knowledge/<domain>/`；会过时的 → `workspaces/era-harness/documents/`；随 vsix 分发的产品内嵌 → 核心库 `src/knowledge/`。⛔ 在 era-harness 仓内另建知识库。
-- ⛔ 硬编码集群路径（本机绝对路径不写进任何仓内文件，一律用 `$EMUERA_WS/<相对路径>` 或仓内相对路径）。
 
 ---
 

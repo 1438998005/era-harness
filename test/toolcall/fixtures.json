@@ -165,12 +165,12 @@
 		},
 		{
 			"name": "dots_function_call 包裹 + <parameter name=\"path\">（Kilo 免费候选 dots-3-note 主形态，2026-10-19 真实任务取证）→ 应还原 read_file 且正文无包裹残留",
-			"raw": "我先读取 README。\n<dots_function_call>\n<read_file>\n<parameter name=\"path\">d:\\game\\eratw-sub-modding-main\\README.zh.md\n</parameter>\n</invoke>\n</dots_function_call>",
+			"raw": "我先读取 README。\n<dots_function_call>\n<read_file>\n<parameter name=\"path\">d:\\games\\sample-project\\README.zh.md\n</parameter>\n</invoke>\n</dots_function_call>",
 			"expectTools": [
 				{
 					"name": "read_file",
 					"params": {
-						"path": "d:\\game\\eratw-sub-modding-main\\README.zh.md"
+						"path": "d:\\games\\sample-project\\README.zh.md"
 					}
 				}
 			],
@@ -178,12 +178,12 @@
 		},
 		{
 			"name": "dots_function_call 变体：参数开标签缺右引号（name=\"path>，真实任务第 2 回合原样）→ 仍应还原 read_file",
-			"raw": "<dots_function_call>\n<read_file>\n<parameter name=\"path>d:\\game\\eratw-sub-modding-main\\一键打包.bat\n</parameter>\n</invoke>\n</dots_function_call>",
+			"raw": "<dots_function_call>\n<read_file>\n<parameter name=\"path>d:\\games\\sample-project\\一键打包.bat\n</parameter>\n</invoke>\n</dots_function_call>",
 			"expectTools": [
 				{
 					"name": "read_file",
 					"params": {
-						"path": "d:\\game\\eratw-sub-modding-main\\一键打包.bat"
+						"path": "d:\\games\\sample-project\\一键打包.bat"
 					}
 				}
 			],
@@ -224,7 +224,7 @@
 		},
 		{
 			"name": "muse-spark 形态：dots 包裹但内层是规范 Cline XML（曾可解析，工具 partial 放行）→ 归一化后不得更坏，正文无包裹残留",
-			"raw": "<dots_function_call>\n<list_files>\n<path>d:\\game\\eratw-sub-modding-main</path>\n<recursive>false</recursive>\n</list</dots_function_call>",
+			"raw": "<dots_function_call>\n<list_files>\n<path>d:\\games\\sample-project</path>\n<recursive>false</recursive>\n</list</dots_function_call>",
 			"expectTextNotContains": "dots_function_call"
 		},
 		{

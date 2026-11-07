@@ -85,3 +85,6 @@ protoc.zip
 
 # 集群知识库挂载（junction，本机本地，勿入 git）
 .trae/
+
+# 本机路径片段（真实目录名）。公开仓库只保留通用的用户目录规则。
+scripts/lint-private-paths.json

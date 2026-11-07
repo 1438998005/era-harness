@@ -180,7 +180,7 @@ package.json 手术：name→`era-harness`、publisher→本地、description �
 
 ## 6. 领域层接入（批次 5，读写闭环）
 
-- **编码安全 IO**：`src/core/task/tools/handlers/` 的 read/write file 工具换 `era harness` 核心库（`../era harness/src/encoding`）——包内以 workspace 依赖或复制适配层接入（方案：`file:///D:/era harness工作区/era harness` 本地依赖 or npm workspace；本地测试优先 file: 依赖）。
+- **编码安全 IO**：`src/core/task/tools/handlers/` 的 read/write file 工具换 `era harness` 核心库（`../era harness/src/encoding`）——包内以 workspace 依赖或复制适配层接入（方案：用工作区相对路径接本地依赖，或 npm workspace；本地测试优先 file: 依赖）。
 - **check_write_allowed**：新工具，规则源 = 知识库 02 §2.5/§2.6（双身份边界 + CSV 只追加 + 备份纪律）；身份模式（本体/口上）以 settings 开关 + rules 注入。
 - **era system prompt**：`src/core/prompts/` 增加 ERABASIC 领域提示层（口上作者语气、ERD 命名、日志驱动修复流程）。
 - **run_game（可选本轮）**：Phase 3 闭环，本地 .bat 启动 + 读新日志。

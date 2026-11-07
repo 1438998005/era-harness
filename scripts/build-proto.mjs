@@ -35,7 +35,7 @@ const NICE_JS_OUT_DIR = path.resolve("src/generated/nice-grpc")
 const DESCRIPTOR_OUT_DIR = path.resolve("dist-standalone/proto")
 const WELL_KNOWN_PROTO_PATH = path.resolve("node_modules/grpc-tools/bin")
 
-// protoc 内部用 ANSI fopen，中文路径（工作区在 "era harness工作区/"）直接 not found。
+// protoc 内部用 ANSI fopen，路径里有非 ASCII 字符时直接 not found。
 // 解法：X: 虚拟盘 = 仓库根（tmp-protoc/make-x-drive.cjs，幂等），所有传给 protoc 的路径换成 X:/ 纯 ASCII。
 const REPO_ROOT = process.cwd()
 const toX = (p) => {
@@ -58,7 +58,7 @@ function ensureXDrive() {
 }
 
 // Windows：protoc 用 CreateProcess 拉起 --plugin 路径，npm 的 .bin/*.cmd 依赖 %~dp0，
-// 在工作区路径含空格（"era harness工作区"）时被切碎。改用无空格锚点的全引号 shim
+// 在工作区路径含空格时被切碎。改用无空格锚点的全引号 shim
 // （C:/era-tools/protoc-gen-ts_proto.cmd，内容 = node <repo>/node_modules/ts-proto/protoc-gen-ts_proto）。
 // shim 不存在时回落到 npm .cmd（仅当路径无空格时可用）。
 const WINDOWS_TS_PROTO_SHIM = "C:/era-tools/protoc-gen-ts_proto.cmd"

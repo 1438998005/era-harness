@@ -1,1 +1,4 @@
+set -e
+node scripts/lint-repo-rules.mjs --staged
 lint-staged
+node scripts/check-code-file-size.mjs --staged

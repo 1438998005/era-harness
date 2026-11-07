@@ -2,7 +2,7 @@
 //
 // 背景（三重坑）：
 // 1. protoc 在 Windows 用 CreateProcess 拉起 --plugin 指定的 .cmd；
-// 2. npm 的 .bin/*.cmd 依赖 %~dp0，工作区路径含空格（"era harness工作区"）时被切碎；
+// 2. npm 的 .bin/*.cmd 依赖 %~dp0，工作区路径含空格时被切碎；
 // 3. .cmd 内容含中文路径时，cmd.exe 按 GBK 读文件，UTF-8 写入即乱码。
 // 解法：subst 一个 X: 盘指向仓库根（含中文的路径交给 subst 内部处理），
 // shim .cmd 内容全 ASCII，node.exe 用 %USERPROFILE% 运行时展开。

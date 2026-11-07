@@ -779,7 +779,7 @@ test("#185 updateGame 是合法事件类型；detail 进白名单且脱敏/截�
 		{
 			event: "updateGame",
 			action: "plan",
-			target: "d:/R18/游戏/eratw-sub-modding-develop纯净版",
+			target: "d:/GameRoot/sample-project",
 			outcome: "info",
 			detail: "mode=first-sync; conflict=15; conflictBy=first-sync-human:15",
 		},
