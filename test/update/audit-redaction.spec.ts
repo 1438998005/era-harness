@@ -522,6 +522,9 @@ test("3.92.0：error 事件折叠——保留最近 50 条、更早折成摘要�
 test("S4：dialect-guard——定位类参数含 DSML/方言标签语法时拒执行并产出快照", () => {
 	assert.equal(findDialectResidueParam({ path: "ERB", regex: "中文词" }), undefined, "干净参数不拦截")
 	assert.equal(findDialectResidueParam({ path: "ERB</｜｜DSML｜｜ parameter>" }), "path")
+	// 08 #248 Bugbot：U+2502 混排分隔符须与解析层 DSML_VLINE 同判据
+	assert.equal(findDialectResidueParam({ path: "ERB/evt</\u2502｜｜DSML｜｜regex>" }), "path")
+	assert.equal(findDialectResidueParam({ path: "│697 | match line" }), undefined, "ripgrep 行号前缀无 DSML")
 	assert.equal(findDialectResidueParam({ file_pattern: '*.erb</｜DSML｜ parameter name="task_progress>' }), "file_pattern")
 	assert.equal(findDialectResidueParam({ regex: "A|B</parameter>" }), "regex")
 	assert.equal(findDialectResidueParam({ regex: '<parameter name="regex">' }), "regex")

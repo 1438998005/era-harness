@@ -34,9 +34,9 @@ export const GUARDED_PARAMS = [
  */
 const SNAPSHOT_EXCLUDED_PARAMS = new Set(["content", "diff", "command", "task_progress"])
 
-/** DSML 分隔符（1-3 根全角/ASCII 竖线）与方言标签语法。与解析层同族判据。 */
+/** DSML 分隔符（1-3 根全角/ASCII/U+2502 竖线）与方言标签语法。与解析层 DSML_VLINE 同族判据。 */
 const DIALECT_RESIDUE_RE =
-	/[｜|]{1,3}\s*DSML\s*[｜|]{1,3}|<\/?\s*parameter[\s>=]|<\/?\s*invoke\s*>|<\/?\s*(?:dots_function_call|function_calls?)\s*>/
+	/[｜|│\u2502]{1,3}\s*DSML\s*[｜|│\u2502]{1,3}|<\/?\s*parameter[\s>=]|<\/?\s*invoke\s*>|<\/?\s*(?:dots_function_call|function_calls?)\s*>/
 
 /**
  * 08 #239：已知工具/参数标签名（**单源**）。只认这些名字的标签残片，

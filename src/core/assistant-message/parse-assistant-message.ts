@@ -114,7 +114,9 @@ function stripTaskProgressMarkup(text: string, stats?: ParseRepairStats): string
 // 泄漏成**单竖线** `<｜DSML｜`（本方官方端点是双竖线 `｜｜`），分隔符只认 {2} 导致整块
 // 落正文、零工具执行、原样重试循环卡死。放宽为 1-3 根（全角/ASCII 混排同色处理）——
 // DSML 字面量在正常正文里不会出现，容差不引入误伤。
-const DSML_DELIMITER = String.raw`[｜|]{1,3}\s*DSML\s*[｜|]{1,3}`
+// 2026-11-06 诊断包（deepseek-flash）：分隔符混用 U+2502（│）与全角｜，形如 `</│｜｜DSML｜｜regex>`。
+const DSML_VLINE = String.raw`[｜|│\u2502]`
+const DSML_DELIMITER = String.raw`${DSML_VLINE}{1,3}\s*DSML\s*${DSML_VLINE}{1,3}`
 
 /**
  * 解析修复遥测（D2，2026-10-25）：「模型干净」与「被修干净」必须可区分——MiMo 复测
@@ -171,6 +173,8 @@ function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 			//     task_progress 伪参数连属性引号都不闭合（name="task_progress>）。
 			//     语义 = 关当前参数 + 开下一参数。
 			`</${DSML_DELIMITER}\\s*parameter\\s+name="?([^">\\s>]+)"?[^>]*>`,
+			// 4c: 参数名直接粘在 DSML 闭分隔符后（无 parameter 关键字；诊断 turn 9）
+			`</${DSML_DELIMITER}([a-z_][a-z0-9_]*)\\s*>`,
 			`</?${DSML_DELIMITER}\\s*calls\\s*>`, // 5: calls 包裹
 			`<([a-z_][a-z0-9_]*)\\s*>`, // 6: Cline 开标签（工具或参数）
 			`</([a-z_][a-z0-9_]*)\\s*>`, // 7: Cline 关标签
@@ -179,7 +183,7 @@ function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 			`</${DSML_DELIMITER}\\s*>`,
 			// 9: 散落的裸分隔符（两侧不挨着尖括号/竖线才算孤立）。配不上任何标签时清掉；
 			//    有工具/参数开着时语义不明，保留原样交给后续修复。
-			`(?<![<｜|/])${DSML_DELIMITER}(?![>|｜|])`,
+			`(?<![<${DSML_VLINE}/])${DSML_DELIMITER}(?![>${DSML_VLINE}])`,
 		].join("|"),
 		"g",
 	)
@@ -189,6 +193,7 @@ function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 		invokeName?: string,
 		dsmlParamName?: string,
 		chainParamName?: string,
+		gluedParamName?: string,
 		openTagName?: string,
 		closeTagName?: string,
 	): string => {
@@ -210,6 +215,13 @@ function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 			openParam = known ? chainParamName : null
 			return (prev ? `</${prev}>` : "") + (known ? `<${chainParamName}>` : "")
 		}
+		// 4c: `</D regex>` 粘连形态 = 链式闭标签（与 4b 同语义）
+		if (gluedParamName && !/^(invoke|parameter|calls)$/i.test(gluedParamName)) {
+			const prev = openParam
+			const known = (toolParamNames as readonly string[]).includes(gluedParamName)
+			openParam = known ? gluedParamName : null
+			return (prev ? `</${prev}>` : "") + (known ? `<${gluedParamName}>` : "")
+		}
 		// 2: DSML 关工具
 		if (/invoke/.test(match)) {
 			const tool = openTool
@@ -227,7 +239,7 @@ function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 			return ""
 		}
 		// 8: 裸闭标签 </D>：优先关当前参数（参数先于工具闭合），否则关当前工具
-		if (/^<\/[｜|]/.test(match)) {
+		if (new RegExp(`^</${DSML_VLINE}`).test(match)) {
 			if (openParam) {
 				const param = openParam
 				openParam = null
@@ -262,14 +274,15 @@ function normalizeDsmlMarkup(text: string, stats?: ParseRepairStats): string {
 	}
 
 	const normalized = text.replace(pattern, (match, ...groups: unknown[]) => {
-		const [invokeName, dsmlParamName, chainParamName, openTagName, closeTagName] = groups as [
+		const [invokeName, dsmlParamName, chainParamName, gluedParamName, openTagName, closeTagName] = groups as [
+			string | undefined,
 			string | undefined,
 			string | undefined,
 			string | undefined,
 			string | undefined,
 			string | undefined,
 		]
-		const result = replacer(match, invokeName, dsmlParamName, chainParamName, openTagName, closeTagName)
+		const result = replacer(match, invokeName, dsmlParamName, chainParamName, gluedParamName, openTagName, closeTagName)
 		if (stats && result !== match) {
 			stats.dsml++
 		}
@@ -615,6 +628,65 @@ export function parseAssistantMessageV2(rawMessage: string, stats?: ParseRepairS
 		toolParamOpenTags.set(`<${name}>`, name)
 	}
 
+	// 08 #248（2026-11-06 诊断）：模型用错配闭标签（如 `</regex>` 关 file_pattern）时，
+	// 解析器不能一直等到 `</${currentParam}>`，须在下一个已知标签处收口。
+	// Bugbot 复核：仅定位类短值参数允许提前收口；regex/task_progress 可能合法含 `</path>` 等。
+	const BOUNDARY_CLOSE_PARAMS = new Set<ToolParamName>(["path", "absolutePath", "file_pattern"])
+
+	const stripTrailingUnknownClose = (value: string, paramName: ToolParamName): string => {
+		if (!BOUNDARY_CLOSE_PARAMS.has(paramName)) {
+			return value
+		}
+		return value.replace(/<\/[^>]+>\s*$/u, "").trim()
+	}
+
+	const tryFinalizeParamAtBoundary = (currentCharIndex: number): boolean => {
+		if (!currentToolUse || !currentParamName || !BOUNDARY_CLOSE_PARAMS.has(currentParamName)) {
+			return false
+		}
+		const finalizeWithEnd = (endExclusive: number) => {
+			let value = assistantMessage.slice(currentParamValueStart, endExclusive).trim()
+			value = stripTrailingUnknownClose(value, currentParamName as ToolParamName)
+			currentToolUse!.params[currentParamName as ToolParamName] = value
+			currentParamName = undefined
+		}
+
+		for (const name of toolParamNames) {
+			if (name === currentParamName) {
+				continue
+			}
+			const closeTag = `</${name}>`
+			if (
+				currentCharIndex >= closeTag.length - 1 &&
+				assistantMessage.startsWith(closeTag, currentCharIndex - closeTag.length + 1)
+			) {
+				finalizeWithEnd(currentCharIndex - closeTag.length + 1)
+				return true
+			}
+		}
+
+		for (const [tag, otherName] of toolParamOpenTags.entries()) {
+			if (otherName === currentParamName) {
+				continue
+			}
+			if (currentCharIndex >= tag.length - 1 && assistantMessage.startsWith(tag, currentCharIndex - tag.length + 1)) {
+				finalizeWithEnd(currentCharIndex - tag.length + 1)
+				return true
+			}
+		}
+
+		const toolCloseTag = `</${currentToolUse.name}>`
+		if (
+			currentCharIndex >= toolCloseTag.length - 1 &&
+			assistantMessage.startsWith(toolCloseTag, currentCharIndex - toolCloseTag.length + 1)
+		) {
+			finalizeWithEnd(currentCharIndex - toolCloseTag.length + 1)
+			return true
+		}
+
+		return false
+	}
+
 	const len = assistantMessage.length
 	for (let i = 0; i < len; i++) {
 		const currentCharIndex = i
@@ -637,6 +709,7 @@ export function parseAssistantMessageV2(rawMessage: string, stats?: ParseRepairS
 						currentCharIndex - closeTag.length + 1, // End before the closing tag
 					)
 					.trim()
+				value = stripTrailingUnknownClose(value, currentParamName)
 				// era harness: undo XML escaping for shell commands so they execute correctly.
 				if (currentParamName === "command") {
 					value = decodeCommandEntities(value)
@@ -644,6 +717,8 @@ export function parseAssistantMessageV2(rawMessage: string, stats?: ParseRepairS
 				currentToolUse.params[currentParamName] = value
 				currentParamName = undefined // Go back to parsing tool content
 				// We don't continue loop here, need to check for tool close or other params at index i
+			} else if (tryFinalizeParamAtBoundary(currentCharIndex)) {
+				// 错配闭标签已在边界处收口，同一 index 由下方「参数之间」分支继续处理
 			} else {
 				continue // Still inside param value, move to next char
 			}

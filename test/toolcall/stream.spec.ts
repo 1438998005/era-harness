@@ -277,4 +277,6 @@ test("display-clean：DSML 标签形态清理与半截标签裁剪（08 #46）",
 	assert.equal(cleanAssistantTextForDisplay("正文 </｜", true), "正文")
 	// 孤立讨论 DSML 字样（无尖括号包裹）的正文不动
 	assert.equal(cleanAssistantTextForDisplay("这个模型输出 ｜｜DSML｜｜ 分隔符", true), "这个模型输出 ｜｜DSML｜｜ 分隔符")
+	// U+2502 混排分隔符（08 #248 诊断形态）
+	assert.equal(cleanAssistantTextForDisplay("前文 </\u2502｜｜DSML｜｜regex> 后文", false), "前文  后文")
 })

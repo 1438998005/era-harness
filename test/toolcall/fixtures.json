@@ -689,6 +689,116 @@
 			"expectTextNotContains": [
 				"｜｜DSML｜｜"
 			]
+		},
+		{
+			"name": "08 #248 形状A：U+2502 DSML 粘连 regex 闭标签（诊断 turn 9 脱敏）",
+			"raw": "<search_files>\n<path>proj/ERB/evt_dir</\u2502｜｜DSML｜｜regex>@SYMBOL_A</regex>\n<file_pattern>*.ERB</file_pattern>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj/ERB/evt_dir",
+						"regex": "@SYMBOL_A",
+						"file_pattern": "*.ERB"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 形状B：`</regex>` 错关 file_pattern（诊断 turn 10 脱敏）",
+			"raw": "<search_files>\n<path>proj/CSV</path>\n<regex>^\\s*216,</regex>\n<file_pattern>Item.csv</regex>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj/CSV",
+						"regex": "^\\s*216,",
+						"file_pattern": "Item.csv"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 形状B：未知闭标签 `</文件>` + 紧跟 `<regex>`（诊断 turn 47 脱敏）",
+			"raw": "<search_files>\n<path>proj/CSV</path>\n<file_pattern>FLAG.csv</文件>\n<regex>^\\s*(75|872),</regex>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj/CSV",
+						"file_pattern": "FLAG.csv",
+						"regex": "^\\s*(75|872),"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 形状B：task_progress 吞进 file_pattern 时边界收口（诊断 turn 63 脱敏）",
+			"raw": "<search_files>\n<path>proj/CSV</path>\n<regex>^\\s*(872|865|75),</regex>\n<file_pattern>FLAG.als</task_progress>\n- [x] [dialogue omitted]\n- [ ] [dialogue omitted]\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj/CSV",
+						"regex": "^\\s*(872|865|75),",
+						"file_pattern": "FLAG.als"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 反例：write_to_file content 内合法 XML 不得被边界逻辑截断",
+			"raw": "<write_to_file>\n<path>_tmp/sample.txt</path>\n<content>line1\n<path>nested</path>\n</search_files>\nline2</content>\n</write_to_file>",
+			"expectTools": [
+				{
+					"name": "write_to_file",
+					"params": {
+						"path": "_tmp/sample.txt",
+						"content": "line1\n<path>nested</path>\n</search_files>\nline2"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 反例：regex 值含 `<` 不得被边界逻辑截断",
+			"raw": "<search_files>\n<path>proj</path>\n<regex>a<b</regex>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj",
+						"regex": "a<b"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 Bugbot：regex 含 `</file_pattern>` 字面量不得被边界收口截断",
+			"raw": "<search_files>\n<path>proj</path>\n<regex>.*</file_pattern></regex>\n<file_pattern>*.csv</file_pattern>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj",
+						"regex": ".*</file_pattern>",
+						"file_pattern": "*.csv"
+					}
+				}
+			]
+		},
+		{
+			"name": "08 #248 Bugbot：`file_pattern` 正确闭合前未知 `</文件>` 应被剥掉",
+			"raw": "<search_files>\n<path>proj/CSV</path>\n<regex>^\\s*75,</regex>\n<file_pattern>FLAG.csv</文件></file_pattern>\n</search_files>",
+			"expectTools": [
+				{
+					"name": "search_files",
+					"params": {
+						"path": "proj/CSV",
+						"regex": "^\\s*75,",
+						"file_pattern": "FLAG.csv"
+					}
+				}
+			]
 		}
 	]
 }

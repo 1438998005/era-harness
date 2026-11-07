@@ -51,7 +51,7 @@ export function cleanAssistantTextForDisplay(rawContent: string, isPartial: bool
 
 	// DSML 控制分隔符的标签形态（含单/双竖线与属性）：解析层修复失败时的展示兜底。
 	// 只清理 `<...>` 包住的形态，正文里孤立讨论 DSML 字样的文本不动。
-	content = content.replace(/<\/?[｜|]{1,3}\s*DSML\s*[｜|]{1,3}[^>]*>/g, "")
+	content = content.replace(/<\/?[｜|│\u2502]{1,3}\s*DSML\s*[｜|│\u2502]{1,3}[^>]*>/g, "")
 
 	// 整块恰为已知工具的闭标签（如 `</era_symbols>`）：迟到闭标签残片，无信息量，清掉。
 	const trimmed = content.trim()
@@ -94,7 +94,7 @@ export function cleanAssistantTextForDisplay(rawContent: string, isPartial: bool
 			// 扩展（2026-10-25 DSML 单竖线取证，08 #46）：分隔符以竖线开头，截断在
 			// `<｜DS`/`</｜` 时不是 ASCII 标签名，须按「标签起始 + 竖线」识别为半截标签。
 			const isLikelyTagName =
-				/^[a-zA-Z_][a-zA-Z0-9_]*(?:=[a-zA-Z0-9_]*)?$/.test(tagContent) || /^<\/?[｜|]/.test(possibleTag)
+				/^[a-zA-Z_][a-zA-Z0-9_]*(?:=[a-zA-Z0-9_]*)?$/.test(tagContent) || /^<\/?[｜|│\u2502]/.test(possibleTag)
 			// Preemptively remove < or </ to keep from these artifacts showing up in chat (also handles closing thinking tags)
 			const isOpeningOrClosing = possibleTag === "<" || possibleTag === "</"
 			// If the tag is incomplete and at the end, remove it from the content
