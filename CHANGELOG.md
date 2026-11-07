@@ -3,6 +3,19 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.102.2 — 2026-11-07
+
+> 修复版：`search_files` 被方言残片吞进 `path` / `file_pattern` 后，守卫阻断并空转重试（知识库 08 **#248**）。
+> 没有新的提供商、工具或设置项。守卫仍拒绝执行，不把残片剥掉再跑。
+
+### 修复 · search_files 方言残片收口（#248）
+
+- DSML 竖线补上 U+2502。粘连的 `</│｜｜DSML｜｜参数名>`（没有 `parameter` 关键字）能关上当前参数。
+- 提前收口只作用于 `path` / `absolutePath` / `file_pattern`：遇到下一个已知参数，或当前工具闭合时切片，并剥掉值尾的一个未知闭标签（如 `</文件>`）。`regex`、`content`、`diff`、`command`、`task_progress` 不截断。
+- 守卫的竖线类与解析器对齐。漏网的 U+2502 残片仍阻断，不会变成一次静默空搜索。
+
+**回归**：`test:toolcall` 66/66，`test:update` 984/984。本版打包的 prepublish 会再跑 `check-types`、webview 构建与 lint。
+
 ## 3.102.1 — 2026-11-07
 
 > 修复版：3.102.0 指定模型与失败提示的收口（知识库 08 **#243–#247**）。
