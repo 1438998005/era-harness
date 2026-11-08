@@ -66,9 +66,9 @@
 
 - `test:free` 70/70、`test:update` 995/995、`test:ui` 93/93、`test:toolcall` 66/66；
   `check-types` / `lint`（含 20KB 闸门）通过、`read_lints` 0。
-- 版本号沿用 **3.103.0**；本轮修复未重打 `dist/extension.js` / `webview-ui/build/` 双产物、
-  ⛔ 未重新出 vsix（既有产物不含本轮改动）；全部改动停在未提交状态，
-  ⛔ 未提交、未推送、未发布、未打 tag。
+- 版本号沿用 **3.103.0**；本批改动已重打 `dist/extension.js` / `webview-ui/build/` 双产物
+  并重新生成 `era-harness-3.103.0.vsix`，做**一次本地提交**；
+  ⛔ 未推送、未发布、未同步、未打 tag。
 - ⛔ 未做人工截图复核与实弹复测；实弹评分卡 v1.2 与 18 行打分表本轮不动、不升版本。
 
 ## 3.102.3 — 2026-11-07
