@@ -163,6 +163,7 @@ message Settings {
   optional string bigmodel_plan_reasoning_effort = 217;
   optional string moonshot_reasoning_effort = 218;
   optional string pinned_model_id = 219;
+  optional bool free_use_open_router_router = 220;
 }
 
 message State {

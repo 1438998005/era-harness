@@ -10,7 +10,6 @@ import { ApiConfiguration, ApiProvider, OpenAiCompatibleModelInfo as AppOpenAiCo
 import { OpenaiReasoningEffort } from "../../storage/types"
 import { fromProtobufModelInfo, fromProtobufOcaModelInfo } from "./typeConversion"
 
-// Convert application ThinkingConfig to proto ThinkingConfig
 function convertThinkingConfigToProto(config: ModelInfo["thinkingConfig"]): ThinkingConfig | undefined {
 	if (!config) {
 		return undefined
@@ -23,7 +22,6 @@ function convertThinkingConfigToProto(config: ModelInfo["thinkingConfig"]): Thin
 	}
 }
 
-// Convert proto ThinkingConfig to application ThinkingConfig
 function convertProtoToThinkingConfig(config: ThinkingConfig | undefined): ModelInfo["thinkingConfig"] | undefined {
 	if (!config) {
 		return undefined
@@ -36,7 +34,6 @@ function convertProtoToThinkingConfig(config: ThinkingConfig | undefined): Model
 	}
 }
 
-// Convert application ModelInfo to proto OpenRouterModelInfo
 function convertModelInfoToProtoOpenRouter(info: ModelInfo | undefined): OpenRouterModelInfo | undefined {
 	if (!info) {
 		return undefined
@@ -210,6 +207,7 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		subagentMoonshotApiLine: config.subagentMoonshotApiLine,
 		ovhAiEndpointsApiKey: config.ovhAiEndpointsApiKey,
 		freeExcludeCollecting: config.freeExcludeCollecting,
+		freeUseOpenRouterRouter: config.freeUseOpenRouterRouter,
 		pinnedModelId: config.pinnedModelId,
 		// KB 08 #237：per-provider 思维强度槽（设置页各家控件写、请求侧按 apiProvider 读）
 		deepSeekReasoningEffort: config.deepSeekReasoningEffort,
@@ -280,6 +278,7 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		subagentMoonshotApiLine: protoConfig.subagentMoonshotApiLine,
 		ovhAiEndpointsApiKey: protoConfig.ovhAiEndpointsApiKey,
 		freeExcludeCollecting: protoConfig.freeExcludeCollecting,
+		freeUseOpenRouterRouter: protoConfig.freeUseOpenRouterRouter,
 		pinnedModelId: protoConfig.pinnedModelId,
 		deepSeekReasoningEffort: protoConfig.deepSeekReasoningEffort,
 		mimoReasoningEffort: protoConfig.mimoReasoningEffort,

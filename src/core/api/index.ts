@@ -70,6 +70,8 @@ function createHandlerForProvider(
 				onRetryAttempt: options.onRetryAttempt,
 				ovhApiKey: options.ovhAiEndpointsApiKey,
 				excludeCollecting: options.freeExcludeCollecting,
+				// 2026-11-08：第三个并列路由选项；true 时 handler 走 openrouter/free 单候选旁支。
+				freeUseOpenRouterRouter: options.freeUseOpenRouterRouter,
 				// KB 08 #242：全局一份、不分 plan/act。空 = 自动路由（#241 池序 + failover 原样生效）。
 				pinnedModelId: options.pinnedModelId,
 			})

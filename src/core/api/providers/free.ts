@@ -11,6 +11,9 @@
  * 4. 全部失败 → 抛错引导配置 DeepSeek；KB 08 #242 指定模型（pinned）时链长恒为 1，
  *    改走 composePinnedError 给专门报错 + 恢复标记，⛔ 不自动切回自动路由。
  *
+ * 2026-11-08 第三路由模式：设置页三选一的独立路径，实现见 ./free-router.ts，
+ * 决策与风险依据见 KB 07 §7.9；请求 ID ≠ 响应体真实 model（getLastUpstreamModelId()）。
+ *
  * 双 wire：Chat 为当前唯一在用 wire；Responses 分支仅服务 Zen muse-spark，随 Zen 移出后休眠。
  * 免费车道不计费（usage 的 totalCost 恒 0）。
  */
@@ -53,6 +56,12 @@ import {
 	noteLaneCooldown,
 	type ZenClientHandle,
 } from "./free-lanes"
+import {
+	assertOpenRouterRouterAllowed,
+	composeOpenRouterRouterFailure,
+	FREE_REQUEST_MAX_OUTPUT,
+	OPENROUTER_ROUTER_CANDIDATE,
+} from "./free-router"
 
 interface FreeModelHandlerOptions extends CommonApiHandlerOptions {
 	/** 测试注入：伪造 Zen 车道客户端（跳过真实构造与网络） */
@@ -67,19 +76,14 @@ interface FreeModelHandlerOptions extends CommonApiHandlerOptions {
 	ovhApiKey?: string
 	/** 隐私开关：true = 仅路由不收集提示词的渠道（排除 Kilo；此时 Kilo listing 也不拉取） */
 	excludeCollecting?: boolean
+	/** 第三路由选项：true = 固定单候选、优先于 pinned、不经四道门、失败不回落（见 ./free-router.ts）。 */
+	freeUseOpenRouterRouter?: boolean
 	/**
 	 * KB 08 #242：指定的**真实上游模型 ID**（全局一份，不分 plan/act）。
 	 * 空 = 自动路由。指定后候选链长度恒为 1，⛔ 不会自动切回自动路由。
 	 */
 	pinnedModelId?: string
 }
-
-/**
- * 请求级输出上限。免费池个别模型登记的 maxOutput 极大（dots-3-note 460800），
- * 上游 provider 会直接 400 拒绝（2026-10-19 实测）；agent 单轮输出很少超过 32K，
- * 统一截到 32768（已验证可用）。
- */
-const FREE_REQUEST_MAX_OUTPUT = 32_768
 
 /** 请求是否携带图片（ClineImageContentBlock） */
 function messagesHaveImages(messages: ClineStorageMessage[]): boolean {
@@ -114,6 +118,8 @@ export class FreeModelHandler implements ApiHandler {
 	 * 被当成 switchable 失败，于是「用户点了停止，插件却偷偷又发了一个请求」。
 	 */
 	private userAborted = false
+	/** OpenRouter 免费路由模式：上游响应体里的真实模型 ID（请求 ID 恒为 `openrouter/free`）。 */
+	private lastUpstreamModelId: string | undefined
 
 	constructor(options: FreeModelHandlerOptions) {
 		this.options = options
@@ -123,7 +129,17 @@ export class FreeModelHandler implements ApiHandler {
 		this.ovh = options.ovhClient ?? createOvhClient(options.ovhApiKey)
 	}
 
+	/** 审计辅助：请求 ID 与真实后端 ID 同时可查；不新增事件类型、不改诊断结构。 */
+	getLastUpstreamModelId(): string | undefined {
+		return this.lastUpstreamModelId
+	}
+
 	getModel(): { id: string; info: ModelInfo } {
+		// 2026-11-08：第三路由模式优先于 pinned（兼容旧数据），且**不看 activeCandidate**——
+		// 同一 handler 实例可能残留上一轮的自动路由候选，窗口会按错的值下刀。
+		if (this.options.freeUseOpenRouterRouter === true) {
+			return { id: OPENROUTER_ROUTER_CANDIDATE.id, info: toFreeModelInfo(OPENROUTER_ROUTER_CANDIDATE) }
+		}
 		// KB 08 #242：指定模型时，首个请求发出前 getModel() 也须指向该候选的窗口，
 		// 否则上下文窗口仍按 #241 池首算，Task 层截断会按错的窗口下刀。
 		const pinned = this.options.pinnedModelId?.trim()
@@ -152,12 +168,26 @@ export class FreeModelHandler implements ApiHandler {
 
 		const hasImages = messagesHaveImages(messages)
 		const excludeCollecting = this.options.excludeCollecting === true
-		const pinnedModelId = this.options.pinnedModelId?.trim() || undefined
+		const useRouter = this.options.freeUseOpenRouterRouter === true
+		// 标志优先于 pinned：⛔ 不屏蔽旧数据会让「已吐内容后断流」带上 pinned 恢复标记，
+		// 而 ErrorRow 的「切回自动路由」只清 pinned，按钮点了不生效（代码审查修订）。
+		const pinnedModelId = useRouter ? undefined : this.options.pinnedModelId?.trim() || undefined
+		this.lastUpstreamModelId = undefined
+		// 第三路由模式：隐私开关 / 带图请求按风险明确拒绝（见 ./free-router.ts），不发任何请求。
+		if (useRouter) {
+			assertOpenRouterRouterAllowed({ excludeCollecting, hasImages })
+		}
+		// 路由模式跳过 listing 拉取（省一次网络）：单候选不经 FREE_POOL / 四道门 / pinned 钳制。
 		// 隐私开关开启时 Kilo 必然被链组装剔除，listing 拉取纯属一次白等的网络请求
-		const kiloFreeRows = this.options.kiloFreeRows ?? (excludeCollecting ? [] : await fetchKiloFreeModels())
+		const kiloFreeRows = useRouter
+			? []
+			: (this.options.kiloFreeRows ?? (excludeCollecting ? [] : await fetchKiloFreeModels()))
 		// KB 08 #242：钳制在 buildFreeCandidateChain 内部完成——先按隐私 / Kilo listing / vision
 		// 组装完整链，最后才 filter(pinned)。⛔ 不另起一条绕过门控的链；链长恰为 1 或 0。
-		const chain = buildFreeCandidateChain({ hasImages, kiloFreeRows, excludeCollecting, pinnedModelId })
+		// 2026-11-08 例外：第三路由模式是用户显式选中的独立模式，链长恒为 1，失败不回落。
+		const chain = useRouter
+			? [OPENROUTER_ROUTER_CANDIDATE]
+			: buildFreeCandidateChain({ hasImages, kiloFreeRows, excludeCollecting, pinnedModelId })
 
 		if (chain.length === 0) {
 			if (pinnedModelId) {
@@ -273,6 +303,11 @@ export class FreeModelHandler implements ApiHandler {
 			}
 		}
 
+		if (useRouter) {
+			// 单候选循环天然不会切到第二个；专门归因见 ./free-router.ts（⛔ 不复用 pinned 恢复标记）
+			const reason = tried === 0 ? "上游车道正在冷却中，本次请求未发出。" : errorMessageOf(lastError)
+			throw composeOpenRouterRouterFailure(tried, reason)
+		}
 		if (pinnedModelId) {
 			// tried=0 只可能是车道冷却把唯一候选 continue 掉了；不能说「已尝试 0 个候选」。
 			const reason = tried === 0 ? "该模型所在车道正在冷却中，本轮跳过了唯一候选、请求未发出。" : errorMessageOf(lastError)
@@ -311,6 +346,10 @@ export class FreeModelHandler implements ApiHandler {
 		let finalUsage: OpenAI.Chat.ChatCompletionChunk["usage"] | undefined
 
 		for await (const chunk of stream) {
+			// 虚拟路由器：请求 ID 恒为 openrouter/free，响应体 model 才是真实后端；两者同时可查。
+			if (this.options.freeUseOpenRouterRouter === true && typeof chunk.model === "string" && chunk.model) {
+				this.lastUpstreamModelId = chunk.model
+			}
 			const delta = chunk.choices?.[0]?.delta
 			if (delta?.content) {
 				yield { type: "text", text: delta.content }

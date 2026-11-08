@@ -99,6 +99,11 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	enableParallelToolCalling: { default: true as boolean },
 	// era harness：免费池隐私开关。true = 仅路由到不收集提示词的渠道（排除 Kilo 明文收集，仅剩 OVH；渠道标记见 free-pools.ts LANE_META）
 	freeExcludeCollecting: { default: false as boolean },
+	// 2026-11-08：设置页第三个并列路由选项（自动路由 / 指定模型 / OpenRouter 免费路由）。
+	// false = 走 FREE_POOL 自动路由或 pinned；true = 固定单候选 openrouter/free（不经池、不回落）。
+	// ⚠️ 普通设置字段，绝不进 SECRETS_KEYS（会被 undefined 覆盖 / 语义错位）；false 是有效值，
+	// 也不进 CLEARABLE_ON_EMPTY_KEYS（否则写 false 会被当成「清空」删掉）。
+	freeUseOpenRouterRouter: { default: false as boolean },
 	// KB 08 #237（2026-11-05 用户裁定）：思维强度按 provider 各存各的，不再只存全局 plan/act 两槽。
 	// 子代理 / 提示词增强选 DeepSeek 时读「DeepSeek 那一页设的档」，哪怕当前主模型是别家；
 	// 反过来主模型是 DeepSeek、辅助选 Moonshot 也不会误读 DeepSeek 档。映射单源见

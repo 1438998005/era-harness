@@ -28,6 +28,7 @@ import {
 	FREE_POOL,
 	FREE_POOL_MIN_VISIBLE_ROWS,
 	LANE_META,
+	OPENROUTER_FREE_ROUTER_ID,
 	parseKiloFreeRows,
 } from "@shared/free-pools"
 import type OpenAI from "openai"
@@ -113,7 +114,11 @@ beforeEach(() => {
 // KB 08 #241 定稿池序（**单一常量表**）：本文件里任何顺序/位置断言都必须从它派生，
 // ⛔ 禁止再抄第二份顺序（§4.25 结构性要求）。前 14 项 = #229 旧序剔除 NVIDIA 四项后的相对序，
 // 逐字不动；后 4 项 = NVIDIA 家族按三源重排，Super VL 末位隔离。
+// 2026-11-08：只插入 `liquid/lfm-3-1.7b:free` 为新 #16（Ultra 之后、Lightning 之前），
+// 其余 18 项相对顺序逐字不动；本轮新增项 = LFM3_ID 常量，不另抄一份。
 // ---------------------------------------------------------------------------
+
+const LFM3_ID = "liquid/lfm-3-1.7b:free"
 
 const EXPECTED_POOL_ORDER = [
 	"reflection/beam-free",
@@ -131,6 +136,7 @@ const EXPECTED_POOL_ORDER = [
 	"Qwen3.5-9B",
 	"Qwen2.5-VL-72B-Instruct",
 	"nvidia/nemotron-3-ultra-550b-a55b:free",
+	LFM3_ID,
 	"nvidia/nemotron-3.5-lightning:free",
 	"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
 	"nvidia/nemotron-3.5-super-vl:free",
@@ -165,16 +171,16 @@ const expectedVisionOrder = (ids: readonly string[]) =>
 		.map((c) => c.id)
 
 // ---------------------------------------------------------------------------
-// 候选链组装（KB 08 #241 定稿 18 项，三源并重排序口径）
+// 候选链组装（KB 08 #241 定稿 18 项，2026-11-08 插入 LFM3-1.7B 后 19 项）
 // ---------------------------------------------------------------------------
 
-test("单一池：无 listing 时 18 个候选（全部精确 ID）且逐字等于 #241 定稿序", () => {
+test("单一池：无 listing 时 19 个候选（全部精确 ID）且逐字等于定稿序", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
-	assert.equal(chain.length, 18) // OVH 9 + Kilo 9（全部精确 ID，无 listingMatch 条目）
-	// 渠道分布：OVH 9 + Kilo 9；Zen 已移出池
+	assert.equal(chain.length, 19) // OVH 9 + Kilo 10（全部精确 ID，无 listingMatch 条目）
+	// 渠道分布：OVH 9 + Kilo 10；Zen 已移出池
 	assert.equal(chain.filter((c) => c.lane === "zen").length, 0)
 	assert.equal(chain.filter((c) => c.lane === "ovh").length, 9)
-	assert.equal(chain.filter((c) => c.lane === "kilo").length, 9)
+	assert.equal(chain.filter((c) => c.lane === "kilo").length, 10)
 	assert.deepEqual(
 		chain.map((c) => c.id),
 		EXPECTED_POOL_ORDER,
@@ -183,25 +189,28 @@ test("单一池：无 listing 时 18 个候选（全部精确 ID）且逐字等�
 	assert.ok(!chain.some((c) => c.id === "poolside/laguna-s-2.1:free"), "已死的 Laguna 不应留在池中")
 })
 
-test("#241 结构性：FREE_POOL 与单一常量表一致，NVIDIA 四项恰在 #15–18 且 Super VL 末位", () => {
+test("#241 结构性：FREE_POOL 与单一常量表一致，LFM3 插在 #16、Super VL 仍末位", () => {
 	assert.deepEqual(
 		FREE_POOL.map((c) => c.id),
 		EXPECTED_POOL_ORDER,
 	)
-	assert.equal(new Set(EXPECTED_POOL_ORDER).size, 18, "期望表自身不得有重复/漏项")
+	assert.equal(new Set(EXPECTED_POOL_ORDER).size, 19, "期望表自身不得有重复/漏项")
 	assert.deepEqual(
 		FREE_POOL.slice(14).map((c) => c.id),
 		EXPECTED_POOL_ORDER.slice(14),
-		"NVIDIA 四项：Ultra → Lightning → Nano Omni → Super VL",
+		"尾部五项：Ultra → LFM3 → Lightning → Nano Omni → Super VL",
 	)
-	assert.equal(FREE_POOL[17].id, "nvidia/nemotron-3.5-super-vl:free", "唯一有本地实测且实测失败 → 末位隔离")
-	// 其余 14 项相对顺序完全不动：从 #229 旧序剔除 NVIDIA 四项后逐字比较
+	assert.equal(FREE_POOL[15].id, LFM3_ID, "本轮新增项为新 #16，其余 18 项相对序不动")
+	const nvidiaIds = EXPECTED_POOL_ORDER.filter((id) => id.startsWith("nvidia/"))
+	assert.equal(nvidiaIds.length, 4, "NVIDIA 家族仍是四项")
+	assert.equal(nvidiaIds[0], "nvidia/nemotron-3-ultra-550b-a55b:free", "Ultra 仍是家族首位")
+	assert.equal(nvidiaIds[3], "nvidia/nemotron-3.5-super-vl:free", "Super VL 仍是家族末位")
+	assert.equal(FREE_POOL[FREE_POOL.length - 1].id, "nvidia/nemotron-3.5-super-vl:free", "唯一有本地实测且实测失败 → 末位隔离")
+	// 其余 14 项相对顺序完全不动：从新序剔除 NVIDIA 四项与本轮新增项后逐字比较（插在前段也不会假红）
 	const legacyNonNvidia = POOL_ORDER_BEFORE_241.filter((id) => !id.startsWith("nvidia/"))
-	assert.deepEqual(EXPECTED_POOL_ORDER.slice(0, 14), legacyNonNvidia)
-	assert.deepEqual(
-		FREE_POOL.slice(0, 14).map((c) => c.id),
-		legacyNonNvidia,
-	)
+	const withoutNewAndNvidia = (ids: readonly string[]) => ids.filter((id) => !id.startsWith("nvidia/") && id !== LFM3_ID)
+	assert.deepEqual(withoutNewAndNvidia(EXPECTED_POOL_ORDER), legacyNonNvidia)
+	assert.deepEqual(withoutNewAndNvidia(FREE_POOL.map((c) => c.id)), legacyNonNvidia)
 })
 
 test("#241 元测试：池首窗口与设置页同源，带图链不单独定序、候选链签名未变", () => {
@@ -229,9 +238,9 @@ test("#241 元测试：池首窗口与设置页同源，带图链不单独定序
 	assert.equal(pools.includes("visionOrder"), false, "不得新增带图链专属顺序")
 })
 
-// 防同类回归（KB 08 #229）：2026-11-04 深夜全渠道存活复核的 6 个死项与 2 个虚拟路由器，
+// 防同类回归（KB 08 #229）：2026-11-04 深夜全渠道存活复核的 6 个死项、付费行与 2 个虚拟路由器，
 // 任何一个重新出现在 FREE_POOL 都应让本测试变红。清单判据见 KB 07 §7.8/§7.9。
-test("存活复核回归：6 个已失效候选与 2 个虚拟路由器 ID 均不入静态池", () => {
+test("存活复核回归：死项、付费行与 2 个虚拟路由器 ID 均不入静态池", () => {
 	const ids = FREE_POOL.map((c) => c.id)
 	const dead = [
 		"thinkingmachines/inkling:free", // Kilo 免费行整行消失（仅剩付费行）
@@ -244,10 +253,16 @@ test("存活复核回归：6 个已失效候选与 2 个虚拟路由器 ID 均�
 	for (const id of dead) {
 		assert.ok(!ids.includes(id), `${id} 已判失效，不应回到静态池（目录/付费行不能补位）`)
 	}
+	// 2026-11-08：LFM3 是新一代免费行，旧 LFM2.5 已转付费；不得用去 `:free` 的付费行补位
+	const paidRows = ["liquid/lfm-2.5-2.6b", "google/gemma-4-31b-it", "google/gemma-4-26b-a4b-it"]
+	for (const id of paidRows) {
+		assert.ok(!ids.includes(id), `${id} 是付费行（isFree=false），混入会静默路由到付费模型`)
+	}
 	const routers = [
 		"kilo-auto/free", // Kilo Auto Model Free 档：上游轮换免费模型
-		"openrouter/free", // OpenRouter Free Models Router：上游随机选免费模型
+		OPENROUTER_FREE_ROUTER_ID, // OpenRouter Free Models Router：上游随机选免费模型
 	]
+	assert.equal(OPENROUTER_FREE_ROUTER_ID, "openrouter/free", "路由模式常量与 Kilo 清单精确 ID 一致")
 	for (const id of routers) {
 		assert.ok(!ids.includes(id), `${id} 是上游黑盒虚拟路由器，入池会破坏能力排序/vision 过滤/审计口径`)
 	}
@@ -258,7 +273,7 @@ test("单一池：listing 行元数据覆盖静态表（exact-ID 解析）", () 
 	// 只给 dots 一行（其余 Kilo 条目不在清单 → 门控剔除），窗口/上限/vision 均以 listing 为准
 	const rows = [{ id: "dots-studio/dots-3-note-preview:free", contextWindow: 999_000, maxOutput: 8_192, vision: false }]
 	const chain = buildFreeCandidateChain({ hasImages: false, kiloFreeRows: rows })
-	assert.equal(chain.length, 10) // 9 OVH + 1 Kilo（其余 8 个 Kilo 条目不在清单 → 门控剔除）
+	assert.equal(chain.length, 10) // 9 OVH + 1 Kilo（其余 9 个 Kilo 条目不在清单 → 门控剔除）
 	const dots = chain.find((candidate) => candidate.id === "dots-studio/dots-3-note-preview:free")
 	assert.ok(dots, "dots 条目应被 listing 解析出来")
 	assert.equal(dots?.contextWindow, 999_000)
@@ -300,7 +315,7 @@ test("上下文窗口：OVH 端点 / Kilo 静态实证表的权威值", () => {
 	assert.equal(byId("gpt-oss-120b")?.contextWindow, 131_072)
 	assert.equal(byId("Meta-Llama-3_3-70B-Instruct")?.contextWindow, 131_072)
 	assert.equal(byId("Qwen2.5-VL-72B-Instruct")?.contextWindow, 32_768)
-	// Kilo 侧以静态实证表为准（2026-11-05 listing 复核；含本轮新增的 Crouton/Lightning/Nano Omni）
+	// Kilo 侧以静态实证表为准（2026-11-05 listing 复核；含 11-08 新增的 LFM3）
 	assert.equal(byId("nvidia/nemotron-3.5-super-vl:free")?.contextWindow, 1_000_000)
 	assert.equal(byId("reflection/beam-free")?.contextWindow, 1_048_576)
 	assert.equal(byId("stealth/glyph-cluster")?.contextWindow, 256_000)
@@ -308,6 +323,10 @@ test("上下文窗口：OVH 端点 / Kilo 静态实证表的权威值", () => {
 	assert.equal(byId("dots-studio/dots-3-note-preview:free")?.contextWindow, 512_000)
 	assert.equal(byId("nvidia/nemotron-3.5-lightning:free")?.contextWindow, 1_000_000)
 	assert.equal(byId("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")?.contextWindow, 256_000)
+	// 2026-11-08 新增行：262144/8192、纯文本（listing input_modalities 仅 text）
+	assert.equal(byId(LFM3_ID)?.contextWindow, 262_144)
+	assert.equal(byId(LFM3_ID)?.maxOutput, 8_192)
+	assert.equal(byId(LFM3_ID)?.vision, false, "LFM3 纯文本，不得进带图链")
 	// 新增行的 maxOutput 也按 listing 登记（Crouton 的极大值由 handler 截断兜底）
 	assert.equal(byId("stealth/crouton-alpha")?.maxOutput, 943_718)
 	assert.equal(byId("nvidia/nemotron-3.5-lightning:free")?.maxOutput, 65_536)
@@ -366,7 +385,7 @@ test("隐私开关 + 带图：vision 候选仅剩 Qwen2.5-VL（OVH 侧唯一 vis
 test("Kilo listing 拉取失败时只放行已实证精确 ID 的条目", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
 	const kilo = chain.filter((candidate) => candidate.lane === "kilo")
-	assert.equal(kilo.length, 9, "9 个已实证 Kilo 条目应全部放行（池内已无待解析条目）")
+	assert.equal(kilo.length, 10, "10 个已实证 Kilo 条目应全部放行（池内已无待解析条目）")
 })
 
 test("parseKiloFreeRows: isFree 过滤 / vision / 缺省值", () => {
@@ -594,7 +613,7 @@ function stripComments(code: string): string {
 }
 
 test("#242 buildFreeCandidateChain：pinned 后链长恰为 1、ID 相等；存真实 ID 而非下标", () => {
-	for (const id of [EXPECTED_POOL_ORDER[0], EXPECTED_POOL_ORDER[9], EXPECTED_POOL_ORDER[17]]) {
+	for (const id of [EXPECTED_POOL_ORDER[0], EXPECTED_POOL_ORDER[9], EXPECTED_POOL_ORDER[EXPECTED_POOL_ORDER.length - 1]]) {
 		const chain = buildFreeCandidateChain({ hasImages: false, kiloFreeRows: undefined, pinnedModelId: id })
 		assert.equal(chain.length, 1, `${id} 指定后链长应为 1`)
 		assert.equal(chain[0].id, id)
@@ -802,7 +821,11 @@ test("#242 元测试：存真实 ID、四道门复用、失败不自动切、双
 	const errorRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ErrorRow.tsx", "utf8"))
 	assert.match(errorRow, /FREE_PINNED_RECOVERY_MARKER/, "webview 与 host 从同一常量识别标记")
 	// #243：清空必须写空串，⛔ 不能用 undefined（setApiConfiguration 会跳过、旧值永不消失）
-	assert.match(errorRow, /handleFieldChange\("pinnedModelId", ""\)/, "点了才切回自动路由")
+	assert.match(
+		errorRow,
+		/handleFieldsChange\(\{[^}]*pinnedModelId: ""[^}]*freeUseOpenRouterRouter: false[^}]*\}\)/,
+		"点了才切回自动路由；三态下必须同时清掉路由标志",
+	)
 	assert.doesNotMatch(errorRow, /handleFieldChange\("pinnedModelId", undefined\)/, "⛔ 不得退回 undefined 清空")
 	assert.match(errorRow, /TaskServiceClient\.askResponse/, "点了才重试")
 	// 恢复标记必须能穿过 host 的 ClineError → api_req_failed 文案链路到达 ErrorRow
@@ -1032,4 +1055,166 @@ test("#249 review 结构性：say=error 分支也走 ClineError.parse 单源", (
 		.find((block) => block.includes("<ErrorRow"))
 	assert.ok(errorCase, "⛔ say=error 分支必须渲染 ErrorRow")
 	assert.match(errorCase, /apiRequestFailedMessage=\{message\.text\}/, "⛔ say=error 的文本不得落到 ErrorRow 的裸文本兜底分支")
+})
+
+// ---------------------------------------------------------------------------
+// 2026-11-08：第三路由模式（自动路由 / 指定模型 / OpenRouter 免费路由三选一）
+// 标志为真时单候选、不经 FREE_POOL / 四道门，失败不回落；虚拟路由器仍不入静态池。
+// ---------------------------------------------------------------------------
+
+async function* routerTextStream(model: string): AsyncGenerator<Record<string, unknown>> {
+	yield { model, choices: [{ delta: { content: "OK" } }] }
+}
+
+const imageMessages = [{ role: "user", content: [{ type: "image" }] }] as unknown as Parameters<
+	FreeModelHandler["createMessage"]
+>[1]
+
+test("第三路由模式：单候选只调 Kilo 网关一次，getModel 指向虚拟路由器窗口", async () => {
+	const kilo = fakeClient({ chat: () => textStream("OK") })
+	const handler = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true })
+	assert.equal(handler.getModel().id, OPENROUTER_FREE_ROUTER_ID)
+	assert.equal(handler.getModel().info.contextWindow, 200_000)
+	const chunks: string[] = []
+	for await (const chunk of handler.createMessage("sys", userMessages)) {
+		if (chunk.type === "text") chunks.push(chunk.text)
+	}
+	assert.equal(chunks.join(""), "OK")
+	assert.deepEqual(callsOf(kilo).chat, [OPENROUTER_FREE_ROUTER_ID])
+})
+
+test("第三路由模式：标志优先于 pinned 旧数据，且记录响应体真实 model", async () => {
+	const kilo = fakeClient({ chat: () => routerTextStream("nvidia/nemotron-3.5-super-vl:free") })
+	const handler = new FreeModelHandler({
+		kiloClient: kilo,
+		freeUseOpenRouterRouter: true,
+		pinnedModelId: "Qwen3.8-27B",
+	})
+	for await (const chunk of handler.createMessage("sys", userMessages)) void chunk
+	assert.deepEqual(callsOf(kilo).chat, [OPENROUTER_FREE_ROUTER_ID], "标志必须优先于 pinned")
+	assert.equal(handler.getLastUpstreamModelId(), "nvidia/nemotron-3.5-super-vl:free")
+})
+
+test("第三路由模式：失败不回落、专门归因且不带恢复标记", async () => {
+	const kilo = fakeClient({ chat: () => apiError(429, "rate limit") })
+	const handler = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true })
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) void chunk
+		},
+		(error: unknown) => {
+			const message = error instanceof Error ? error.message : ""
+			assert.match(message, /OpenRouter 免费路由/)
+			assert.match(message, /不会自动回落/)
+			assert.ok(!message.includes(FREE_PINNED_RECOVERY_MARKER), "不得让 ErrorRow 渲染「切回自动路由」")
+			return true
+		},
+	)
+	assert.deepEqual(callsOf(kilo).chat, [OPENROUTER_FREE_ROUTER_ID], "只能调一次")
+})
+
+test("第三路由模式：隐私开关与带图请求明确拒绝且零调用", async () => {
+	const kilo = fakeClient({ chat: () => textStream("OK") })
+	const privacy = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true, excludeCollecting: true })
+	await assert.rejects(async () => {
+		for await (const chunk of privacy.createMessage("sys", userMessages)) void chunk
+	}, /隐私开关/)
+	const images = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true })
+	await assert.rejects(async () => {
+		for await (const chunk of images.createMessage("sys", imageMessages)) void chunk
+	}, /图片/)
+	assert.equal(callsOf(kilo).chat, undefined, "两种拒绝都不得发出请求")
+})
+
+test("第三路由模式结构性：五层接线完整、字段号无冲突、虚拟路由器不入池", () => {
+	const models = fs.readFileSync("proto/cline/models.proto", "utf8")
+	const state = fs.readFileSync("proto/cline/state.proto", "utf8")
+	const keys = fs.readFileSync("src/shared/storage/state-keys.ts", "utf8")
+	const conv = fs.readFileSync("src/shared/proto-conversions/models/api-configuration-conversion.ts", "utf8")
+	const index = fs.readFileSync("src/core/api/index.ts", "utf8")
+	const handler = fs.readFileSync("src/core/api/providers/free.ts", "utf8")
+	const router = fs.readFileSync("src/core/api/providers/free-router.ts", "utf8")
+	assert.match(models, /optional bool free_use_open_router_router = 276;/)
+	assert.match(state, /optional bool free_use_open_router_router = 220;/)
+	assert.match(keys, /freeUseOpenRouterRouter: \{ default: false as boolean \}/)
+	assert.equal((conv.match(/freeUseOpenRouterRouter:/g) ?? []).length, 2, "to/from 双向各一次")
+	assert.match(index, /freeUseOpenRouterRouter: options\.freeUseOpenRouterRouter/)
+	assert.match(handler, /freeUseOpenRouterRouter\?: boolean/)
+	assert.match(router, /OPENROUTER_FREE_ROUTER_ID/, "路由单候选必须复用单源常量")
+	assert.match(handler, /OPENROUTER_ROUTER_CANDIDATE/, "handler 必须消费独立路由模块的单候选")
+	assert.match(handler, /assertOpenRouterRouterAllowed/, "隐私与带图门必须落在 handler 入口")
+	assert.match(handler, /composeOpenRouterRouterFailure/, "全链失败必须走不回落的专门归因")
+	assert.ok(!FREE_POOL.some((c) => c.id === OPENROUTER_FREE_ROUTER_ID), "虚拟路由器不得进静态池")
+})
+
+// ---------------------------------------------------------------------------
+// 2026-11-08 代码审查回归：三态互斥必须贯穿 handler / 设置页 / 错误恢复 / 双语文案。
+// ---------------------------------------------------------------------------
+
+test("审查：路由模式 + pinned 旧数据中途断流不得带恢复标记", async () => {
+	const kilo = fakeClient({ chat: () => partialThenError("PART", apiError(429, "stream broke")) })
+	const handler = new FreeModelHandler({
+		kiloClient: kilo,
+		freeUseOpenRouterRouter: true,
+		pinnedModelId: "Qwen3.8-27B",
+	})
+	await assert.rejects(
+		async () => {
+			for await (const chunk of handler.createMessage("sys", userMessages)) void chunk
+		},
+		(error: unknown) => {
+			assert.ok(
+				!String((error as Error)?.message).includes(FREE_PINNED_RECOVERY_MARKER),
+				"路由模式下不得渲染「切回自动路由」按钮：该按钮只清 pinned，点了也没用",
+			)
+			return true
+		},
+	)
+	assert.deepEqual(callsOf(kilo).chat, [OPENROUTER_FREE_ROUTER_ID], "仍只调一次路由器")
+})
+
+test("审查：路由模式 getModel 不受实例里残留的 activeCandidate 影响", () => {
+	const handler = new FreeModelHandler({ kiloClient: fakeClient({}), freeUseOpenRouterRouter: true })
+	const stale = FREE_POOL[0]
+	assert.ok(stale)
+	// 模拟同一 handler 实例曾跑过自动路由后再切到路由模式（状态残留）
+	;(handler as unknown as { activeCandidate: unknown }).activeCandidate = stale
+	assert.equal(handler.getModel().id, OPENROUTER_FREE_ROUTER_ID)
+	assert.equal(handler.getModel().info.contextWindow, 200_000)
+})
+
+test("审查结构性：三态互斥不得静默清空隐私开关", () => {
+	const provider = stripComments(fs.readFileSync("webview-ui/src/components/settings/providers/FreeModelProvider.tsx", "utf8"))
+	const selectMode = provider.slice(provider.indexOf("const selectMode"), provider.indexOf("const pin ="))
+	assert.match(selectMode, /const selectMode/)
+	assert.doesNotMatch(
+		selectMode,
+		/freeExcludeCollecting/,
+		"⛔ 不得静默关掉用户隐私开关（切回自动路由也不会恢复，等于永久丢失偏好）",
+	)
+	assert.match(selectMode, /freeUseOpenRouterRouter: true/)
+	assert.match(selectMode, /freeUseOpenRouterRouter: false/)
+})
+
+test("审查结构性：隐私冲突有 UI 门禁/提示，恢复按钮同时清两个字段", () => {
+	const provider = stripComments(fs.readFileSync("webview-ui/src/components/settings/providers/FreeModelProvider.tsx", "utf8"))
+	assert.match(provider, /disabled=\{excludeCollecting\}/, "隐私开关开启时不得再选入路由模式")
+	assert.match(provider, /freeRouterPrivacyConflict/, "旧数据同时为真时须有明确冲突提示")
+	const errorRow = stripComments(fs.readFileSync("webview-ui/src/components/chat/ErrorRow.tsx", "utf8"))
+	assert.match(
+		errorRow,
+		/handleFieldsChange\(\{[^}]*pinnedModelId: ""[^}]*freeUseOpenRouterRouter: false[^}]*\}\)/,
+		"「切回自动路由」按钮必须同时清掉路由标志，否则承诺的动作不生效",
+	)
+})
+
+test("审查结构性：双语文案须说明请求仍经 Kilo 网关并含冲突提示", () => {
+	const zh = JSON.parse(fs.readFileSync("webview-ui/src/locales/zh-CN/settings.json", "utf8")).settings
+	const en = JSON.parse(fs.readFileSync("webview-ui/src/locales/en/settings.json", "utf8")).settings
+	assert.match(zh.freeRouterOption, /Kilo 网关/, "不得让用户误以为链路与 Kilo 无关")
+	assert.match(en.freeRouterOption, /Kilo gateway/)
+	assert.match(zh.freeRouterRisk, /Kilo 网关/)
+	assert.match(en.freeRouterRisk, /Kilo gateway/)
+	assert.ok(zh.freeRouterPrivacyConflict?.length > 0)
+	assert.ok(en.freeRouterPrivacyConflict?.length > 0)
 })

@@ -21,7 +21,7 @@ interface ErrorRowProps {
 
 const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStreamingFailedMessage }: ErrorRowProps) => {
 	const { t } = useTranslation("common")
-	const { handleFieldChange } = useApiConfigurationHandlers()
+	const { handleFieldsChange } = useApiConfigurationHandlers()
 	const [recovered, setRecovered] = useState(false)
 
 	// KB 08 #242：host 侧 composePinnedError 在错误文本尾部写恢复标记；webview 据此渲染
@@ -170,7 +170,7 @@ const ErrorRow = memo(({ message, errorType, apiRequestFailedMessage, apiReqStre
 						// 先落配置：即使下面的重试触发失败，也已经切回自动路由，不该让用户反复点。
 						// #243：写空串才能真正清除——setApiConfiguration 跳过 undefined；host 侧的
 						// 显式删除通道会把空串从磁盘删掉，读侧再归一成 undefined。
-						await handleFieldChange("pinnedModelId", "")
+						await handleFieldsChange({ pinnedModelId: "", freeUseOpenRouterRouter: false })
 						setRecovered(true)
 						await TaskServiceClient.askResponse(AskResponseRequest.create({ responseType: "yesButtonClicked" }))
 					} catch (error) {

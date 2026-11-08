@@ -15,13 +15,14 @@
  *   （404 `no Route matched with those values` = 已下架；429 = 存活只是限流）。
  * - vision 以 listing `input_modalities` 含 `image` 为准（未验证不声明，保守 false）。
  *
- * 池顺序（2026-11-05 二次修订，KB 08 #241 用户裁定「只调整英伟达家族 4 项」）：
+ * 池顺序（2026-11-08 补入 LFM3-1.7B；2026-11-05 二次修订，KB 08 #241 用户裁定「只调整英伟达家族 4 项」）：
  * Beam 1.0(kilo) → Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Glyph Cluster(kilo) → Crouton Alpha(kilo) →
  * Dots3-Note(kilo) → Qwen3.5-397B(ovh) → North Mini Code(kilo) → gpt-oss-120b(ovh) →
  * Mistral Small 3.2(ovh) → gpt-oss-20b(ovh) → Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) →
- * Qwen2.5-VL-72B(ovh) → Nemotron 3 Ultra(kilo) → Nemotron 3.5 Lightning(kilo) →
+ * Qwen2.5-VL-72B(ovh) → Nemotron 3 Ultra(kilo) → LFM3-1.7B(kilo) → Nemotron 3.5 Lightning(kilo) →
  * Nemotron 3 Nano Omni(kilo) → Nemotron 3.5 Super VL(kilo)。
- * （共 18 项：OVH 9 + Kilo 9；**前 14 项相对顺序与 #229 旧序逐字不变**，本轮不重新评估，
+ * （共 19 项：OVH 9 + Kilo 10；**前 14 项相对顺序与 #229 旧序逐字不变**，本轮只把 Kilo 新免费行
+ * LFM3-1.7B 插为新 #16（Ultra 之后、Lightning 之前），其余 18 项相对顺序逐字不动、不重新评估；
  * 「保持原序」≠ 已按新三源重新评估；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，
  * 门控判据见 free-lanes.ts。带图链不单独定序，仍是 `filter(vision)`：首位 stealth/crouton-alpha，
  * 用户明确裁定「这是合理的」，不为它微调任何非 NVIDIA 项。）
@@ -75,6 +76,39 @@
  * 2026-11-03 Inkling 完整版免费回归与 Gemma 加入；2026-10-24 移除 Inkling Small / Ling 3.0 Flash Sante。
  * 详见 git 与 KB 07 §7.9。）
  *
+ * 2026-11-08 本轮增补（用户裁定：只给新模型定序，其余 18 项相对顺序不动）：
+ * ① 两渠道清单快照：Kilo `GET /api/gateway/models` 与 `/api/v1/models` 均 383 行，`isFree === true` 12 行
+ *    （10 个真实模型 + `kilo-auto/free` / `openrouter/free` 两个虚拟路由器）；池内原 9 个 Kilo 项全存活，
+ *    **新增 `liquid/lfm-3-1.7b:free`**（2026-11-06 上线，262144/8192、纯文本、推理模型、0/0 价）。
+ *    OVH `/v1/models` 与 catalog_v2 各 21 行，池内 9 项全在；目录仅清掉早已移出池的
+ *    `Mistral-Nemo-Instruct-2407`。净变化 = 补 1 项，无池内死项。
+ * ② `openrouter/free` 来源澄清：它是 OpenRouter 官方 2026-02-01 发布的 Free Models Router
+ *    （`selects free models at random`），被 Kilo 网关收录进自己的目录并标 `isFree=true`；
+ *    `inference_provider_ids:["virtual"]` / `tokenizer:"Router"` / 窗口与 maxOut 为 null。
+ *    ⚠️ **它不是插件的第三个渠道**：请求只发到 Kilo 网关，由上游黑盒选模型（实测响应体 `model`
+ *    与请求 ID 不同），不需要也不接受用户配置 OpenRouter 账号/Key。本轮按用户裁定把它做成设置页
+ *    「自动路由 / 指定模型 / OpenRouter 免费路由」三选一的**独立路由模式**，⛔ 仍不进 FREE_POOL
+ *    （④ 的不入池理由继续成立，见 KB 07 §7.9 修订行）。OpenRouter 侧 5 个独有免费行
+ *    （`flint-v1.0` / `xing4.0-29b-a4b` / `lfm-2.5-2.6b` / `gemma-4-26b-a4b-it` / `gemma-4-31b-it`，
+ *    均为 `:free` 后缀）在 Kilo 目录全部缺失（3 个只剩付费行）：「OpenRouter 免费 ≠ Kilo 网关免费」，
+ *    ⛔ 不得用精确 ID 或付费行补位。
+ * ③ 评分口径（用户 2026-11-08 裁定）：社区评价（**排除 Kilo Leaderboard 一切用量/占比**）+
+ *    AA 榜单 + 代码/工具/工程能力榜单等多维度；**#241 的本地实弹硬门槛本轮暂不纳入**（实弹未测完，
+ *    不废止历史裁定），实弹完成后按三源统一复核。本轮只给 LFM3 定序，其余 18 项不重排。
+ *    LFM3 评分表与逐条出处见 KB 07 §7.9：AA `artificialanalysis.ai/models/lfm-3-1-7b` 404 → 标「未列」
+ *    而非 0 分；OpenRouter 官方页 Availability 3d 92.09% / Uptime 99.99%；独立媒体指全部基准为厂商
+ *    自报且官方模型卡「not recommended for agentic coding」；LMSpeed V3.0 Overall 45.0(#169/189)、
+ *    Coding 28.4 / Agents 42.3；能力榜 SWE-V 43.4、SWE-Multi 23.0、TB2.1 12.9、MCP-Atlas 32.6
+ *    弱于 Qwen3.5-9B，但 BFCL V4 71.4、ToolSandbox 80.4、IFEval 96.7、AutomationBench 41.3、
+ *    LiveClaw 45.6 强 → 工具·指令特化、仓库级编码偏弱，故插在 Ultra(#15) 之后、Lightning 之前。
+ * ④ 可用性门禁（KB 07 §7.8）：2026-11-08 实测 OVH 9 项逐个 HTTP 200；Kilo 新项零凭据
+ *    200 / cost=0（偶发 429 `Provider returned error`，重试即成功），且该端点**强制推理不可关闭**
+ *    （`reasoning:{enabled:false}` → 400）；`openrouter/free` 20/20 成功、7 次落到池外独有免费模型，
+ *    `kilo-auto/free` 20/20 固定 Dots3-Note（零增量）。探针见工作区根 `probe-openrouter-router.mjs`，
+ *    ⛔ 不进分发包、不落响应正文。
+ * ⑤ 回升判据不变：#241 三源并重的逐项实弹仍未完成；LFM3 零实弹且官方不建议 agentic coding，
+ *    不得因此前移到带图链首位或池首，实弹完成后按文件头三源判据逐个复核。
+ *
  * 设计要点：
  * - 顺序 = 本地实测（硬门槛）+ 能力基准 + 多渠道社区评价三源并重（#241），依次尝试直到成功；
  * - OVH 候选始终进链（匿名可打全部；Zen 免费门为 lane 级拒绝，已暂时移出池、代码保留）；
@@ -120,7 +154,7 @@ export interface FreeCandidate {
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价），KB 08 #241 定稿 18 项；前 14 项相对序与 #229 完全一致 */
+/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价），KB 08 #241 定稿 18 项；2026-11-08 只插入 LFM3-1.7B 为新 #16 → 共 19 项（OVH 9 + Kilo 10），前 14 项相对序与 #229 完全一致 */
 export const FREE_POOL: readonly FreeCandidate[] = [
 	{
 		id: "reflection/beam-free",
@@ -284,6 +318,27 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		// ⚠️ 旧 #4 位次已废止：#241 只重排 NVIDIA 四项，其余 14 项相对序不动。
 	},
 	{
+		id: "liquid/lfm-3-1.7b:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "LFM3-1.7B",
+		contextWindow: 262_144, // Kilo listing 实证
+		maxOutput: 8_192,
+		vision: false, // listing input_modalities 仅 text
+		// #16（2026-11-08 新增，用户裁定「只给新模型定序」）：Liquid AI 1.73B 三混合架构，2026-11-06 上线。
+		// 社区评价（**排除 Kilo 调用量**）：OpenRouter 官方页 Availability 3d 92.09% / Uptime 99.99%，
+		// 独立媒体指全部基准为厂商自报、模型卡「not recommended for agentic coding」；多家社区实测共识
+		// 「窄范围工具调用可用、复杂任务不足」；LMSpeed V3.0 Overall 45.0(#169/189)、Coding 28.4、Agents 42.3。
+		// AA 榜单：artificialanalysis.ai/models/lfm-3-1-7b 404 → 标「未列」，不计 0 分（权重按比例归一化）。
+		// 能力榜（LMSpeed V3.0 / 官方 README）：工具·指令强 BFCL V4 71.4 / ToolSandbox 80.4 /
+		// IFEval 96.7 / IFStruct 93.7 / AutomationBench 41.3 / LiveClaw 45.6；仓库级编码弱
+		// SWE-V 43.4、SWE-Multi 23.0、TB2.1 12.9、MCP-Atlas 32.6（低于 Qwen3.5-9B 的 51.2/35.0/18.0/42.7）。
+		// 风险：262K/8K、纯文本、**强制推理不可关闭**（reasoning:false → 400）、零凭据偶发 429、
+		// mayTrainOnYourPrompts=true、官方不建议 agentic coding → 零实弹，不得进池首或带图链首位。
+		// 位次：低于 Ultra(#15，AA 49.3 / SWE-V 70.7)，高于三个零实弹观察项，不占 Super VL 末位隔离位。
+		// 评分表与逐条出处见 KB 07 §7.9；本轮 #241 实弹硬门槛暂不纳入（实弹未测完），完成后按三源复核。
+	},
+	{
 		id: "nvidia/nemotron-3.5-lightning:free",
 		lane: "kilo",
 		wire: "chat",
@@ -291,8 +346,8 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 1_000_000, // Kilo listing 实证（2026-11-05 复核）
 		maxOutput: 65_536,
 		vision: false, // listing input_modalities 仅 text
-		// #16（KB 08 #241）：NVIDIA 官方定位「执行层 / 低延迟」快速模型，24h 21.3B #8 有真实用量，
-		// 但未进任一 agent 榜前 10，且**零本插件实弹** → 家族内部第 2 位，保守隔离在 #15–18 段。
+		// #17（KB 08 #241）：NVIDIA 官方定位「执行层 / 低延迟」快速模型，24h 21.3B #8 有真实用量，
+		// 但未进任一 agent 榜前 10，且**零本插件实弹** → 家族内部第 2 位，保守隔离在 #15–19 段。
 	},
 	{
 		id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
@@ -302,7 +357,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 256_000, // Kilo listing 实证（2026-11-05 复核）
 		maxOutput: 65_536,
 		vision: true, // listing 含 text+audio+image+video；vision 链第 4 位
-		// #17（KB 08 #241）：NVIDIA 官方定位「感知子代理」omni 小模型（30B-A3B，3B 活跃），
+		// #18（KB 08 #241）：NVIDIA 官方定位「感知子代理」omni 小模型（30B-A3B，3B 活跃），
 		// 面向多模态输入理解而非主力编码/工程链路，无榜单用量背书、零本插件实弹 → 家族第 3 位，
 		// 但仍保留 vision 链第 4 位的补位价值（带图链不单独定序）。
 	},
@@ -314,13 +369,24 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 1_000_000, // Kilo listing 实证
 		maxOutput: 131_072,
 		vision: true, // listing input_modalities 含 image+video；vision 链第 5 位（末位，不再作带图链首选）
-		// #18（KB 08 #241 末位隔离）：NVIDIA 通用代理模型（编码/搜索/工具/文档），旧 #229 由 #10 升池首
+		// #19（KB 08 #241 末位隔离）：NVIDIA 通用代理模型（编码/搜索/工具/文档），旧 #229 由 #10 升池首
 		// 的依据是 Kilo Leaderboard 单渠道真实用量（Code/Plan/Debug 三榜 #1、24h 273.0B #1、
 		// Code agent rank #6）；该渠道只衡量被采用程度，不衡量本插件 XML 工具协议下的可靠性。
 		// 任务 1793888219697 实弹：畸形 `<regex>`、search_files 两次失败、9 次命令失败、最终错误结论
 		// → 唯一有本地实测且实测失败的 NVIDIA 项，本轮降到末位。回升须按文件头三源判据逐个补做实弹。
 	},
 ]
+
+/**
+ * OpenRouter Free Models Router 的精确 ID（**只导出，不进 FREE_POOL**）。
+ * 设置页第三路由模式与 host 侧单候选链共用本常量，避免两边各写一份字符串。
+ * 该 ID 是 Kilo 免费清单里的虚拟路由器行：请求只发到 Kilo 网关，由上游随机选免费模型，
+ * 响应体 `model` 与请求 ID 不同；入池会破坏能力排序 / hasImages 硬过滤 / 审计口径（KB 07 §7.9）。
+ */
+export const OPENROUTER_FREE_ROUTER_ID = "openrouter/free"
+
+/** 虚拟路由器候选的保守上下文窗口（Kilo listing 标称 200000）。仅第三路由模式用，不进 FREE_POOL。 */
+export const OPENROUTER_FREE_ROUTER_CONTEXT_WINDOW = 200_000
 
 /**
  * KB 08 #236（用户裁定）：模型池表格的**保底可视行数**。整页滚为主、表格内滚只在表格区域

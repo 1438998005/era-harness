@@ -693,6 +693,11 @@ message ModelsApiConfiguration {
   // KB 08 #242：指定的真实上游模型 ID（非 displayName / 非下标），空 = 自动路由。
   // 与 state.proto Settings 的 219 对应；与 #237 的 270–274 号段不冲突。
   optional string pinned_model_id = 275;
+  // 2026-11-08：设置页第三个并列路由选项（自动路由 / 指定模型 / OpenRouter 免费路由）。
+  // false/未设 = 自动路由或 pinned；true = 固定单候选 openrouter/free（不经 FREE_POOL、失败不回落）。
+  // 与 state.proto Settings 的 220 同名对应（生成器按 camel 边界拆词：free_use_open_router_router，
+  // 两端 TS 字段均为 freeUseOpenRouterRouter）；普通设置字段，登记单源在 state-keys.ts。
+  optional bool free_use_open_router_router = 276;
   optional string deep_seek_reasoning_effort = 270;
   optional string mimo_reasoning_effort = 271;
   optional string bigmodel_reasoning_effort = 272;

@@ -21,7 +21,7 @@ import {
 	resolveMimoModelId,
 	resolveMoonshotModelId,
 } from "@shared/api"
-import { FREE_POOL } from "@shared/free-pools"
+import { FREE_POOL, OPENROUTER_FREE_ROUTER_CONTEXT_WINDOW } from "@shared/free-pools"
 import { Mode } from "@shared/storage/types"
 
 /**
@@ -51,6 +51,17 @@ export function normalizeApiConfiguration(
 
 	switch (provider) {
 		case "free": {
+			// 2026-11-08：第三路由模式优先于 pinned，窗口按虚拟路由器标称值（与 free.ts getModel 同口径）。
+			if (apiConfiguration?.freeUseOpenRouterRouter === true) {
+				return {
+					selectedProvider: "free",
+					selectedModelId: "",
+					selectedModelInfo: {
+						...openAiModelInfoSaneDefaults,
+						contextWindow: OPENROUTER_FREE_ROUTER_CONTEXT_WINDOW,
+					},
+				}
+			}
 			// 免费模型：路由自动选模型，无用户可选模型 id。
 			// 上下文窗口必须用真实值：openAiModelInfoSaneDefaults 的 128_000 是通用占位，
 			// 会让 UI 把所有免费模型都显示成 128k（实际池内为 32k~1M）。

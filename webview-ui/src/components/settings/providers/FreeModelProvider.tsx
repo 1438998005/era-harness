@@ -72,7 +72,7 @@ interface FreePoolTableProps {
 const FreePoolTable: React.FC<FreePoolTableProps> = ({ candidates, excludeCollecting, pinnedModelId, onPin }) => {
 	const { t } = useTranslation("settings")
 	return (
-		// 池为两渠道动态规模（2026-11-05 全渠道存活复核后为 18 项；数字不写死在逻辑里，仅注释备查）。
+		// 池为两渠道动态规模（2026-11-08 补入 LFM3-1.7B 后为 19 项；数字不写死在逻辑里，仅注释备查）。
 		// KB 08 #236：固定高度 = 保底 10 行 + 表头。内滚条只在表格区域生效；
 		// 刻意**不**用 overscroll-behavior: contain —— 表格滚到底后滚轮自然交给外层整页继续滚，
 		// 这样从模型池往下滚能一路到辅助模型区、中间无断点（2026-11-05 用户裁定）。
@@ -178,21 +178,36 @@ const FreePoolTable: React.FC<FreePoolTableProps> = ({ candidates, excludeCollec
 export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const { t } = useTranslation("settings")
 	const { apiConfiguration } = useExtensionState()
-	const { handleFieldChange } = useApiConfigurationHandlers()
+	const { handleFieldChange, handleFieldsChange } = useApiConfigurationHandlers()
 	const [justPinned, setJustPinned] = useState(false)
 
 	const excludeCollecting = apiConfiguration?.freeExcludeCollecting === true
+	const useOpenRouterRouter = apiConfiguration?.freeUseOpenRouterRouter === true
 	const candidates = getAllFreeCandidates()
-	const pinnedModelId = apiConfiguration?.pinnedModelId?.trim() || undefined
+	// 三态互斥：路由模式优先，旧数据里残留的 pinned 不参与 UI 判定（handler 也以该标志优先）。
+	const pinnedModelId = useOpenRouterRouter ? undefined : apiConfiguration?.pinnedModelId?.trim() || undefined
 	const pinnedCandidate = pinnedModelId ? candidates.find((c) => c.id === pinnedModelId) : undefined
 	const pinnedExcluded = excludeCollecting && pinnedCandidate ? LANE_META[pinnedCandidate.lane].collectsData : false
+
+	// 2026-11-08：第三路由模式与自动路由 / 指定模型三选一。多字段必须**原子写**，
+	// ⛔ 连续调 handleFieldChange 会基于同一份旧配置互相覆盖；清空 pin 仍写空串（#243）。
+	const selectMode = (mode: "auto" | "router") => {
+		// ⛔ 不动隐私开关：静默关掉、切回自动路由又不恢复，等于永久丢失用户偏好。
+		// 两者同时为真时由下方 radio 门禁与冲突提示处理（2026-11-08 代码审查修订）。
+		void handleFieldsChange(
+			mode === "router"
+				? { freeUseOpenRouterRouter: true, pinnedModelId: "" }
+				: { freeUseOpenRouterRouter: false, pinnedModelId: "" },
+		)
+		setJustPinned(false)
+	}
 
 	// 点了才写；⛔ 失败时不在这里、也不在路由层自动清掉 pinned（用户裁定）
 	// #243：清空必须写**空串**而不是 undefined —— setApiConfiguration 跳过 undefined，
 	// 传 undefined 只会让旧值留在磁盘上（UI 假动作）。所有消费点都做 `.trim() || undefined`
 	// 归一化，空串等价于未指定；host 侧的显式删除通道会把这个空串从磁盘删掉。
 	const pin = (id: string | undefined) => {
-		void handleFieldChange("pinnedModelId", id ?? "")
+		void handleFieldsChange({ pinnedModelId: id ?? "", freeUseOpenRouterRouter: false })
 		setJustPinned(!!id)
 	}
 
@@ -213,17 +228,46 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 				</div>
 			</div>
 
-			{/* KB 08 #242：指定模型区。未指定 = 现状（自动路由）零改动 */}
+			{/* KB 08 #242：指定模型区；2026-11-08 增加第三个并列选项（三态互斥） */}
 			<div className="shrink-0 flex flex-col gap-1.5">
 				<span className="text-xs font-medium">{t("settings.freePinnedTitle")}</span>
 				<label className="flex items-center gap-1.5 text-xs">
-					<input checked={!pinnedModelId} name="free-pinned-model" onChange={() => pin(undefined)} type="radio" />
+					<input
+						checked={!pinnedModelId && !useOpenRouterRouter}
+						name="free-pinned-model"
+						onChange={() => selectMode("auto")}
+						type="radio"
+					/>
 					{t("settings.freePinnedAuto")}
 				</label>
+				<label
+					className="flex items-center gap-1.5 text-xs"
+					title={excludeCollecting ? t("settings.freeRouterPrivacyConflict") : undefined}>
+					<input
+						checked={useOpenRouterRouter}
+						disabled={excludeCollecting}
+						name="free-pinned-model"
+						onChange={() => selectMode("router")}
+						type="radio"
+					/>
+					{t("settings.freeRouterOption")}
+				</label>
+				{useOpenRouterRouter && excludeCollecting && (
+					<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
+						{t("settings.freeRouterPrivacyConflict")}
+					</p>
+				)}
+				{useOpenRouterRouter && (
+					<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
+						{t("settings.freeRouterRisk")}
+					</p>
+				)}
 				{/* 常驻 + 按 locale 单语：写清「链长=1 → switchable 无处可切」的因果，不是泛泛警示 */}
-				<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
-					{t("settings.freePinnedRisk")}
-				</p>
+				{!useOpenRouterRouter && (
+					<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
+						{t("settings.freePinnedRisk")}
+					</p>
+				)}
 				{justPinned && pinnedModelId && (
 					<p className="text-[11px] m-0 leading-relaxed" style={{ color: dimColor }}>
 						{t("settings.freePinnedConfirm")}
@@ -264,8 +308,12 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 					pinnedModelId={pinnedModelId}
 				/>
 				<span className="shrink-0 text-[11px]" style={{ color: dimColor }}>
-					{/* pinned 下不再声称「自动切换到下一个」——链长=1，没有下一个 */}
-					{pinnedModelId ? t("settings.freePoolHintPinned") : t("settings.freePoolHint")}
+					{/* pinned / 第三路由模式下都不再声称「自动切换到下一个」——链长=1，没有下一个 */}
+					{useOpenRouterRouter
+						? t("settings.freeRouterHint")
+						: pinnedModelId
+							? t("settings.freePoolHintPinned")
+							: t("settings.freePoolHint")}
 				</span>
 			</div>
 		</div>
