@@ -5,11 +5,11 @@
 
 ## 3.103.0 — 2026-11-08
 
-> 功能版：免费模型池补入 `liquid/lfm-3-1.7b:free`（18 → 19 项）；设置页在「自动路由 / 指定模型」
-> 之外新增第三个并列选项「OpenRouter 免费路由」。⛔ 该选项**不是第三个渠道**：`openrouter/free` 是
-> OpenRouter 官方 Free Models Router 被 Kilo 网关收录的虚拟路由器行，请求仍发到 Kilo 网关、无需账号
-> 或密钥；虚拟路由器不入静态池，两个渠道的列表与自动路由行为不变。#241 实弹硬门槛本轮暂不纳入
-> （实弹未测完），不废止历史裁定。
+> 功能版：免费模型池补入 `liquid/lfm-3-1.7b:free`（18 → 19 项）；设置页模型池新增
+> 「默认列表 / OpenRouter 列表」二选一的**列表切换**（原第三个并列 radio 已移除）。
+> ⛔ OpenRouter 列表**不是第三个渠道**：`openrouter/free` 是 OpenRouter 官方 Free Models Router
+> 被 Kilo 网关收录的虚拟路由器行，请求仍发到 Kilo 网关、无需账号或密钥；虚拟路由器不入静态池，
+> 两个渠道的列表与自动路由行为不变。#241 实弹硬门槛本轮暂不纳入（实弹未测完），不废止历史裁定。
 
 ### 新增 · 免费池与定序
 
@@ -19,27 +19,56 @@
 - 可用性门禁：OVH 池内 9 项逐个 POST 全 200；Kilo 新项零凭据 200 / cost=0；`openrouter/free` 20/20
   成功、7 次落到池外独有免费模型（推翻「两虚拟路由器均零增量」，`kilo-auto/free` 零增量不变）。
 
-### 新增 · OpenRouter 免费路由独立选项
+### 新增 · 列表切换与 OpenRouter 免费模型清单
 
-- 设置页三选一互斥，底层为普通布尔设置 `freeUseOpenRouterRouter`（默认 false），proto 字段号 276 / 220。
-- 选中时固定单候选、复用 Kilo 客户端、跳过 `FREE_POOL` 与四道门、**失败不自动回落**；隐私开关开启或
-  带图请求明确拒绝；请求 ID 与响应体真实 `model` 双字段可查。
-- 中英双语文案写明风险（上游随机选模型、能力排序失效、不可复现、提示词可能流向会收集数据的上游），
-  并明确请求仍经 Kilo 网关。
-- 按 20KB 闸门把该模式拆成 `src/core/api/providers/free-router.ts` 单一职责模块。
+- 表格上方二选一切换；切到 OpenRouter 列表即写既有布尔设置 `freeUseOpenRouterRouter`
+  （默认 false，proto 字段号 276 / 220），保留「自动路由 / 指定模型」两个原有入口；
+  **推理链路与配置字段零改动**：`free.ts` / `state.proto` / proto 转换 / `providerUtils.ts` /
+  `ErrorRow.tsx` 逐字不动；`models.proto` 只新增展示清单 rpc 与响应 message，不碰设置字段。
+- 清单经新增 `ModelsService.refreshOpenRouterFreeModels` 由 **host 侧代拉**官方公开
+  `/api/v1/models`（无需 Key）：生产 webview CSP 只允许扩展源，直连会被拦；host 侧走
+  `@/shared/net` 代理感知 fetch、4 秒超时、成功 10 分钟 TTL / 失败 60 秒冷却。
+  展示 `:free` 变体的模型名 / 上下文 / 视觉；**清单来源三态**（实时成功 / 回落旧缓存 /
+  回落内置快照）由 `stale` + `fromSnapshot` 区分，UI 分别提示，⛔ 不把旧缓存谎报成内置快照。
+  ⛔ 清单只用于展示，不进 `FREE_POOL`、不参与候选链。
+- 列表明确写出「**不是顺序路由**」：上游单次请求内部随机选模型、不按优先级依次尝试、
+  不可复现、可能命中清单外模型；无「指定」列、渠道列标「上游随机」；隐私开关开启时禁止切入。
+- 请求仍为 `openrouter/free` 单候选、复用 Kilo 客户端、跳过 `FREE_POOL` 与四道门、
+  **失败不自动回落**；带图请求明确拒绝；请求 ID 与响应体真实 `model` 双字段可查。
+- 中英双语文案写明风险（能力排序失效、提示词可能流向会收集数据的上游、请求仍经 Kilo 网关）。
+- 按 20KB 闸门把路由模式拆成 `src/core/api/providers/free-router.ts`、清单数据层拆成
+  `src/shared/openrouter-free-models.ts`（两个单一职责小模块）。
 
-### 修复 · 代码审查（6 项）
+### 修复 · 代码审查
+
+**第一批（6 项）**
 
 - 三态互斥贯穿 handler 与错误恢复：路由模式下屏蔽旧 `pinnedModelId`，避免「已吐内容后断流」带上
   pinned 恢复标记；`ErrorRow`「切回自动路由」改为原子清两个字段。
-- 不再静默清空隐私开关；隐私开关开启时第三选项禁用并显示冲突提示。
+- 不再静默清空隐私开关；隐私开关开启时列表切换的 OpenRouter 选项禁用并显示冲突提示。
 - `getModel()` 在路由模式直接返回路由器候选，不读实例残留的 `activeCandidate`；修正渠道链路文案误导。
+
+**第二批（8 项，2026-11-08 只读审查回归）**
+
+- 清单来源三态：`OpenRouterFreeModelsResponse` 新增 `stale`，`fromSnapshot` 收窄为「无缓存、回落内置快照」；
+  回落旧缓存不再谎报内置快照，UI 分别提示「上次成功读取的清单」与「内置快照」。
+- host 缓存 / TTL / 冷却 / in-flight 去重抽成不依赖 `Controller` 的纯状态机
+  `openrouter-free-models-cache.ts`，快速切换与多窗口不再并发打官方端点。
+- `parseOpenRouterFreeModels()` 定价归一（数字 `0` / `"0"` / `"0.0"` 等价判零），
+  `:free` 后缀为主判据、缺失或非对象 `pricing` 保守放行。
+- 列表说明改为按切换条件渲染；双语文案清理「第三个并列选项」残留与上下方位词，
+  `free-router.ts` 错误提示统一为「切回默认列表」。
+- hook 首帧只显示「读取中」，不闪假的「内置快照」警告；表格按来源渲染两种回落提示。
+- `test/update` 接线断言从「只查标识符」升级为纯状态机行为测试；新增 hook / 表格组件行为测试。
+- CHANGELOG 本节与 KB 07 §7.9、索引 README 口径回贴实现。
 
 ### 验证
 
-- `test:free` 58/58、`test:update` 984/984、`test:ui` 80/80、`test:toolcall` 66/66；
+- `test:free` 70/70、`test:update` 995/995、`test:ui` 93/93、`test:toolcall` 66/66；
   `check-types` / `lint`（含 20KB 闸门）通过、`read_lints` 0。
-- 按 #197 重打 `dist/extension.js` 与 `webview-ui/build/`，并产出 `era-harness-3.103.0.vsix`。
+- 版本号沿用 **3.103.0**；本轮修复未重打 `dist/extension.js` / `webview-ui/build/` 双产物、
+  ⛔ 未重新出 vsix（既有产物不含本轮改动）；全部改动停在未提交状态，
+  ⛔ 未提交、未推送、未发布、未打 tag。
 - ⛔ 未做人工截图复核与实弹复测；实弹评分卡 v1.2 与 18 行打分表本轮不动、不升版本。
 
 ## 3.102.3 — 2026-11-07

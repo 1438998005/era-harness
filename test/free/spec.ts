@@ -31,6 +31,11 @@ import {
 	OPENROUTER_FREE_ROUTER_ID,
 	parseKiloFreeRows,
 } from "@shared/free-pools"
+import {
+	OPENROUTER_FREE_MODELS_SNAPSHOT,
+	OPENROUTER_UNKNOWN_CONTEXT_WINDOW,
+	parseOpenRouterFreeModels,
+} from "@shared/openrouter-free-models"
 import type OpenAI from "openai"
 
 // ---------------------------------------------------------------------------
@@ -1058,8 +1063,8 @@ test("#249 review 结构性：say=error 分支也走 ClineError.parse 单源", (
 })
 
 // ---------------------------------------------------------------------------
-// 2026-11-08：第三路由模式（自动路由 / 指定模型 / OpenRouter 免费路由三选一）
-// 标志为真时单候选、不经 FREE_POOL / 四道门，失败不回落；虚拟路由器仍不入静态池。
+// 2026-11-08：OpenRouter 路由模式（设置页为「默认列表 ⇄ OpenRouter 列表」二选一切换）
+// 布尔标志为真时单候选、不经 FREE_POOL / 四道门，失败不回落；虚拟路由器仍不入静态池。
 // ---------------------------------------------------------------------------
 
 async function* routerTextStream(model: string): AsyncGenerator<Record<string, unknown>> {
@@ -1070,7 +1075,7 @@ const imageMessages = [{ role: "user", content: [{ type: "image" }] }] as unknow
 	FreeModelHandler["createMessage"]
 >[1]
 
-test("第三路由模式：单候选只调 Kilo 网关一次，getModel 指向虚拟路由器窗口", async () => {
+test("OpenRouter 路由模式：单候选只调 Kilo 网关一次，getModel 指向虚拟路由器窗口", async () => {
 	const kilo = fakeClient({ chat: () => textStream("OK") })
 	const handler = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true })
 	assert.equal(handler.getModel().id, OPENROUTER_FREE_ROUTER_ID)
@@ -1083,7 +1088,7 @@ test("第三路由模式：单候选只调 Kilo 网关一次，getModel 指向�
 	assert.deepEqual(callsOf(kilo).chat, [OPENROUTER_FREE_ROUTER_ID])
 })
 
-test("第三路由模式：标志优先于 pinned 旧数据，且记录响应体真实 model", async () => {
+test("OpenRouter 路由模式：标志优先于 pinned 旧数据，且记录响应体真实 model", async () => {
 	const kilo = fakeClient({ chat: () => routerTextStream("nvidia/nemotron-3.5-super-vl:free") })
 	const handler = new FreeModelHandler({
 		kiloClient: kilo,
@@ -1095,7 +1100,7 @@ test("第三路由模式：标志优先于 pinned 旧数据，且记录响应体
 	assert.equal(handler.getLastUpstreamModelId(), "nvidia/nemotron-3.5-super-vl:free")
 })
 
-test("第三路由模式：失败不回落、专门归因且不带恢复标记", async () => {
+test("OpenRouter 路由模式：失败不回落、专门归因且不带恢复标记", async () => {
 	const kilo = fakeClient({ chat: () => apiError(429, "rate limit") })
 	const handler = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true })
 	await assert.rejects(
@@ -1113,7 +1118,7 @@ test("第三路由模式：失败不回落、专门归因且不带恢复标记",
 	assert.deepEqual(callsOf(kilo).chat, [OPENROUTER_FREE_ROUTER_ID], "只能调一次")
 })
 
-test("第三路由模式：隐私开关与带图请求明确拒绝且零调用", async () => {
+test("OpenRouter 路由模式：隐私开关与带图请求明确拒绝且零调用", async () => {
 	const kilo = fakeClient({ chat: () => textStream("OK") })
 	const privacy = new FreeModelHandler({ kiloClient: kilo, freeUseOpenRouterRouter: true, excludeCollecting: true })
 	await assert.rejects(async () => {
@@ -1126,7 +1131,7 @@ test("第三路由模式：隐私开关与带图请求明确拒绝且零调用",
 	assert.equal(callsOf(kilo).chat, undefined, "两种拒绝都不得发出请求")
 })
 
-test("第三路由模式结构性：五层接线完整、字段号无冲突、虚拟路由器不入池", () => {
+test("OpenRouter 路由模式结构性：五层接线完整、字段号无冲突、虚拟路由器不入池", () => {
 	const models = fs.readFileSync("proto/cline/models.proto", "utf8")
 	const state = fs.readFileSync("proto/cline/state.proto", "utf8")
 	const keys = fs.readFileSync("src/shared/storage/state-keys.ts", "utf8")
@@ -1217,4 +1222,213 @@ test("审查结构性：双语文案须说明请求仍经 Kilo 网关并含冲�
 	assert.match(en.freeRouterRisk, /Kilo gateway/)
 	assert.ok(zh.freeRouterPrivacyConflict?.length > 0)
 	assert.ok(en.freeRouterPrivacyConflict?.length > 0)
+})
+
+// ---------------------------------------------------------------------------
+// 2026-11-08：OpenRouter 免费模型清单（只用于设置页「列表切换」展示与失败回落）。
+// ⛔ 该清单绝不进 FREE_POOL，也不参与候选链——请求仍走 Kilo 网关的黑盒路由器。
+// ---------------------------------------------------------------------------
+
+/** 5 个 OpenRouter 独有免费 ID：Kilo 目录全部缺失（采样证实 35% 会命中池外） */
+const OPENROUTER_EXCLUSIVE_IDS = [
+	"recursive/flint-v1.0:free",
+	"xingchen-agi/xing4.0-29b-a4b:free",
+	"liquid/lfm-2.5-2.6b:free",
+	"google/gemma-4-26b-a4b-it:free",
+	"google/gemma-4-31b-it:free",
+]
+
+test("OpenRouter 清单解析：只收 :free 变体、映射窗口与视觉、按 id 稳定排序", () => {
+	const rows = parseOpenRouterFreeModels({
+		data: [
+			{
+				id: "z/model:free",
+				name: "Z Model",
+				context_length: 8192,
+				architecture: { input_modalities: ["text", "image"] },
+				pricing: { prompt: "0", completion: "0" },
+			},
+			{
+				id: "a/model:free",
+				name: "A Model",
+				context_length: 4096,
+				architecture: { input_modalities: ["text"] },
+				pricing: { prompt: "0", completion: "0" },
+			},
+		],
+	})
+	assert.deepEqual(
+		rows.map((row) => row.id),
+		["a/model:free", "z/model:free"],
+	)
+	assert.equal(rows[0]?.contextWindow, 4096)
+	assert.equal(rows[0]?.vision, false)
+	assert.equal(rows[1]?.contextWindow, 8192)
+	assert.equal(rows[1]?.vision, true)
+	assert.equal(rows[1]?.name, "Z Model")
+})
+
+test("OpenRouter 清单解析：付费行 / 虚拟路由器 / 零价无后缀 / 坏数据一律排除", () => {
+	const rows = parseOpenRouterFreeModels({
+		data: [
+			{ id: "paid/model", name: "Paid", pricing: { prompt: "0.001", completion: "0.002" } },
+			{ id: "openrouter/free", name: "Free Models Router", pricing: { prompt: "0", completion: "0" } },
+			{ id: "kilo-auto/free", name: "Auto Router", pricing: { prompt: "0", completion: "0" } },
+			{ id: "google/lyria-3-pro-preview", name: "Music", pricing: { prompt: "0", completion: "0" } },
+			{ id: "ok/model:free", name: "OK", pricing: { prompt: "0", completion: "0" } },
+			{ name: "missing id" },
+			null,
+			42,
+		],
+	})
+	assert.deepEqual(
+		rows.map((row) => row.id),
+		["ok/model:free"],
+	)
+})
+
+// `:free` 后缀是主判据；pricing 缺失 / 非对象按「无法判定」保守放行，不是坏数据误收。
+test("OpenRouter 清单解析：字段缺失给保守值，不把 undefined 当上下文窗口", () => {
+	const rows = parseOpenRouterFreeModels({ data: [{ id: "x/model:free" }] })
+	assert.equal(rows.length, 1)
+	assert.equal(rows[0]?.name, "x/model:free", "name 缺失回退到 id")
+	assert.equal(rows[0]?.contextWindow, OPENROUTER_UNKNOWN_CONTEXT_WINDOW)
+	assert.equal(rows[0]?.vision, false, "视觉能力未知时按不支持处理")
+	assert.equal(
+		parseOpenRouterFreeModels({ data: [{ id: "x/model:free", context_length: "big" }] })[0]?.contextWindow,
+		OPENROUTER_UNKNOWN_CONTEXT_WINDOW,
+	)
+})
+
+test("OpenRouter 清单解析：去重、非对象 payload 一律空数组", () => {
+	assert.deepEqual(parseOpenRouterFreeModels(null), [])
+	assert.deepEqual(parseOpenRouterFreeModels({ data: "oops" }), [])
+	assert.deepEqual(parseOpenRouterFreeModels({}), [])
+	assert.equal(parseOpenRouterFreeModels({ data: [{ id: "dup:free" }, { id: "dup:free" }] }).length, 1)
+})
+
+test("OpenRouter 清单快照：12 项实测、含 5 个独有 ID、⛔ 不污染 FREE_POOL", () => {
+	const ids = OPENROUTER_FREE_MODELS_SNAPSHOT.map((model) => model.id)
+	assert.equal(OPENROUTER_FREE_MODELS_SNAPSHOT.length, 12)
+	assert.equal(new Set(ids).size, ids.length, "快照不得重复")
+	assert.ok(ids.every((id) => id.endsWith(":free")))
+	assert.ok(!ids.includes(OPENROUTER_FREE_ROUTER_ID))
+	assert.ok(!ids.includes("kilo-auto/free"))
+	for (const id of OPENROUTER_EXCLUSIVE_IDS) {
+		assert.ok(ids.includes(id), `快照应含独有免费 ID：${id}`)
+		assert.ok(!FREE_POOL.some((candidate) => candidate.id === id), `独有 ID 不得进 FREE_POOL：${id}`)
+	}
+	assert.equal(FREE_POOL.length, 19, "清单展示不得改变默认池规模")
+})
+
+test("OpenRouter 清单结构性：展示模块与池唯一真源互不反向引用", () => {
+	const listing = stripComments(fs.readFileSync("src/shared/openrouter-free-models.ts", "utf8"))
+	assert.match(listing, /OPENROUTER_FREE_MODELS_SNAPSHOT/)
+	assert.match(listing, /parseOpenRouterFreeModels/)
+	assert.doesNotMatch(listing, /from "@shared\/free-pools"/, "展示模块不得 import 池模块")
+	assert.doesNotMatch(listing, /FREE_POOL\s*=/, "⛔ 不得在展示模块里改写池定义")
+	const pools = fs.readFileSync("src/shared/free-pools.ts", "utf8")
+	assert.doesNotMatch(pools, /OPENROUTER_FREE_MODELS_SNAPSHOT|parseOpenRouterFreeModels/, "池唯一真源不得反向引用展示清单")
+})
+
+test("列表切换结构性：二选一切换、非顺序路由说明、双语键齐备", () => {
+	const provider = stripComments(fs.readFileSync("webview-ui/src/components/settings/providers/FreeModelProvider.tsx", "utf8"))
+	assert.match(provider, /name="free-list-switch"/, "必须有独立的二选一列表切换控件")
+	assert.match(provider, /freeListSwitchDefault/)
+	assert.match(provider, /freeListSwitchOpenRouter/)
+	assert.match(provider, /useOpenRouterFreeModels/, "OpenRouter 列表必须经 host 侧 grpc 拉清单")
+	assert.match(provider, /OpenRouterFreeModelsTable/, "OpenRouter 列表须用独立视图")
+	assert.match(provider, /freeListNonSequential/, "必须常驻「不是顺序路由」说明")
+
+	const table = stripComments(
+		fs.readFileSync("webview-ui/src/components/settings/providers/OpenRouterFreeModelsTable.tsx", "utf8"),
+	)
+	assert.match(table, /useTranslation\("settings"\)/)
+	assert.match(table, /freeListUpstreamRandom/, "渠道列须标「上游随机」")
+	assert.doesNotMatch(table, /onPin|free-pinned-model/, "⛔ 黑盒随机列表不得提供指定入口")
+
+	const zh = JSON.parse(fs.readFileSync("webview-ui/src/locales/zh-CN/settings.json", "utf8")).settings
+	const en = JSON.parse(fs.readFileSync("webview-ui/src/locales/en/settings.json", "utf8")).settings
+	const keys = [
+		"freeListSwitchDefault",
+		"freeListSwitchOpenRouter",
+		"freeListOpenRouterTitle",
+		"freeListNonSequential",
+		"freeListUpstreamRandom",
+		"freeListLoading",
+		"freeListSnapshot",
+		"freeListPinnedDisabled",
+	]
+	for (const key of keys) {
+		assert.equal(typeof zh[key], "string", `zh-CN 缺 ${key}`)
+		assert.equal(typeof en[key], "string", `en 缺 ${key}`)
+	}
+	assert.match(zh.freeListNonSequential, /不按|顺序|随机/)
+	assert.match(en.freeListNonSequential, /random|sequential|order/i)
+	assert.match(zh.freeRouterRisk, /Kilo 网关/, "请求链路仍经 Kilo 网关，口径不得丢")
+})
+
+// ---------------------------------------------------------------------------
+// 2026-11-08 代码审查回归（P1-1 ～ P3-8）：先补断言跑红，再修实现。
+// 结构性断言一律用宽松语义片段：pre-commit 的 biome 会重排属性 / 压行，精确正则会假红。
+// ---------------------------------------------------------------------------
+
+test("审查回归 P2-3：等价零定价写法一视同仁，付费与脏定价排除", () => {
+	const rows = parseOpenRouterFreeModels({
+		data: [
+			{ id: "num/model:free", pricing: { prompt: 0, completion: 0 } },
+			{ id: "float/model:free", pricing: { prompt: "0.0", completion: "0" } },
+			{ id: "str/model:free", pricing: { prompt: "0", completion: "0" } },
+			{ id: "missing/model:free" },
+			{ id: "nobj/model:free", pricing: "free" },
+			{ id: "paid/model:free", pricing: { prompt: "0.001", completion: "0" } },
+			{ id: "dirty/model:free", pricing: { prompt: "n/a", completion: "0" } },
+		],
+	})
+	assert.deepEqual(
+		rows.map((row) => row.id),
+		["float/model:free", "missing/model:free", "nobj/model:free", "num/model:free", "str/model:free"],
+		'数字 0 / "0.0" / "0" / 缺失 / 非对象 pricing 都按免费收下；付费与脏定价排除',
+	)
+})
+
+test("审查回归 P1-1/P2-4：清单来源三态契约与并发去重落点", () => {
+	const proto = fs.readFileSync("proto/cline/models.proto", "utf8")
+	assert.match(proto, /bool stale = 3;/, "回落旧缓存与回落内置快照必须能区分")
+	const cache = fs.readFileSync("src/core/controller/models/openrouter-free-models-cache.ts", "utf8")
+	assert.match(cache, /loadOpenRouterFreeModels/, "缓存 / 冷却 / 回落 / 去重必须收口到纯状态机")
+	assert.match(cache, /inFlight/, "并发请求必须复用 in-flight Promise")
+	const wrapper = stripComments(fs.readFileSync("src/core/controller/models/refreshOpenRouterFreeModels.ts", "utf8"))
+	assert.match(wrapper, /openrouter-free-models-cache/, "host handler 必须 delegate 到纯状态机")
+	assert.match(wrapper, /stale/, "薄封装必须把来源映射成 stale")
+})
+
+test("审查回归 P2-5：hook 首帧不误报内置快照", () => {
+	const hook = stripComments(fs.readFileSync("webview-ui/src/components/settings/providers/useOpenRouterFreeModels.ts", "utf8"))
+	const stateStart = hook.indexOf("useState<")
+	const effectStart = hook.indexOf("useEffect(")
+	const initial = stateStart >= 0 && effectStart > stateStart ? hook.slice(stateStart, effectStart) : ""
+	assert.ok(initial.length > 0, "必须能定位 hook 初始态")
+	assert.doesNotMatch(initial, /fromSnapshot:\s*true/, "首帧不得先渲染「内置快照」警告")
+	assert.match(initial, /loading:\s*(true|enabled)/, "首次请求有结论前必须处于读取中")
+})
+
+test("审查回归 P1-2/P3-6：列表说明按切换条件渲染，双语文案清理旧形态", () => {
+	const provider = stripComments(fs.readFileSync("webview-ui/src/components/settings/providers/FreeModelProvider.tsx", "utf8"))
+	assert.match(provider, /freeModelDescOpenRouter/, "OpenRouter 列表必须有自己的说明，不能常驻默认池文案")
+	const zh = JSON.parse(fs.readFileSync("webview-ui/src/locales/zh-CN/settings.json", "utf8")).settings
+	const en = JSON.parse(fs.readFileSync("webview-ui/src/locales/en/settings.json", "utf8")).settings
+	assert.equal(typeof zh.freeModelDescOpenRouter, "string", "zh-CN 缺 OpenRouter 列表说明")
+	assert.equal(typeof en.freeModelDescOpenRouter, "string", "en 缺 OpenRouter 列表说明")
+	assert.equal(typeof zh.freeListStale, "string", "旧缓存回落必须有专门提示")
+	assert.equal(typeof en.freeListStale, "string")
+	assert.doesNotMatch(en.freeRouterOption, /third option/i, "「第三个并列选项」措辞必须清理")
+	assert.doesNotMatch(zh.freeListNonSequential, /下方顺序/, "方位词不得指向不存在的下方表格")
+	assert.doesNotMatch(zh.freeRouterHint, /上方模型池/, "方位词不得把 OpenRouter 清单叫模型池")
+})
+
+test("审查回归 P3-7：CHANGELOG 口径回贴实现", () => {
+	const changelog = fs.readFileSync("CHANGELOG.md", "utf8")
+	assert.doesNotMatch(changelog, /proto \/ state \/ conversion/, "「proto 逐字不动」与新增 rpc 冲突，必须改口径")
+	assert.match(changelog, /旧缓存/, "必须写清失败可能回落旧缓存，而不是一律内置快照")
 })

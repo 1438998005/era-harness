@@ -11,6 +11,8 @@ import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useApiConfigurationHandlers } from "../utils/useApiConfigurationHandlers"
+import { OpenRouterFreeModelsTable } from "./OpenRouterFreeModelsTable"
+import { useOpenRouterFreeModels } from "./useOpenRouterFreeModels"
 
 interface FreeModelProviderProps {
 	showModelOptions: boolean
@@ -184,12 +186,13 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 	const excludeCollecting = apiConfiguration?.freeExcludeCollecting === true
 	const useOpenRouterRouter = apiConfiguration?.freeUseOpenRouterRouter === true
 	const candidates = getAllFreeCandidates()
+	const routerState = useOpenRouterFreeModels(useOpenRouterRouter)
 	// 三态互斥：路由模式优先，旧数据里残留的 pinned 不参与 UI 判定（handler 也以该标志优先）。
 	const pinnedModelId = useOpenRouterRouter ? undefined : apiConfiguration?.pinnedModelId?.trim() || undefined
 	const pinnedCandidate = pinnedModelId ? candidates.find((c) => c.id === pinnedModelId) : undefined
 	const pinnedExcluded = excludeCollecting && pinnedCandidate ? LANE_META[pinnedCandidate.lane].collectsData : false
 
-	// 2026-11-08：第三路由模式与自动路由 / 指定模型三选一。多字段必须**原子写**，
+	// 2026-11-08：列表切换（默认列表 ⇄ OpenRouter 列表）与自动路由 / 指定模型互斥。多字段必须**原子写**，
 	// ⛔ 连续调 handleFieldChange 会基于同一份旧配置互相覆盖；清空 pin 仍写空串（#243）。
 	const selectMode = (mode: "auto" | "router") => {
 		// ⛔ 不动隐私开关：静默关掉、切回自动路由又不恢复，等于永久丢失用户偏好。
@@ -213,8 +216,10 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 
 	return (
 		<div className="flex flex-col gap-3">
+			{/* 默认列表按优先级依次尝试且可指定模型；OpenRouter 列表是黑盒随机、不能指定。
+			    两套说明必须随列表切换，否则同一屏会自相矛盾。 */}
 			<p className="shrink-0 text-xs m-0" style={{ color: dimColor }}>
-				{t("settings.freeModelDesc")}
+				{useOpenRouterRouter ? t("settings.freeModelDescOpenRouter") : t("settings.freeModelDesc")}
 			</p>
 
 			<div className="shrink-0">
@@ -228,38 +233,27 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 				</div>
 			</div>
 
-			{/* KB 08 #242：指定模型区；2026-11-08 增加第三个并列选项（三态互斥） */}
+			{/* KB 08 #242：指定模型区；2026-11-08 改为「列表切换」后，OpenRouter 列表下禁用指定 */}
 			<div className="shrink-0 flex flex-col gap-1.5">
 				<span className="text-xs font-medium">{t("settings.freePinnedTitle")}</span>
-				<label className="flex items-center gap-1.5 text-xs">
+				<label className="flex items-center gap-1.5 text-xs" style={useOpenRouterRouter ? { opacity: 0.45 } : undefined}>
 					<input
 						checked={!pinnedModelId && !useOpenRouterRouter}
+						disabled={useOpenRouterRouter}
 						name="free-pinned-model"
 						onChange={() => selectMode("auto")}
 						type="radio"
 					/>
 					{t("settings.freePinnedAuto")}
 				</label>
-				<label
-					className="flex items-center gap-1.5 text-xs"
-					title={excludeCollecting ? t("settings.freeRouterPrivacyConflict") : undefined}>
-					<input
-						checked={useOpenRouterRouter}
-						disabled={excludeCollecting}
-						name="free-pinned-model"
-						onChange={() => selectMode("router")}
-						type="radio"
-					/>
-					{t("settings.freeRouterOption")}
-				</label>
+				{useOpenRouterRouter && (
+					<p className="text-[11px] m-0 leading-relaxed" style={{ color: dimColor }}>
+						{t("settings.freeListPinnedDisabled")}
+					</p>
+				)}
 				{useOpenRouterRouter && excludeCollecting && (
 					<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
 						{t("settings.freeRouterPrivacyConflict")}
-					</p>
-				)}
-				{useOpenRouterRouter && (
-					<p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
-						{t("settings.freeRouterRisk")}
 					</p>
 				)}
 				{/* 常驻 + 按 locale 单语：写清「链长=1 → switchable 无处可切」的因果，不是泛泛警示 */}
@@ -300,21 +294,75 @@ export const FreeModelProvider: React.FC<FreeModelProviderProps> = () => {
 			</div>
 
 			<div className="flex flex-col gap-1">
-				<span className="shrink-0 text-xs font-medium">{t("settings.freePoolTitle")}</span>
-				<FreePoolTable
-					candidates={candidates}
-					excludeCollecting={excludeCollecting}
-					onPin={pin}
-					pinnedModelId={pinnedModelId}
-				/>
-				<span className="shrink-0 text-[11px]" style={{ color: dimColor }}>
-					{/* pinned / 第三路由模式下都不再声称「自动切换到下一个」——链长=1，没有下一个 */}
-					{useOpenRouterRouter
-						? t("settings.freeRouterHint")
-						: pinnedModelId
-							? t("settings.freePoolHintPinned")
-							: t("settings.freePoolHint")}
-				</span>
+				<div className="shrink-0 flex items-center justify-between gap-2 flex-wrap">
+					<span className="text-xs font-medium">
+						{useOpenRouterRouter ? t("settings.freeListOpenRouterTitle") : t("settings.freePoolTitle")}
+					</span>
+					{/* 2026-11-08 用户裁定：把「第三个并列 radio」改成表格上方的列表切换。
+					    切换即原子写既有布尔设置（见上方 selectMode），底层推理链路逐字不动。 */}
+					<div className="flex items-center gap-3 flex-wrap">
+						<label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+							<input
+								checked={!useOpenRouterRouter}
+								name="free-list-switch"
+								onChange={() => selectMode("auto")}
+								type="radio"
+							/>
+							{t("settings.freeListSwitchDefault")}
+						</label>
+						<label
+							className="flex items-center gap-1.5 text-[11px] cursor-pointer"
+							title={excludeCollecting ? t("settings.freeRouterPrivacyConflict") : undefined}>
+							<input
+								checked={useOpenRouterRouter}
+								disabled={excludeCollecting}
+								name="free-list-switch"
+								onChange={() => selectMode("router")}
+								type="radio"
+							/>
+							{t("settings.freeListSwitchOpenRouter")}
+						</label>
+					</div>
+				</div>
+				{useOpenRouterRouter ? (
+					<OpenRouterFreeModelsTable
+						fromSnapshot={routerState.fromSnapshot}
+						loading={routerState.loading}
+						models={routerState.models}
+						stale={routerState.stale}
+					/>
+				) : (
+					<FreePoolTable
+						candidates={candidates}
+						excludeCollecting={excludeCollecting}
+						onPin={pin}
+						pinnedModelId={pinnedModelId}
+					/>
+				)}
+				{useOpenRouterRouter ? (
+					<>
+						<p
+							className="shrink-0 text-[11px] m-0 leading-relaxed"
+							style={{ color: "var(--vscode-editorWarning-foreground, #CCA700)" }}>
+							{t("settings.freeListNonSequential")}
+						</p>
+						<p className="shrink-0 text-[11px] m-0 leading-relaxed" style={{ color: dimColor }}>
+							{t("settings.freeRouterOption")}
+						</p>
+						<p
+							className="shrink-0 text-[11px] m-0 leading-relaxed"
+							style={{ color: "var(--vscode-errorForeground, #F14C4C)" }}>
+							{t("settings.freeRouterRisk")}
+						</p>
+						<span className="shrink-0 text-[11px]" style={{ color: dimColor }}>
+							{t("settings.freeRouterHint")}
+						</span>
+					</>
+				) : (
+					<span className="shrink-0 text-[11px]" style={{ color: dimColor }}>
+						{pinnedModelId ? t("settings.freePoolHintPinned") : t("settings.freePoolHint")}
+					</span>
+				)}
 			</div>
 		</div>
 	)

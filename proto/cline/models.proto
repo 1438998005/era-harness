@@ -20,6 +20,9 @@ service ModelsService {
   rpc updateApiConfiguration(UpdateApiConfigurationRequestNew) returns (Empty);
   // Updates API configuration with partial values (only updates fields that are explicitly set)
   rpc updateApiConfigurationPartial(UpdateApiConfigurationPartialRequest) returns (Empty);
+  // 2026-11-08：设置页「OpenRouter 列表」的展示清单。生产 webview CSP 只允许扩展源，
+  // 故由 host 侧代拉公开端点（无需 Key）；清单只用于展示，⛔ 不进 FREE_POOL、不参与候选链。
+  rpc refreshOpenRouterFreeModels(Empty) returns (OpenRouterFreeModelsResponse);
 }
 
 // Price tier for tiered pricing models
@@ -693,8 +696,9 @@ message ModelsApiConfiguration {
   // KB 08 #242：指定的真实上游模型 ID（非 displayName / 非下标），空 = 自动路由。
   // 与 state.proto Settings 的 219 对应；与 #237 的 270–274 号段不冲突。
   optional string pinned_model_id = 275;
-  // 2026-11-08：设置页第三个并列路由选项（自动路由 / 指定模型 / OpenRouter 免费路由）。
-  // false/未设 = 自动路由或 pinned；true = 固定单候选 openrouter/free（不经 FREE_POOL、失败不回落）。
+  // 2026-11-08：设置页「默认列表 / OpenRouter 列表」二选一的列表切换标志。
+  // false/未设 = 默认列表（自动路由或 pinned）；true = OpenRouter 列表（固定单候选
+  // openrouter/free，上游随机选、非顺序路由，不经 FREE_POOL、失败不回落）。
   // 与 state.proto Settings 的 220 同名对应（生成器按 camel 边界拆词：free_use_open_router_router，
   // 两端 TS 字段均为 freeUseOpenRouterRouter）；普通设置字段，登记单源在 state-keys.ts。
   optional bool free_use_open_router_router = 276;
@@ -703,4 +707,22 @@ message ModelsApiConfiguration {
   optional string bigmodel_reasoning_effort = 272;
   optional string bigmodel_plan_reasoning_effort = 273;
   optional string moonshot_reasoning_effort = 274;
+}
+
+// 2026-11-08：OpenRouter 官方免费模型清单（仅用于设置页「OpenRouter 列表」展示与失败回落）。
+// ⛔ 不进 FREE_POOL、不参与候选链：请求仍走 Kilo 网关的 openrouter/free 虚拟路由器，
+// 上游在单次请求内部随机选模型，不按优先级依次尝试、结果不可复现。
+message OpenRouterFreeModel {
+  string id = 1; // 官方 :free 变体 ID
+  string name = 2;
+  int64 context_window = 3; // 0 = 官方未列 / 字段非法，UI 显示「—」
+  bool vision = 4; // architecture.input_modalities 含 image
+}
+
+message OpenRouterFreeModelsResponse {
+  repeated OpenRouterFreeModel models = 1;
+  // true = 无可用缓存，已回落到内置静态快照；回落旧缓存时为 false（另看 stale）。
+  bool from_snapshot = 2;
+  // true = 本次未成功刷新（回落旧缓存或内置快照），false = 本次成功拉取或命中未过期成功缓存。
+  bool stale = 3;
 }

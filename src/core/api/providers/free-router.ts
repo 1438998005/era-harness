@@ -1,5 +1,5 @@
 /**
- * 第三路由模式（OpenRouter 免费路由）的独立实现。
+ * OpenRouter 路由模式（设置页「OpenRouter 列表」对应的单候选路径）的独立实现。
  *
  * 从 free.ts 拆出：仓库闸门要求单文件 ≤20KB，且本模式与「自动路由 / 指定模型」是并列独立路径——
  * 单候选、不经 FREE_POOL / 四道门 / listing、失败不回落。完整决策与风险依据见 KB 07 §7.9
@@ -33,20 +33,20 @@ export const OPENROUTER_ROUTER_CANDIDATE: FreeCandidate = {
 export function assertOpenRouterRouterAllowed(options: { excludeCollecting: boolean; hasImages: boolean }): void {
 	if (options.excludeCollecting) {
 		throw new Error(
-			"「OpenRouter 免费路由」会由上游收集提示词，与隐私开关冲突。请关闭隐私开关，或在 API 设置中切回自动路由 / 指定模型。",
+			"「OpenRouter 免费路由」会由上游收集提示词，与隐私开关冲突。请关闭隐私开关，或在 API 设置中切回默认列表。",
 		)
 	}
 	if (options.hasImages) {
 		throw new Error(
-			"「OpenRouter 免费路由」由上游随机选择模型，无法保证所选模型支持图片。请改用自动路由或指定支持图片的模型。",
+			"「OpenRouter 免费路由」由上游随机选择模型，无法保证所选模型支持图片。请切回默认列表后重试（自动路由会挑支持图片的模型）。",
 		)
 	}
 }
 
-/** 全链失败：单候选无处可切，⛔ 不复用 pinned 恢复标记（ErrorRow 会渲染「切回自动路由」）。 */
+/** 全链失败：单候选无处可切，⛔ 不复用 pinned 恢复标记（避免 ErrorRow 误渲染恢复按钮）。 */
 export function composeOpenRouterRouterFailure(tried: number, reason: string): Error {
 	return new Error(
 		`「OpenRouter 免费路由」请求失败${tried > 0 ? `（已尝试 ${tried} 个候选）` : ""}：${reason}` +
-			"该模式不会自动回落到自动路由；请在 API 设置中切回自动路由或指定模型后重试。",
+			"该模式不会自动回落到默认列表；请在 API 设置中切回默认列表后重试。",
 	)
 }

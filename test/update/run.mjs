@@ -121,6 +121,8 @@ const SPECS = [
 	"task-loop-repair.spec.ts",
 	// #247 连续同因流式失败：跨实例计数 / 升级提示 / 审计与诊断包可见 / 守住 #242
 	"stream-error-streak.spec.ts",
+	// 2026-11-08：OpenRouter 免费模型清单（列表切换）的数据契约与 grpc 接线
+	"openrouter-free-models.spec.ts",
 ]
 
 const aliasResolverPlugin = {
