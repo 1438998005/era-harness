@@ -21,6 +21,7 @@ import {
 	summarizeSilentSuspects,
 	summarizeToolFailures,
 } from "../../src/core/logging/audit-log-format"
+import { FocusChainPrompts } from "../../src/core/task/focus-chain/prompts"
 import {
 	type CommandExecutionMeta,
 	commandOutcomeFromMeta,
@@ -246,6 +247,13 @@ test("#206 源码接线：免费池不再被诱导输出 task_progress 清单", 
 	assert.match(code, /skipFreePoolRecommended/, "free provider 应跳过 RECOMMENDED 段")
 	const prompt = readRaw("src/core/task/focus-chain/prompts.ts")
 	assert.match(prompt, /Never write the checklist as message text/, "提示词要禁止把清单写进正文")
+})
+
+test("#252 元测试：focus-chain 请求计数提醒文案使用 recommended", () => {
+	// 负向断言用拼接构造错词，避免本文件自身命中「全仓不得出现该错拼」的验收判据
+	const typo = "recom" + "ended"
+	assert.match(FocusChainPrompts.apiRequestCount, /strongly recommended/, "提醒文案必须是正确拼写")
+	assert.ok(!FocusChainPrompts.apiRequestCount.includes(typo), "不得回归到错拼")
 })
 
 // —— 08 #238：四类回放的端到端（真实审计行 → 诊断包头部）+ 元测试 ——

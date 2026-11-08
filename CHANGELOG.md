@@ -3,6 +3,19 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.103.1 — 2026-11-09
+
+> 修复版：focus-chain 的 `task_progress` 请求计数提醒文案拼写修正（KB 08 #252，P3）。
+> 无行为语义变化：提醒触发阈值、注入时机与分支逻辑一字未动。
+
+### 修复
+
+- `src/core/task/focus-chain/prompts.ts` 的 `FocusChainPrompts.apiRequestCount` 模板修正
+  `recommended` 的拼写（原词漏写一个 `m`，继承自 fork baseline `8a252a07`，
+  在长对话 ≥10 次 API 请求时注入给模型）。
+- `test/update/diagnostics-and-retry.spec.ts` 新增 #252 结构性元测试：正向钉住 `strongly recommended`、
+  负向断言错拼不得回归（错词用字符串拼接构造，保证全仓 grep 无该字面量）。
+
 ## 3.103.0 — 2026-11-08
 
 > 功能版：免费模型池补入 `liquid/lfm-3-1.7b:free`（18 → 19 项）；设置页模型池新增
