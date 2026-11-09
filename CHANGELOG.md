@@ -3,6 +3,32 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.103.2 — 2026-11-09
+
+> 修复版：免费候选启用**原生 function calling 通道**（KB 08 #254），消除只会走原生工具的候选
+> 在 XML-only 工具协议下的零工具空转；附「关于」页贡献者主页链接。
+> 无新设置项、新 UI 入口或新池成员；自动路由与其它 provider 仍走 XML 工具协议。
+
+### 修复 · 免费候选零工具空转（#254）
+
+- XML-only 工具协议与原生 function calling 模型不兼容，只会走原生工具的候选在实弹中
+  零工具空转（序 4 Glyph Cluster 29 轮）。
+- `free-pools` 新增 `nativeTools` 能力标记（仅 stealth / glyph-cluster，按 listing
+  `supported_function_calling` + 原生探针实测才声明）与 `supportsFreeNativeTools` 精确 ID 查询。
+- `Task` 仅 free + 白名单精确命中时启用 `enableNativeToolCalls`；自动路由与其它 provider 保持 XML。
+- generic variant 新增 `use_native_tools`，按 `context.enableNativeToolCalls` 在 native / XML
+  两版 TOOL_USE 间切换。
+- `ClineToolSet.getNativeTools`：description 可能是函数，先解析再判空，避免 generic 工具集
+  被整片过滤成空。
+- 补 `test/free`：白名单只认实测候选 + 双通道切换元测试。
+- 验证：`check-types` / `test:free`（72）/ `test:update` 全绿；序 4 两轮实弹均原生命中
+  `search_files`（17 唯一文件、集合相等），定稿 93。
+
+### 新增 · 关于页与 README
+
+- 贡献者名单补充主页链接（Mishu：GitHub / jihulab；qirchen421：GitHub / GitGud）；
+  署名由 `qrchen421` 更正为 `qirchen421`；README 与设置页「关于」同步。
+
 ## 3.103.1 — 2026-11-09
 
 > 修复版：focus-chain 的 `task_progress` 请求计数提醒文案拼写修正（KB 08 #252，P3）。
