@@ -126,8 +126,8 @@ npm test
 
 ## 贡献者与鸣谢
 
-- **Mishu** — 项目开发（QQ 1438998005 ｜ 邮箱 1438998005@qq.com / a1438998005@gmail.com）
-- **qrchen421** — 项目开发 / 知识库提供
+- **Mishu** — 项目开发（QQ 1438998005 ｜ 邮箱 1438998005@qq.com / a1438998005@gmail.com）；[GitHub](https://github.com/1438998005) ｜ [jihulab](https://jihulab.com/1438998005)
+- **qirchen421** — 项目开发 / 知识库提供；[GitHub](https://github.com/qirchen421) ｜ [GitGud](https://gitgud.io/qrchen)
 - **March3** — 赞助
 
 以及所有提交 issue、参与测试与反馈的社区贡献者。

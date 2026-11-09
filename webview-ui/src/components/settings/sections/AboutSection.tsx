@@ -10,14 +10,30 @@ interface AboutSectionProps {
 	renderSectionHeader: (tabId: string) => JSX.Element | null
 }
 
-/** 贡献者名单：新增/调整在此加一行即可；contact 为可选的联系方式行 */
-const CONTRIBUTORS: { name: string; role: string; contact?: string }[] = [
+/** 贡献者名单：新增/调整在此加一行即可；contact 为可选的联系方式行，links 为可选的主页链接 */
+const CONTRIBUTORS: {
+	name: string
+	role: string
+	contact?: string
+	links?: { label: string; href: string }[]
+}[] = [
 	{
 		name: "Mishu",
 		role: "项目开发",
 		contact: "QQ：1438998005 ｜ 邮箱：1438998005@qq.com / a1438998005@gmail.com",
+		links: [
+			{ label: "GitHub", href: "https://github.com/1438998005" },
+			{ label: "jihulab", href: "https://jihulab.com/1438998005" },
+		],
 	},
-	{ name: "qrchen", role: "项目开发 / 知识库提供" },
+	{
+		name: "qirchen421",
+		role: "项目开发 / 知识库提供",
+		links: [
+			{ label: "GitHub", href: "https://github.com/qirchen421" },
+			{ label: "GitGud", href: "https://gitgud.io/qrchen" },
+		],
+	},
 	{ name: "March3", role: "赞助" },
 ]
 
@@ -131,6 +147,15 @@ const AboutSection = ({ version, renderSectionHeader }: AboutSectionProps) => {
 								{c.role}
 								{"）"}
 								{c.contact && <div className="text-xs text-description">{c.contact}</div>}
+								{c.links && (
+									<div className="text-xs text-description flex items-center gap-2">
+										{c.links.map((link) => (
+											<VSCodeLink href={link.href} key={link.href}>
+												{link.label}
+											</VSCodeLink>
+										))}
+									</div>
+								)}
 							</li>
 						))}
 					</ul>
