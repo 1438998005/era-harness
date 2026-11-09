@@ -48,6 +48,14 @@ const aliasResolverPlugin = {
 	},
 }
 
+/** 把 `vscode` 模块解析到替身：本套件从 #254 起会加载提示词 variant（依赖链上有 @core/api）。 */
+const vscodeStubPlugin = {
+	name: "vscode-stub",
+	setup(build) {
+		build.onResolve({ filter: /^vscode$/ }, () => ({ path: path.join(__dirname, "..", "update", "vscode-stub.cjs") }))
+	},
+}
+
 async function bundle(entry, outfile) {
 	await esbuild.build({
 		entryPoints: [path.join(__dirname, entry)],
@@ -58,8 +66,8 @@ async function bundle(entry, outfile) {
 		target: "node20",
 		logLevel: "silent",
 		tsconfig: path.join(repoRoot, "tsconfig.json"),
-		external: ["vscode"],
-		plugins: [aliasResolverPlugin],
+		external: [],
+		plugins: [vscodeStubPlugin, aliasResolverPlugin],
 	})
 }
 

@@ -148,6 +148,12 @@ export interface FreeCandidate {
 	contextWindow: number
 	maxOutput: number
 	vision: boolean
+	/**
+	 * 原生 function calling：已实测确认（Kilo listing `supports_function_calling: true`，
+	 * 且最小探针返回 `finish_reason=tool_calls`）。未验证不声明，保守 false——与 vision 同口径。
+	 * 仅「指定模型」精确命中时启用原生工具通道；自动路由保持 XML（见 KB 08 #254）。
+	 */
+	nativeTools?: boolean
 	/** 需要代理才能访问（区域敏感；被 RegionError 封锁时走 failover，换出口可解） */
 	needsProxy?: boolean
 	/** Kilo 条目从 listing 解析真实 ID 的匹配器（ID 未实证时使用；2026-10-24 起池内无使用者，机制休眠保留） */
@@ -197,6 +203,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 256_000, // Kilo listing 实证
 		maxOutput: 256_000,
 		vision: false,
+		nativeTools: true, // 2026-11-09 实测：listing `supports_function_calling: true`，原生探针 `finish_reason=tool_calls`；XML-only 下 29 轮零工具（KB 08 #254）
 		// #4（低置信）：Kilo/Vercel 双渠道 stealth 槽位，tokenizer 疑似 Microsoft，**无任何基准分**；
 		// 排位依据仅 Kilo 自家榜用量 Code 11.9% #4 / Plan #3 / Ask #2 / kiloclaw 29.0% #1 → 中段，随时可调。
 		// stealth 期 prompt 被上游留存：Kilo 渠道级 collectsData=true 已覆盖，无新增恶化。
@@ -542,4 +549,13 @@ function numberOr(value: unknown): number | undefined {
 /** 全部候选（供设置页展示） */
 export function getAllFreeCandidates(): FreeCandidate[] {
 	return [...FREE_POOL]
+}
+
+/**
+ * 该模型是否已实测支持原生 function calling。
+ * 只认 FREE_POOL 的精确 ID；虚拟路由器（如 `openrouter/free`）与未验证候选一律 false，
+ * 避免把 `tools` 发给不支持的模型（KB 08 #254）。
+ */
+export function supportsFreeNativeTools(modelId: string): boolean {
+	return FREE_POOL.some((candidate) => candidate.id === modelId && candidate.nativeTools === true)
 }

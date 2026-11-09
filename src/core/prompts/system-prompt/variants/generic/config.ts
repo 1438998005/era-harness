@@ -8,7 +8,9 @@ import {
 import { ModelFamily } from "@/shared/prompts"
 import { Logger } from "@/shared/services/Logger"
 import { ClineDefaultTool } from "@/shared/tools"
+import { TOOL_USE_TEMPLATE_TEXT } from "../../components/tool_use"
 import { SystemPromptSection } from "../../templates/placeholders"
+import { TEMPLATE_OVERRIDES as NATIVE_TEMPLATE_OVERRIDES } from "../native-next-gen/template"
 import { createVariant } from "../variant-builder"
 import { validateVariant } from "../variant-validator"
 import { baseTemplate } from "./template"
@@ -20,6 +22,9 @@ export const config = createVariant(ModelFamily.GENERIC)
 	.labels({
 		stable: 1,
 		fallback: 1,
+		// #254：仅当 Task 判定「free 指定模型已实测支持原生 function calling」时，
+		// context.enableNativeToolCalls 才为 true；其余场景仍走 XML 文本工具。
+		use_native_tools: 1,
 	})
 	// Generic matcher - fallback for everything that doesn't match other variants
 	// This will match anything that doesn't match the other specific variants
@@ -88,6 +93,13 @@ export const config = createVariant(ModelFamily.GENERIC)
 		MODEL_FAMILY: "generic",
 	})
 	.config({})
+	// #254：同一个 generic variant 兼容两条工具通道——
+	// 原生通道（仅 free 已实测模型）：工具由 API 声明，TOOL_USE 换成 native 版，不再教 XML；
+	// 其余场景保持默认 XML 版。切换依据 context.enableNativeToolCalls。
+	.overrideComponent(SystemPromptSection.TOOL_USE, {
+		template: (context) =>
+			context.enableNativeToolCalls ? NATIVE_TEMPLATE_OVERRIDES.TOOL_USE(context) : TOOL_USE_TEMPLATE_TEXT(context),
+	})
 	.build()
 
 // Compile-time validation

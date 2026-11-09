@@ -70,6 +70,7 @@ import { resolveEffectiveSubagentProvider } from "@shared/aux-model"
 import { combineApiRequests } from "@shared/combineApiRequests"
 import { combineCommandSequences } from "@shared/combineCommandSequences"
 import { ClineApiReqCancelReason, ClineApiReqInfo, ClineAsk, ClineMessage, ClineSay } from "@shared/ExtensionMessage"
+import { supportsFreeNativeTools } from "@shared/free-pools"
 import { formatGlobalMemoryForPrompt } from "@shared/global-memory"
 import { HistoryItem } from "@shared/HistoryItem"
 import { getLanguageDisplayName, getLanguageKey, LanguageDisplay } from "@shared/Languages"
@@ -2172,11 +2173,11 @@ Speak in ${languageInstructionMap[preferredLanguage] || preferredLanguage}.`
 			workspaceRoots,
 			isSubagentRun: false,
 			isCliEnvironment,
-			// era harness（0 门槛）：统一走 XML 文本工具调用，不再区分原生/非原生、也不暴露开关。
-			// 原生模式要求端点返回结构化 tool_calls；第三方端点常不返回而把调用吐成正文，
-			// 导致参数解析为空→重试→中断。关闭后模型走 XML 提示，由 parseAssistantMessageV2 稳定解析；
-			// 即便端点仍返回结构化 tool_calls，流式循环的 tool_calls 通道也会照常消费，因此天然兼容两条路径。
-			enableNativeToolCalls: false,
+			// era harness：默认统一走 XML 文本工具调用（0 门槛），避免第三方端点把结构化调用吐成正文。
+			// #254 例外：仅当「指定模型」精确命中已实测支持原生 function calling 的免费候选时
+			// （FREE_POOL.nativeTools === true），才启用原生工具通道；自动路由与其它 provider 保持 XML。
+			// 原生模式下 generic variant 会自动切到 native 版 TOOL_USE（variants/generic/config.ts）。
+			enableNativeToolCalls: providerInfo.providerId === "free" && supportsFreeNativeTools(providerInfo.model.id),
 			enableParallelToolCalling: this.isParallelToolCallingEnabled(),
 			terminalExecutionMode: this.terminalExecutionMode,
 			locale: preferredLanguage,

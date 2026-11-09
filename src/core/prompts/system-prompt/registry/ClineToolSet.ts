@@ -2,7 +2,13 @@ import { AgentConfigLoader } from "@core/task/tools/subagent/AgentConfigLoader"
 import { CLINE_MCP_TOOL_IDENTIFIER, McpServer } from "@/shared/mcp"
 import { ModelFamily } from "@/shared/prompts"
 import { ClineDefaultTool } from "@/shared/tools"
-import { type ClineToolSpec, toolSpecFunctionDeclarations, toolSpecFunctionDefinition, toolSpecInputSchema } from "../spec"
+import {
+	type ClineToolSpec,
+	resolveDescription,
+	toolSpecFunctionDeclarations,
+	toolSpecFunctionDefinition,
+	toolSpecInputSchema,
+} from "../spec"
 import { PromptVariant, SystemPromptContext } from "../types"
 
 export class ClineToolSet {
@@ -183,9 +189,12 @@ export class ClineToolSet {
 		const mcpServers = context.mcpHub?.getServers()?.filter((s) => s.disabled !== true) || []
 		const mcpTools = mcpServers?.flatMap((server) => mcpToolToClineToolSpec(variant.family, server))
 
-		const enabledTools = [...toolConfigs, ...mcpTools].filter(
-			(tool) => typeof tool.description === "string" && tool.description.trim().length > 0,
-		)
+		// #254：description 允许是 (context) => string（generic 工具全部如此），
+		// 必须先解析再判空；直接 typeof === "string" 会把整个 generic 工具集过滤成空数组。
+		const enabledTools = [...toolConfigs, ...mcpTools].filter((tool) => {
+			const description = resolveDescription(tool.description, context)
+			return typeof description === "string" && description.trim().length > 0
+		})
 		const converter = ClineToolSet.getNativeConverter(context.providerInfo.providerId, context.providerInfo.model.id)
 
 		return enabledTools.map((tool) => converter(tool, context))

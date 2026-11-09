@@ -21,6 +21,8 @@ import {
 } from "@core/api/providers/free-errors"
 import { resetFreeLaneCaches } from "@core/api/providers/free-lanes"
 import { decodeSessionTimestamp, mintSessionId } from "@core/api/providers/free-session"
+import { ClineToolSet, PromptRegistry } from "@core/prompts/system-prompt"
+import { config as genericPromptConfig } from "@core/prompts/system-prompt/variants/generic/config"
 import {
 	buildFreeCandidateChain,
 	describePinnedGateConflict,
@@ -30,12 +32,14 @@ import {
 	LANE_META,
 	OPENROUTER_FREE_ROUTER_ID,
 	parseKiloFreeRows,
+	supportsFreeNativeTools,
 } from "@shared/free-pools"
 import {
 	OPENROUTER_FREE_MODELS_SNAPSHOT,
 	OPENROUTER_UNKNOWN_CONTEXT_WINDOW,
 	parseOpenRouterFreeModels,
 } from "@shared/openrouter-free-models"
+import { ClineDefaultTool } from "@shared/tools"
 import type OpenAI from "openai"
 
 // ---------------------------------------------------------------------------
@@ -272,6 +276,38 @@ test("存活复核回归：死项、付费行与 2 个虚拟路由器 ID 均不�
 		assert.ok(!ids.includes(id), `${id} 是上游黑盒虚拟路由器，入池会破坏能力排序/vision 过滤/审计口径`)
 	}
 	assert.equal(new Set(ids).size, ids.length, "池内 ID 不应重复")
+})
+
+// KB 08 #254：原生 function calling 是「实测后才声明」的能力，不能因同渠道就默认放行。
+test("#254 原生工具能力：只认已实测候选，未验证 / 虚拟路由器 / 大小写变体一律关闭", () => {
+	assert.equal(supportsFreeNativeTools("stealth/glyph-cluster"), true, "序 4 已由原生探针实证")
+	for (const id of ["stealth/crouton-alpha", "Qwen3.8-27B", OPENROUTER_FREE_ROUTER_ID, "STEALTH/GLYPH-CLUSTER"]) {
+		assert.equal(supportsFreeNativeTools(id), false, `${id} 未实证，不得默认启用原生工具`)
+	}
+})
+
+// KB 08 #254：generic variant 同时兼容两条工具通道，由 context.enableNativeToolCalls 切换。
+test("#254 generic variant：原生开关打开才产出 tools（含 search_files），关闭时保持 XML-only", () => {
+	// PromptRegistry 构造时才会 registerClineToolSets()；不实例化则 getNativeTools 找不到工具定义
+	PromptRegistry.getInstance()
+	const base = {
+		providerInfo: { providerId: "free", model: { id: "stealth/glyph-cluster" }, mode: "act" },
+		cwd: ".",
+	}
+	const ctx = {
+		...base,
+		enableNativeToolCalls: true,
+	} as unknown as Parameters<typeof ClineToolSet.getNativeTools>[1]
+	const native = ClineToolSet.getNativeTools(genericPromptConfig, ctx)
+	assert.ok(native && native.length > 0, "原生开关打开时 generic 应产出 tools")
+	const names = native.map((tool) => (tool as { function?: { name?: string } }).function?.name)
+	assert.ok(names.includes(ClineDefaultTool.SEARCH), "search_files 必须在原生工具集中")
+
+	const xml = ClineToolSet.getNativeTools(genericPromptConfig, {
+		...base,
+		enableNativeToolCalls: false,
+	} as unknown as Parameters<typeof ClineToolSet.getNativeTools>[1])
+	assert.equal(xml, undefined, "原生开关关闭时必须保持 XML-only")
 })
 
 test("单一池：listing 行元数据覆盖静态表（exact-ID 解析）", () => {
