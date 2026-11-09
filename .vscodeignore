@@ -18,6 +18,8 @@ standalone/**
 esbuild.js
 vsc-extension-quickstart.md
 tsconfig*.json
+# TypeScript 增量构建缓存：构建期产物，运行时无用（实证 3.103.2 打包混进了根目录 tsconfig.tsbuildinfo）
+**/*.tsbuildinfo
 **/.eslintrc.json
 **/*.map
 **/*.ts
