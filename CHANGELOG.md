@@ -3,6 +3,29 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.103.3 — 2026-11-11
+
+> 修复版：免费池移除已下线的 Beam 1.0（KB 08 #255，池 19 → 18）；vsix 打包排除
+> `tsconfig.tsbuildinfo` 构建缓存。无新设置项、新 UI 入口或新增候选；
+> 池首由 Beam 顺延为 Qwen3.8-27B（上下文窗口 262,144）。
+
+### 修复 · 免费池移除已下线候选（#255）
+
+- `reflection/beam-free`（Beam 1.0）渠道已下线（2026-11-10 用户确认；旁证：v1.4 批次三次实弹
+  44 轮全部无有效响应），从 `FREE_POOL` 移除，池 19 → 18（OVH 9 + Kilo 9）。
+- pinned 到 Beam 的旧配置不再单链 100% 失败：会得到「不在免费模型池中（可能已下线或已转付费）」
+  的明确错误与恢复按钮；自动路由不再把请求白烧进死渠道。
+- `test/free` 结构性元测试同步：18 项 deepEqual、Set 去重 18、Kilo 计数 9、尾五项切片、
+  `FREE_POOL.length 18`；池首断言改钉 `Qwen3.8-27B`（窗口 262,144，继续防「窗口写死回 free 分支」）；
+  死项清单增补 `reflection/beam-free`——再入池即红（与 #229 Laguna 同型）。
+- `webview-ui` 池首注释同步；dist 重打（产物 grep 无 `beam-free`）。
+- 验证：`check-types` / `test:free`（72）/ `test:update`（996）全绿。
+
+### 修复 · 打包
+
+- `.vscodeignore` 新增 `**/*.tsbuildinfo`：TypeScript 增量构建缓存属构建期产物，运行时无用
+  （实证 3.103.2 的 vsix 混进了根目录 `tsconfig.tsbuildinfo`）。
+
 ## 3.103.2 — 2026-11-09
 
 > 修复版：免费候选启用**原生 function calling 通道**（KB 08 #254），消除只会走原生工具的候选
