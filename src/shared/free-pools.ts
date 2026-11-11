@@ -7,8 +7,8 @@
  *     Big Pickle 均为 200K，付费版才是 1M；Cat Jam 正式 ID 为 `cat-jam-free`）；
  * - Kilo 侧以运行时 listing `GET https://api.kilo.ai/api/gateway/models` 的 `isFree === true` 行为准
  *   （context_length / top_provider.max_completion_tokens / architecture.input_modalities）；
- *   **判据不是 `:free` 后缀**：无后缀的 `reflection/beam-free`、`stealth/glyph-cluster`、
- *   `stealth/crouton-alpha` 同样是免费行；反过来去掉 `:free` 的付费行绝不能拿来补位。
+ *   **判据不是 `:free` 后缀**：无后缀的 `stealth/glyph-cluster`、`stealth/crouton-alpha`
+ *   同样是免费行；反过来去掉 `:free` 的付费行绝不能拿来补位。
  * - OVH 侧以端点 `GET /v1/models`（无 key 可拉）的 context_length 为准；
  *   maxOutput 端点未登记 → 保守估值，handler 的 FREE_REQUEST_MAX_OUTPUT 截断兜底。
  *   **但目录存在 ≠ 推理端点可用**：退役生效日必须逐个 `POST /v1/chat/completions` 实测
@@ -16,13 +16,15 @@
  * - vision 以 listing `input_modalities` 含 `image` 为准（未验证不声明，保守 false）。
  *
  * 池顺序（2026-11-08 补入 LFM3-1.7B；2026-11-05 二次修订，KB 08 #241 用户裁定「只调整英伟达家族 4 项」）：
- * Beam 1.0(kilo) → Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Glyph Cluster(kilo) → Crouton Alpha(kilo) →
+ * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Glyph Cluster(kilo) → Crouton Alpha(kilo) →
  * Dots3-Note(kilo) → Qwen3.5-397B(ovh) → North Mini Code(kilo) → gpt-oss-120b(ovh) →
  * Mistral Small 3.2(ovh) → gpt-oss-20b(ovh) → Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) →
  * Qwen2.5-VL-72B(ovh) → Nemotron 3 Ultra(kilo) → LFM3-1.7B(kilo) → Nemotron 3.5 Lightning(kilo) →
  * Nemotron 3 Nano Omni(kilo) → Nemotron 3.5 Super VL(kilo)。
- * （共 19 项：OVH 9 + Kilo 10；**前 14 项相对顺序与 #229 旧序逐字不变**，本轮只把 Kilo 新免费行
- * LFM3-1.7B 插为新 #16（Ultra 之后、Lightning 之前），其余 18 项相对顺序逐字不动、不重新评估；
+ * （共 18 项：OVH 9 + Kilo 9。2026-11-11 原 #1 Beam 1.0 渠道下线移除（KB 08 #255），其余 18 项
+ * 相对顺序逐字不动，池首由 Beam 顺延为 Qwen3.8-27B；2026-11-08 版 19 项中**前 14 项相对顺序与
+ * #229 旧序逐字不变**，该轮只把 Kilo 新免费行 LFM3-1.7B 插为新 #16（Ultra 之后、Lightning 之前）、
+ * 不重新评估；
  * 「保持原序」≠ 已按新三源重新评估；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，
  * 门控判据见 free-lanes.ts。带图链不单独定序，仍是 `filter(vision)`：首位 stealth/crouton-alpha，
  * 用户明确裁定「这是合理的」，不为它微调任何非 NVIDIA 项。）
@@ -160,20 +162,8 @@ export interface FreeCandidate {
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价），KB 08 #241 定稿 18 项；2026-11-08 只插入 LFM3-1.7B 为新 #16 → 共 19 项（OVH 9 + Kilo 10），前 14 项相对序与 #229 完全一致 */
+/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价）；2026-11-08 插入 LFM3-1.7B 至 19 项，2026-11-11 Beam 1.0 渠道下线移除（KB 08 #255）→ 共 18 项（OVH 9 + Kilo 9），池首 Qwen3.8-27B */
 export const FREE_POOL: readonly FreeCandidate[] = [
-	{
-		id: "reflection/beam-free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Beam 1.0",
-		contextWindow: 1_048_576, // Kilo listing 实证
-		maxOutput: 131_072,
-		vision: false, // listing input_modalities 仅 text
-		// #1：Reflection AI 501B-A23B（Apache 2.0），SWE-V 80.9~81.6、TB 2.1 80.1、SWE-Pro-Hard 77.2；
-		// Kilo 榜 Code 15.5% #3 / Ask #1 / Plan·Debug #2 / 24h 159.9B #3 → 基准与真实用量双高，#241 后升为池首。
-		// 注意 id 无 `:free` 后缀但 isFree=true，Kilo listing 门控按逐字相等匹配。
-	},
 	{
 		id: "Qwen3.8-27B",
 		lane: "ovh",

@@ -66,7 +66,8 @@ export function normalizeApiConfiguration(
 			// 上下文窗口必须用真实值：openAiModelInfoSaneDefaults 的 128_000 是通用占位，
 			// 会让 UI 把所有免费模型都显示成 128k（实际池内为 32k~1M）。
 			// 自动路由下后端从 FREE_POOL[0] 开始尝试，失败才 failover，所以取首候选的窗口。
-			// KB 08 #241 重排后池首是 Beam 1.0（窗口随之变大）；这里从池定义派生，池首换了自动联动，
+			// KB 08 #241 重排后池首是 Beam 1.0，#255 移除已下线的 Beam 后池首为 Qwen3.8 27B（窗口随之变化）；
+			// 这里从池定义派生，池首换了自动联动，
 			// ⛔ 不要把旧池首的窗口字面量写死回来。局限：failover 到后续候选后这里会偏大；
 			// 真实值以环境详情为准（后端按 activeCandidate 计算）。
 			// KB 08 #242：指定模型时取该候选的窗口（与 free.ts getModel() 同口径）；
