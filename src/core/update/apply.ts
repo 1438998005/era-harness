@@ -393,7 +393,9 @@ class Applier {
 				this.errors.push({ path: action.path, message: (error as Error).message })
 			}
 		}
-		this.manifest.status = "rolled-back"
+		// U9（KB 08 #257）：部分失败时保持 "applying"——标 "rolled-back" 会让
+		// rollbackFromBackup 的重试直接早退"已撤销"，剩下的文件永远恢复不回来
+		this.manifest.status = this.errors.length === 0 ? "rolled-back" : "applying"
 		try {
 			await this.writeManifest()
 		} catch {
@@ -511,12 +513,13 @@ export async function applyPlanFromTar(opts: ApplyOptions & { stream: AsyncItera
 	}
 
 	const allWrites = applier.writeSet()
-	// 有覆盖内容的路径直接从内存写，不再等归档里的那一条
+	// 有覆盖内容的路径直接从内存写，不再等归档里的那一条。
+	// KB 08 #257：overrides 与归档写入同在一个 try 里，任一写失败都走同一条回滚路径——
+	// 原实现 overrides 写在 try 之外，写到一半注入失败时会停在半合并状态且不触发回滚。
 	const overridden = new Set<RelPath>()
 	if (opts.overrides) {
-		for (const [rel, bytes] of opts.overrides) {
+		for (const [rel] of opts.overrides) {
 			if (allWrites.has(rel)) {
-				await applier.writeFile(rel, bytes)
 				overridden.add(rel)
 			}
 		}
@@ -529,6 +532,13 @@ export async function applyPlanFromTar(opts: ApplyOptions & { stream: AsyncItera
 	} = { current: null }
 
 	try {
+		if (opts.overrides) {
+			for (const [rel, bytes] of opts.overrides) {
+				if (overridden.has(rel)) {
+					await applier.writeFile(rel, bytes)
+				}
+			}
+		}
 		await extractTar(opts.stream, {
 			filter: (entry) => writeSet.has(entry.path),
 			onFile: async (entry, chunk) => {
@@ -614,23 +624,22 @@ export async function rollbackFromBackup(backupDir: string): Promise<RollbackRep
 		}
 	}
 
-	// U9：部分失败时保持可重试——status 写成 rolled-back 会让重试直接早退"已撤销"，
-	// 剩下的文件就永远恢复不回来。全部成功才标记 rolled-back。
-	manifest.status = errors.length === 0 ? "rolled-back" : "applying"
-	await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8")
-
 	// 状态也要跟着回去：更新成功时 `.era-harness/update-state.json` 已被写成新快照，
 	// 只还原文件不还原状态的话，下次更新会以新快照为基线，把所有旧文件判成
 	// 「用户改过」并误报已经是最新的。`state-before.json` 正是为此备份的。
 	// （备份目录里没有这个文件 = 老版本备份，保持只还原文件的原行为。）
+	// KB 08 #257：service 现在写 schemaVersion 2 的状态，这里与 readState() 同口径收 1 和 2；
+	// 且状态恢复先于 status 落笔——否则恢复失败时 manifest 已标 "rolled-back"，重试被早退堵死。
 	const stateBeforePath = path.join(backupDir, "state-before.json")
 	try {
 		const raw = await fs.readFile(stateBeforePath, "utf8")
 		const parsed = JSON.parse(raw) as unknown
+		const schemaVersion =
+			typeof parsed === "object" && parsed !== null ? (parsed as { schemaVersion?: unknown }).schemaVersion : undefined
 		if (parsed === null) {
 			// 更新前没有状态（首次更新）：撤销后状态文件也不该留着
 			await fs.rm(winLongPath(statePath(manifest.root)), { force: true })
-		} else if (typeof parsed === "object" && (parsed as { schemaVersion?: unknown }).schemaVersion === 1) {
+		} else if (schemaVersion === 1 || schemaVersion === 2) {
 			const target = winLongPath(statePath(manifest.root))
 			await fs.mkdir(path.dirname(target), { recursive: true })
 			await fs.writeFile(target, raw, "utf8")
@@ -645,6 +654,11 @@ export async function rollbackFromBackup(backupDir: string): Promise<RollbackRep
 			errors.push({ path: `${STATE_DIR}/${STATE_FILE}`, message: (error as Error).message })
 		}
 	}
+
+	// U9：部分失败时保持可重试——status 写成 rolled-back 会让重试直接早退"已撤销"，
+	// 剩下的文件就永远恢复不回来。全部成功（含状态恢复）才标记 rolled-back。
+	manifest.status = errors.length === 0 ? "rolled-back" : "applying"
+	await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8")
 
 	return { ok: errors.length === 0, restored, removed, errors }
 }

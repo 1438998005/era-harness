@@ -45,6 +45,8 @@ export abstract class DiffViewProvider {
 	protected originalHasBom = false
 	/** 打开时原文件的编码事实（BOM / 行尾 / 末尾换行），写回与写后复检都以它为基准 */
 	private originalFacts?: FileEncodingFacts
+	/** 打开时原文件的原始字节（KB 08 #258）：拒绝修改时按字节还原，编码/BOM/行尾原样保留 */
+	private originalBytes?: Buffer
 	private streamedLines: string[] = []
 	private newContent?: string
 
@@ -73,12 +75,17 @@ export abstract class DiffViewProvider {
 			this.originalHasBom =
 				fileBuffer.length >= 3 && fileBuffer[0] === 0xef && fileBuffer[1] === 0xbb && fileBuffer[2] === 0xbf
 			this.originalFacts = inspectFileBytes(fileBuffer)
+			// KB 08 #258：原始字节只在这里存在过，捕获一份——revertChanges 依赖它把磁盘
+			// 恢复到逐字节一致（saveDocument 按宿主编码落盘，会毁掉 CP932 等原编码）
+			this.originalBytes = fileBuffer
 			this.originalContent = iconv.decode(fileBuffer, this.fileEncoding)
 		} else {
 			this.originalContent = ""
 			this.fileEncoding = "utf8"
 			this.originalHasBom = false
 			this.originalFacts = undefined
+			// KB 08 #265：同实例复用（modify 后不 reset 直接 create）时不得残留上一个文件的字节
+			this.originalBytes = undefined
 		}
 		// for new files, create any necessary directories and keep track of new directories to delete if the user denies the operation
 		this.createdDirs = await createDirectoriesForFile(this.absolutePath)
@@ -391,9 +398,13 @@ export abstract class DiffViewProvider {
 		}
 
 		await this.saveDocument()
-		const encodingNote = await this.enforceWriteEncoding()
 		// get text after save in case there is any auto-formatting done by the editor
+		// KB 08 #264：编码守卫的权威文本改用保存后的文档文本——formatOnSave 等保存时
+		// 改写文档的行为发生后，用保存前文本重写磁盘会抹掉格式化成果，且 finalContent
+		//（保存后读）与磁盘错位。文档内存文本保留原始 Unicode（'？' 替换只发生在宿主
+		// 落盘编码时），丢字检出能力不变；空文档兜底回落保存前文本（文档中途被关）。
 		const postSaveContent = (await this.getDocumentText()) || ""
+		const encodingNote = await this.enforceWriteEncoding(postSaveContent || preSaveContent)
 
 		await this.showFile(this.absolutePath)
 		await this.closeAllDiffViews()
@@ -456,7 +467,7 @@ export abstract class DiffViewProvider {
 	 *
 	 * @returns 人话结论；符合判据且无需说明时返回 undefined（⛔ 给模型制造噪音）
 	 */
-	private async enforceWriteEncoding(): Promise<string | undefined> {
+	private async enforceWriteEncoding(authoritativeText?: string): Promise<string | undefined> {
 		if (!this.absolutePath || this.editType === "delete") {
 			return undefined
 		}
@@ -466,8 +477,25 @@ export abstract class DiffViewProvider {
 			const hints = before ? undefined : await this.sampleSiblingHints(path.extname(this.absolutePath).toLowerCase())
 			const plan = planSafeWrite(before, this.absolutePath, hints)
 
-			const current = await fs.readFile(this.absolutePath)
+			// Buffer 宽型注解：fs.readFile 推断 Buffer<ArrayBuffer>，而 encodeToTarget
+			// 返回宽型 Buffer（ArrayBufferLike），降级重写后要回写 current 必须同型
+			let current: Buffer = await fs.readFile(this.absolutePath)
 			let degraded = false
+			// KB 08 #258/#264：先对权威文本（保存后的文档文本，KB 08 #264）做目标编码
+			// 往返检查——'？' 是合法 CP932，磁盘字节形态完全正常时也可能已经丢了字，
+			// 只有原文能检出不可表示字符被替换
+			if (authoritativeText !== undefined) {
+				const roundTrip = this.encodeToTarget(authoritativeText, plan.target)
+				if (roundTrip.degraded) {
+					degraded = true
+					// 只有字节真的变了才落盘：fs.writeFile 会刷新 mtime，而 mtime 是引擎
+					// 懒加载索引判断「这个文件变没变」的依据，无谓重写会白白触发重新加载。
+					if (!roundTrip.buffer.equals(current)) {
+						await fs.writeFile(this.absolutePath, roundTrip.buffer)
+						current = roundTrip.buffer
+					}
+				}
+			}
 			if (!writeTargetMatches(inspectFileBytes(current), plan.target)) {
 				const encoded = this.encodeToTarget(decodeToUtf8(current).text, plan.target)
 				degraded = encoded.degraded
@@ -617,6 +645,16 @@ export abstract class DiffViewProvider {
 				await this.replaceText(this.originalContent ?? "", { startLine: 0, endLine: lineCount }, undefined)
 
 				await this.saveDocument()
+				// KB 08 #258：saveDocument 由宿主按当前编码设置落盘，原 CP932 文件可能被写
+				// 成 UTF-8。「拒绝修改 = 回到编辑前」，磁盘必须按 open() 捕获的原始字节还原
+				//（编码/BOM/行尾原样）——文本级恢复不够。失败只告警：文本至少已经还原。
+				if (this.originalBytes !== undefined) {
+					try {
+						await fs.writeFile(this.absolutePath, this.originalBytes)
+					} catch (error) {
+						Logger.warn("Failed to restore original file bytes:", error)
+					}
+				}
 				Logger.log(`File ${this.absolutePath} has been reverted to its original content.`)
 				if (this.documentWasOpen) {
 					openFile(this.absolutePath, true)
@@ -692,6 +730,7 @@ export abstract class DiffViewProvider {
 		this.fileEncoding = "utf8"
 		this.originalHasBom = false
 		this.originalFacts = undefined
+		this.originalBytes = undefined
 		this.documentWasOpen = false
 
 		this.streamedLines = []

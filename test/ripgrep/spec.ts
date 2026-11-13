@@ -152,18 +152,53 @@ test("mergeEncodingPasses：第二遍为空时原样返回", () => {
 	assert.equal(mergeEncodingPasses(pass1, []).length, 1)
 })
 
+/** 「テスト」的 CP932 字节：テ=0x83 0x65、ス=0x83 0x58、ト=0x83 0x67。
+ *  ⚠️ 必须用字节数组直接拼——`Buffer.from(latin1字符串)` 默认按 UTF-8 编码，
+ *  0x83 会被写成 0xC2 0x83，磁盘上就不是 CP932 字节了（原测试就栽在这里）。 */
+const CP932_TESUTO = Buffer.from([0x83, 0x65, 0x83, 0x58, 0x83, 0x67])
+
 test("集成：CP932 无 BOM 文件与 UTF-8 文件在同一搜索中都能命中", async () => {
-	// 「テスト」的 CP932 字节：テ=0x83 0x65、ス=0x83 0x58、ト=0x83 0x67
-	const cp932Line = 'msg = "' + Buffer.from([0x83, 0x65, 0x83, 0x58, 0x83, 0x67]).toString("latin1") + 'cp932"\r\n'
 	const dir = mkdtempSync(path.join(tmpdir(), "era-rg-"))
 	try {
 		writeFileSync(path.join(dir, "utf8.erb"), 'msg = "テストutf8"\r\n', "utf8")
-		writeFileSync(path.join(dir, "cp932.erb"), Buffer.from(cp932Line, "latin1"))
+		writeFileSync(
+			path.join(dir, "cp932.erb"),
+			Buffer.concat([Buffer.from('msg = "', "latin1"), CP932_TESUTO, Buffer.from('cp932"\r\n', "latin1")]),
+		)
 
 		const out = await regexSearchFiles(dir, dir, "テスト")
 		assert.ok(out.includes("utf8.erb"), `UTF-8 文件应命中：\n${out}`)
 		assert.ok(out.includes("cp932.erb"), `CP932 文件必须经 Shift-JIS 第二遍命中：\n${out}`)
 		assert.ok(out.includes("テストcp932"), "CP932 内容应被正确转码显示（无乱码）")
+	} finally {
+		rmSync(dir, { recursive: true, force: true })
+	}
+})
+
+test("集成：首轮 4000 行截断后 CP932 第二遍仍执行，独有命中不被条数上限吃掉（KB 08 #259）", async () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "era-rg-cap-"))
+	try {
+		// rg --json 的实测行为：begin/end 每文件只发一次，相邻命中间的上下文只打印一次，
+		// JSON 行数 ≈ 源文件被触及的行数。全部行都命中 → 4500 行源码 ≈ 4502 行 JSON
+		// > 4000 行上限 → 首轮必截断（且 pass1 解析到的结果数远超 500 条上限）。
+		const utf8Lines: string[] = []
+		for (let i = 0; i < 4500; i++) {
+			utf8Lines.push(`msg${i} = "テスト${i}"`)
+		}
+		writeFileSync(path.join(dir, "aaa-utf8.erb"), utf8Lines.join("\r\n") + "\r\n", "utf8")
+		writeFileSync(
+			path.join(dir, "zz-cp932.erb"),
+			Buffer.concat([Buffer.from('msg = "', "latin1"), CP932_TESUTO, Buffer.from('cp932"\r\n', "latin1")]),
+		)
+
+		const out = await regexSearchFiles(dir, dir, "テスト")
+		assert.ok(out.includes("line cap reached"), "首轮截断提示必须可见")
+		assert.ok(
+			out.includes("zz-cp932.erb"),
+			`首轮截断后 CP932 文件必须经第二遍命中且可见（修复前直接跳过第二遍）：\n${out.slice(0, 400)}`,
+		)
+		assert.ok(out.includes("テストcp932"), "CP932 内容应被正确转码显示")
+		assert.ok(out.includes("aaa-utf8.erb"), "首轮的 UTF-8 命中仍保留")
 	} finally {
 		rmSync(dir, { recursive: true, force: true })
 	}

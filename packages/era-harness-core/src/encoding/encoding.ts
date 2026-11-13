@@ -55,8 +55,12 @@ export function decodeToUtf8(buffer: Buffer): DecodedText {
   if (bom === 'utf16be') {
     const body = buffer.subarray(2);
     if (body.length % 2 !== 0) {
-      // 奇数字节：解掉完整的前半段，尾字节补替换符
-      return { ...base, text: body.subarray(0, body.length - 1).toString('utf16le') + '\uFFFD', lossy: true };
+      // 奇数字节（KB 08 #263）：完整的前半段先做 BE→LE 字节交换再解（原实现漏了
+      // swap16，BE 字节按 LE 解整段变乱码），尾字节补替换符
+      const prefix = Buffer.from(body.subarray(0, body.length - 1));
+      prefix.swap16();
+      const r = decodeWith('utf-16le', prefix);
+      return { ...base, text: r.text + '\uFFFD', lossy: true };
     }
     const swapped = Buffer.from(body);
     swapped.swap16();

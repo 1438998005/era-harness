@@ -133,7 +133,6 @@ const EXPECTED_POOL_ORDER = [
 	"Qwen3.8-27B",
 	"Qwen3.6-27B",
 	"stealth/glyph-cluster",
-	"stealth/crouton-alpha",
 	"dots-studio/dots-3-note-preview:free",
 	"Qwen3.5-397B-A17B",
 	"cohere/north-mini-code:free",
@@ -179,16 +178,16 @@ const expectedVisionOrder = (ids: readonly string[]) =>
 		.map((c) => c.id)
 
 // ---------------------------------------------------------------------------
-// 候选链组装（共 18 项；2026-11-11 Beam 下线移除（KB 08 #255），此前为 #241 定稿 18 → 11-08 插 LFM3 至 19）
+// 候选链组装（共 17 项；2026-11-13 Crouton Alpha 下线移除（KB 08 #256）；2026-11-11 Beam 下线移除（KB 08 #255），此前为 #241 定稿 18 → 11-08 插 LFM3 至 19）
 // ---------------------------------------------------------------------------
 
-test("单一池：无 listing 时 18 个候选（全部精确 ID）且逐字等于定稿序", () => {
+test("单一池：无 listing 时 17 个候选（全部精确 ID）且逐字等于定稿序", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
-	assert.equal(chain.length, 18) // OVH 9 + Kilo 9（全部精确 ID，无 listingMatch 条目）
-	// 渠道分布：OVH 9 + Kilo 9；Zen 已移出池；Beam 已下线移除（KB 08 #255）
+	assert.equal(chain.length, 17) // OVH 9 + Kilo 8（全部精确 ID，无 listingMatch 条目）
+	// 渠道分布：OVH 9 + Kilo 8；Zen 已移出池；Beam（#255）、Crouton Alpha（#256）已下线移除
 	assert.equal(chain.filter((c) => c.lane === "zen").length, 0)
 	assert.equal(chain.filter((c) => c.lane === "ovh").length, 9)
-	assert.equal(chain.filter((c) => c.lane === "kilo").length, 9)
+	assert.equal(chain.filter((c) => c.lane === "kilo").length, 8)
 	assert.deepEqual(
 		chain.map((c) => c.id),
 		EXPECTED_POOL_ORDER,
@@ -202,13 +201,17 @@ test("#241 结构性：FREE_POOL 与单一常量表一致，LFM3 插在 #16、Su
 		FREE_POOL.map((c) => c.id),
 		EXPECTED_POOL_ORDER,
 	)
-	assert.equal(new Set(EXPECTED_POOL_ORDER).size, 18, "期望表自身不得有重复/漏项")
+	assert.equal(new Set(EXPECTED_POOL_ORDER).size, 17, "期望表自身不得有重复/漏项")
 	assert.deepEqual(
 		FREE_POOL.slice(13).map((c) => c.id),
 		EXPECTED_POOL_ORDER.slice(13),
 		"尾部五项：Ultra → LFM3 → Lightning → Nano Omni → Super VL",
 	)
-	assert.equal(FREE_POOL[14].id, LFM3_ID, "LFM3 为 #15（2026-11-11 Beam 移除后由 #16 前移一位），其余项相对序不动")
+	assert.equal(
+		FREE_POOL[13].id,
+		LFM3_ID,
+		"LFM3 为 #14（Beam #255 / Crouton Alpha #256 相继移除后由 #16 前移两位），其余项相对序不动",
+	)
 	const nvidiaIds = EXPECTED_POOL_ORDER.filter((id) => id.startsWith("nvidia/"))
 	assert.equal(nvidiaIds.length, 4, "NVIDIA 家族仍是四项")
 	assert.equal(nvidiaIds[0], "nvidia/nemotron-3-ultra-550b-a55b:free", "Ultra 仍是家族首位")
@@ -216,9 +219,15 @@ test("#241 结构性：FREE_POOL 与单一常量表一致，LFM3 插在 #16、Su
 	assert.equal(FREE_POOL[FREE_POOL.length - 1].id, "nvidia/nemotron-3.5-super-vl:free", "唯一有本地实测且实测失败 → 末位隔离")
 	// 其余项相对顺序完全不动：从新序剔除 NVIDIA 四项与本轮新增项后逐字比较（插在前段也不会假红）
 	// 2026-11-11：Beam 渠道下线移除（KB 08 #255），历史清单原样保留，比较时两边同剔 Beam
-	const legacyNonNvidia = POOL_ORDER_BEFORE_241.filter((id) => !id.startsWith("nvidia/") && id !== "reflection/beam-free")
+	// 2026-11-13：Crouton Alpha 渠道下线移除（KB 08 #256），同法两边同剔
+	const legacyNonNvidia = POOL_ORDER_BEFORE_241.filter(
+		(id) => !id.startsWith("nvidia/") && id !== "reflection/beam-free" && id !== "stealth/crouton-alpha",
+	)
 	const withoutNewAndNvidia = (ids: readonly string[]) =>
-		ids.filter((id) => !id.startsWith("nvidia/") && id !== LFM3_ID && id !== "reflection/beam-free")
+		ids.filter(
+			(id) =>
+				!id.startsWith("nvidia/") && id !== LFM3_ID && id !== "reflection/beam-free" && id !== "stealth/crouton-alpha",
+		)
 	assert.deepEqual(withoutNewAndNvidia(EXPECTED_POOL_ORDER), legacyNonNvidia)
 	assert.deepEqual(withoutNewAndNvidia(FREE_POOL.map((c) => c.id)), legacyNonNvidia)
 })
@@ -251,11 +260,13 @@ test("#241 元测试：池首窗口与设置页同源，带图链不单独定序
 // 防同类回归（KB 08 #229）：2026-11-04 深夜全渠道存活复核的 7 个死项（含 11-11 增补的 Beam，KB 08 #255）、付费行与 2 个虚拟路由器，
 // 任何一个重新出现在 FREE_POOL 都应让本测试变红。清单判据见 KB 07 §7.8/§7.9。
 // 2026-11-11 增补：Beam 1.0 渠道下线（KB 08 #255）。
+// 2026-11-13 增补：Crouton Alpha 从 Kilo listing 消失（KB 08 #256，登记时实测复核 382 项中缺失）。
 test("存活复核回归：死项、付费行与 2 个虚拟路由器 ID 均不入静态池", () => {
 	const ids = FREE_POOL.map((c) => c.id)
 	const dead = [
 		"thinkingmachines/inkling:free", // Kilo 免费行整行消失（仅剩付费行）
 		"reflection/beam-free", // 2026-11-11 渠道下线（KB 08 #255）：v1.4 三次实弹 44 轮全无有效响应
+		"stealth/crouton-alpha", // 2026-11-13 渠道下线（KB 08 #256）：Kilo listing 382 项中缺失
 		"recursive/flint-v1.0:free",
 		"xingchen-agi/xing4.0-29b-a4b:free",
 		"google/gemma-4-31b-it:free",
@@ -362,7 +373,6 @@ test("上下文窗口：OVH 端点 / Kilo 静态实证表的权威值", () => {
 	// Kilo 侧以静态实证表为准（2026-11-05 listing 复核；含 11-08 新增的 LFM3）
 	assert.equal(byId("nvidia/nemotron-3.5-super-vl:free")?.contextWindow, 1_000_000)
 	assert.equal(byId("stealth/glyph-cluster")?.contextWindow, 256_000)
-	assert.equal(byId("stealth/crouton-alpha")?.contextWindow, 1_048_576)
 	assert.equal(byId("dots-studio/dots-3-note-preview:free")?.contextWindow, 512_000)
 	assert.equal(byId("nvidia/nemotron-3.5-lightning:free")?.contextWindow, 1_000_000)
 	assert.equal(byId("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")?.contextWindow, 256_000)
@@ -370,15 +380,14 @@ test("上下文窗口：OVH 端点 / Kilo 静态实证表的权威值", () => {
 	assert.equal(byId(LFM3_ID)?.contextWindow, 262_144)
 	assert.equal(byId(LFM3_ID)?.maxOutput, 8_192)
 	assert.equal(byId(LFM3_ID)?.vision, false, "LFM3 纯文本，不得进带图链")
-	// 新增行的 maxOutput 也按 listing 登记（Crouton 的极大值由 handler 截断兜底）
-	assert.equal(byId("stealth/crouton-alpha")?.maxOutput, 943_718)
+	// 新增行的 maxOutput 也按 listing 登记
 	assert.equal(byId("nvidia/nemotron-3.5-lightning:free")?.maxOutput, 65_536)
 	assert.equal(byId("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")?.maxOutput, 65_536)
 })
 
-test("带图链只含 vision 候选，首位 stealth/crouton-alpha（#241：不单独定序，由 filter(vision) 自然得出）", () => {
+test("带图链只含 vision 候选，首位 Dots3-Note（#241 不单独定序 + #256 Crouton Alpha 下线顺延，由 filter(vision) 自然得出）", () => {
 	const chain = buildFreeCandidateChain({ hasImages: true })
-	assert.equal(chain.length, 5, "池内 vision 候选恰好 5 个")
+	assert.equal(chain.length, 4, "池内 vision 候选恰好 4 个（Crouton Alpha 已下线移除，KB 08 #256）")
 	assert.ok(chain.every((candidate) => candidate.vision))
 	assert.ok(!chain.some((candidate) => candidate.id === "gpt-oss-120b"), "纯文本候选应被过滤")
 	// 期望顺序从单一常量表派生，而不是再抄一份 vision 名单
@@ -386,11 +395,12 @@ test("带图链只含 vision 候选，首位 stealth/crouton-alpha（#241：不�
 		chain.map((c) => c.id),
 		expectedVisionOrder(EXPECTED_POOL_ORDER),
 	)
-	assert.equal(chain[0].id, "stealth/crouton-alpha", "用户明确裁定带图链首位合理")
-	assert.equal(chain[4].id, "nvidia/nemotron-3.5-super-vl:free", "Super VL 末位隔离，不再是带图链首选")
-	// Glyph/Lightning 免费行仅 text → 不在带图链（Beam 已下线移除，KB 08 #255）
+	assert.equal(chain[0].id, "dots-studio/dots-3-note-preview:free", "Crouton Alpha 移除后按池序顺延为带图链首位")
+	assert.equal(chain[3].id, "nvidia/nemotron-3.5-super-vl:free", "Super VL 末位隔离，不再是带图链首选")
+	// Glyph/Lightning 免费行仅 text → 不在带图链（Beam #255 / Crouton Alpha #256 已下线移除）
 	assert.ok(!chain.some((candidate) => candidate.id === "stealth/glyph-cluster"), "Glyph 仅 text 不应进带图链")
 	assert.ok(!chain.some((candidate) => candidate.id === "nvidia/nemotron-3.5-lightning:free"), "Lightning 仅 text 不应进带图链")
+	assert.ok(!chain.some((candidate) => candidate.id === "stealth/crouton-alpha"), "已下线的 Crouton Alpha 不应留在带图链")
 })
 
 test("Kilo listing 门控：不在免费清单的 Kilo 条目被剔除", () => {
@@ -427,7 +437,11 @@ test("隐私开关 + 带图：vision 候选仅剩 Qwen2.5-VL（OVH 侧唯一 vis
 test("Kilo listing 拉取失败时只放行已实证精确 ID 的条目", () => {
 	const chain = buildFreeCandidateChain({ hasImages: false })
 	const kilo = chain.filter((candidate) => candidate.lane === "kilo")
-	assert.equal(kilo.length, 9, "9 个已实证 Kilo 条目应全部放行（池内已无待解析条目；Beam 已下线移除，KB 08 #255）")
+	assert.equal(
+		kilo.length,
+		8,
+		"8 个已实证 Kilo 条目应全部放行（池内已无待解析条目；Beam #255 / Crouton Alpha #256 已下线移除）",
+	)
 })
 
 test("parseKiloFreeRows: isFree 过滤 / vision / 缺省值", () => {
@@ -1355,7 +1369,7 @@ test("OpenRouter 清单快照：12 项实测、含 5 个独有 ID、⛔ 不污�
 		assert.ok(ids.includes(id), `快照应含独有免费 ID：${id}`)
 		assert.ok(!FREE_POOL.some((candidate) => candidate.id === id), `独有 ID 不得进 FREE_POOL：${id}`)
 	}
-	assert.equal(FREE_POOL.length, 18, "清单展示不得改变默认池规模")
+	assert.equal(FREE_POOL.length, 17, "清单展示不得改变默认池规模")
 })
 
 test("OpenRouter 清单结构性：展示模块与池唯一真源互不反向引用", () => {

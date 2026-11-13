@@ -82,6 +82,17 @@ test('decode: UTF-16BE BOM（swap16 路径）', () => {
   assert.equal(r.lossy, false);
 });
 
+test('decode: UTF-16BE BOM + 奇数字节 → 前半段正常解码 + 尾部替换符（KB 08 #263）', () => {
+  // BE 字节：テスト + 1 个截断尾字节。原实现漏做 swap16，BE 字节按 LE 解 → 整段乱码
+  const le = Buffer.from('テストAB', 'utf16le');
+  const beBody = Buffer.from(le);
+  beBody.swap16();
+  const r = decodeToUtf8(Buffer.concat([Buffer.from([0xfe, 0xff]), beBody, Buffer.from([0x00])]));
+  assert.equal(r.text, 'テストAB\uFFFD');
+  assert.equal(r.bom, 'utf16be');
+  assert.equal(r.lossy, true);
+});
+
 test('decode: 空缓冲区', () => {
   const r = decodeToUtf8(Buffer.alloc(0));
   assert.equal(r.text, '');

@@ -8,7 +8,9 @@
  *
  * 数据来源：2026-11-08 实测 `GET https://openrouter.ai/api/v1/models`（HTTP 200、
  * total 461、`:free` 后缀 12 项、零价 16 项）。零价但无 `:free` 后缀的 4 项为
- * `stealth/crouton-alpha`（Kilo 池首，不是 OpenRouter 免费变体）、两个 Lyria 音乐生成模型
+ * `stealth/crouton-alpha`（当时在 Kilo 免费池内、并非 OpenRouter 免费变体，故不纳入展示；
+ * 登记时它的「池首」说法不准——实为池 #4 / 带图链首位；2026-11-13 已从免费池移除，KB 08 #256）、
+ * 两个 Lyria 音乐生成模型
  * 与虚拟路由器 `openrouter/free` 本身，均不纳入展示——音乐模型不参与聊天路由，
  * 虚拟路由器只是请求 ID、不是真实权重。
  */

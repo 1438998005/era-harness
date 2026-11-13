@@ -41,6 +41,8 @@ interface ParsedCommand {
  */
 export class CommandPermissionController {
 	private config: CommandPermissionConfig | null = null
+	/** KB 08 #261：配置 env 已设置但解析失败——守卫处于不确定状态，一律拒绝而不是静默全放行 */
+	private configInvalid = false
 
 	constructor(config?: CommandPermissionConfig) {
 		this.config = config ?? this.parseConfig()
@@ -58,7 +60,7 @@ export class CommandPermissionController {
 			return null
 		}
 		const parsed = this.parseCommandSegments(command)
-		if (parsed.hasRedirects || parsed.hasUnsafeOps || parsed.subshells.length > 0) {
+		if (!parsed || parsed.hasRedirects || parsed.hasUnsafeOps || parsed.subshells.length > 0) {
 			return null
 		}
 		return parsed.segments.length > 0 ? parsed.segments : null
@@ -82,6 +84,10 @@ export class CommandPermissionController {
 				allowRedirects: typeof parsed.allowRedirects === "boolean" ? parsed.allowRedirects : undefined,
 			}
 		} catch (error) {
+			// KB 08 #261：设置了配置但解析失败 ≠ 没配置——标记无效让 validateCommand
+			// 一律拒绝。原来返回 null 会被当成「无配置」全放行，管理员写错 JSON 就
+			// 静默失去全部保护还毫无察觉。
+			this.configInvalid = true
 			Logger.error(`Failed to parse ${COMMAND_PERMISSIONS_ENV_VAR}:`, error)
 			return null
 		}
@@ -95,6 +101,11 @@ export class CommandPermissionController {
 	 * @returns PermissionValidationResult indicating if command is allowed and why
 	 */
 	validateCommand(command: string): PermissionValidationResult {
+		// KB 08 #261：配置解析失败 = 守卫处于不确定状态，一律拒绝；「未配置」才放行（向后兼容）
+		if (this.configInvalid) {
+			return { allowed: false, reason: "config_parse_error" }
+		}
+
 		// No config = allow everything (backward compatibility)
 		if (!this.config) {
 			return { allowed: true, reason: "no_config" }
@@ -213,13 +224,15 @@ export class CommandPermissionController {
 		return { allowed: true, reason: "no_config" }
 	}
 
-	private parseCommandSegments(input: string): ParsedCommand {
+	private parseCommandSegments(input: string): ParsedCommand | null {
 		let tokens: ParseEntry[] = []
 		try {
 			tokens = parse(input)
 		} catch (err) {
 			Logger.error("Error parsing command: " + err.message)
-			return { segments: [], subshells: [], hasRedirects: false }
+			// KB 08 #261：解析失败必须保守阻断——返回空结构会被 validateParsedCommand
+			// 当成「无段、无操作符」直接放行（fail-open）。返回 null 走 !parseResult 分支。
+			return null
 		}
 
 		function process(tokenList: ParseEntry[]): ParsedCommand {

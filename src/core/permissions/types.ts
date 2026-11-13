@@ -22,6 +22,7 @@ export interface PermissionValidationResult {
 		| "redirect_detected" // Redirect operators (>, >>, <) were used but not allowed
 		| "segment_denied" // A segment in a chained command matched a deny pattern
 		| "segment_no_match" // A segment in a chained command didn't match any allow pattern
+		| "config_parse_error" // KB 08 #261：权限配置 env 设置了但解析失败——一律拒绝，不静默放行
 	detectedOperator?: string // The shell operator that was detected (for error messages)
 	failedSegment?: string // The command segment that failed validation (for chained commands)
 }

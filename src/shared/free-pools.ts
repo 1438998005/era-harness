@@ -7,27 +7,29 @@
  *     Big Pickle 均为 200K，付费版才是 1M；Cat Jam 正式 ID 为 `cat-jam-free`）；
  * - Kilo 侧以运行时 listing `GET https://api.kilo.ai/api/gateway/models` 的 `isFree === true` 行为准
  *   （context_length / top_provider.max_completion_tokens / architecture.input_modalities）；
- *   **判据不是 `:free` 后缀**：无后缀的 `stealth/glyph-cluster`、`stealth/crouton-alpha`
- *   同样是免费行；反过来去掉 `:free` 的付费行绝不能拿来补位。
+ *   **判据不是 `:free` 后缀**：无后缀的 `stealth/glyph-cluster`
+ *   同样是免费行（同型的 `stealth/crouton-alpha` 已于 2026-11-13 下线移除，KB 08 #256）；
+ *   反过来去掉 `:free` 的付费行绝不能拿来补位。
  * - OVH 侧以端点 `GET /v1/models`（无 key 可拉）的 context_length 为准；
  *   maxOutput 端点未登记 → 保守估值，handler 的 FREE_REQUEST_MAX_OUTPUT 截断兜底。
  *   **但目录存在 ≠ 推理端点可用**：退役生效日必须逐个 `POST /v1/chat/completions` 实测
  *   （404 `no Route matched with those values` = 已下架；429 = 存活只是限流）。
  * - vision 以 listing `input_modalities` 含 `image` 为准（未验证不声明，保守 false）。
  *
- * 池顺序（2026-11-08 补入 LFM3-1.7B；2026-11-05 二次修订，KB 08 #241 用户裁定「只调整英伟达家族 4 项」）：
- * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Glyph Cluster(kilo) → Crouton Alpha(kilo) →
+ * 池顺序（2026-11-13 移除 Crouton Alpha；2026-11-08 补入 LFM3-1.7B；2026-11-05 二次修订，KB 08 #241 用户裁定「只调整英伟达家族 4 项」）：
+ * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Glyph Cluster(kilo) →
  * Dots3-Note(kilo) → Qwen3.5-397B(ovh) → North Mini Code(kilo) → gpt-oss-120b(ovh) →
  * Mistral Small 3.2(ovh) → gpt-oss-20b(ovh) → Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) →
  * Qwen2.5-VL-72B(ovh) → Nemotron 3 Ultra(kilo) → LFM3-1.7B(kilo) → Nemotron 3.5 Lightning(kilo) →
  * Nemotron 3 Nano Omni(kilo) → Nemotron 3.5 Super VL(kilo)。
- * （共 18 项：OVH 9 + Kilo 9。2026-11-11 原 #1 Beam 1.0 渠道下线移除（KB 08 #255），其余 18 项
+ * （共 17 项：OVH 9 + Kilo 8。2026-11-13 原 #5 Crouton Alpha 从 Kilo listing 下线移除（KB 08 #256），
+ * 其余项相对顺序逐字不动；2026-11-11 原 #1 Beam 1.0 渠道下线移除（KB 08 #255），其余 18 项
  * 相对顺序逐字不动，池首由 Beam 顺延为 Qwen3.8-27B；2026-11-08 版 19 项中**前 14 项相对顺序与
  * #229 旧序逐字不变**，该轮只把 Kilo 新免费行 LFM3-1.7B 插为新 #16（Ultra 之后、Lightning 之前）、
  * 不重新评估；
  * 「保持原序」≠ 已按新三源重新评估；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，
- * 门控判据见 free-lanes.ts。带图链不单独定序，仍是 `filter(vision)`：首位 stealth/crouton-alpha，
- * 用户明确裁定「这是合理的」，不为它微调任何非 NVIDIA 项。）
+ * 门控判据见 free-lanes.ts。带图链不单独定序，仍是 `filter(vision)`：首位 Dots3-Note
+ * （#256 移除 Crouton Alpha 后按池序顺延，与 #255 同型处理）。）
  *
  * 排序口径（#241 用户裁定「三源并重，任一源不得独占」）：
  * ① **本地实测（硬门槛）**：本插件 XML 工具协议实弹回放——标签闭合率 / `parse repair` 数 /
@@ -162,7 +164,7 @@ export interface FreeCandidate {
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价）；2026-11-08 插入 LFM3-1.7B 至 19 项，2026-11-11 Beam 1.0 渠道下线移除（KB 08 #255）→ 共 18 项（OVH 9 + Kilo 9），池首 Qwen3.8-27B */
+/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价）；2026-11-08 插入 LFM3-1.7B 至 19 项，2026-11-11 Beam 1.0 渠道下线移除（KB 08 #255），2026-11-13 Crouton Alpha 渠道下线移除（KB 08 #256）→ 共 17 项（OVH 9 + Kilo 8），池首 Qwen3.8-27B */
 export const FREE_POOL: readonly FreeCandidate[] = [
 	{
 		id: "Qwen3.8-27B",
@@ -199,29 +201,13 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		// stealth 期 prompt 被上游留存：Kilo 渠道级 collectsData=true 已覆盖，无新增恶化。
 	},
 	{
-		id: "stealth/crouton-alpha",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Crouton Alpha (stealth)",
-		contextWindow: 1_048_576, // Kilo listing 实证（2026-11-05 复核）
-		maxOutput: 943_718, // 极大值仅登记，handler FREE_REQUEST_MAX_OUTPUT 截断兜底
-		vision: true, // listing 含 image+video+file+audio；vision 链第 1 位（#241 带图链首选，多模态未实弹验证）
-		// #5（低置信，2026-11-05 新增）：2026-11-03 上线的匿名 stealth 模型，Kilo listing isFree=true / 0-0 价格，
-		// 零凭据 POST 实测 HTTP 200、cost=0；OpenRouter 官方页 Free / 1.0M context / Tool call error rate 8.13% /
-		// 可用性约 97%。支持 tools / structured_outputs / reasoning_effort。**零社区评价**，
-		// 且是推理模型：响应带 `reasoning.encrypted` 型 `reasoning_details`，多轮须完整回传
-		// （openai-format.ts 有通用清洗/回传逻辑，但免费池路径未实弹验证）；低 max token 时 content 可为 null。
-		// 隐私口径冲突（OpenRouter「不用于训练」vs Kilo `mayTrainOnYourPrompts=true`）按保守规则走 Kilo 收集标记。
-		// 故排在 Glyph 之后、Dots3 之前；#241 后成为带图链首位（用户裁定合理），若工具调用错误率实测偏高可随时下调。
-	},
-	{
 		id: "dots-studio/dots-3-note-preview:free",
 		lane: "kilo",
 		wire: "chat",
 		displayName: "Dots3-Note Preview",
 		contextWindow: 512_000, // Kilo listing 实证
 		maxOutput: 460_800,
-		vision: true, // vision 链第 2 位
+		vision: true, // vision 链第 1 位（#256 移除 Crouton Alpha 后按池序顺延）
 		// #6：Kilo 榜 Code 3.7% #7 / 24h 70.4B #5，有真实用量但 agent 实战弱于前三；
 		// 历史教训：厂商自报基准须打折（与 Gemma 系同款），社区口碑优先。
 	},
@@ -299,7 +285,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "Qwen2.5 VL 72B",
 		contextWindow: 32_768, // OVH 端点实证
 		maxOutput: 8_192,
-		vision: true, // vision 链第 3 位；OVH 侧唯一 vision 候选（隐私开关下带图请求唯一可打的模型）
+		vision: true, // vision 链第 2 位；OVH 侧唯一 vision 候选（隐私开关下带图请求唯一可打的模型）
 		// VL = 视觉语言模型；32K 窗口对工程任务太短，排序靠后，但隐私开关开启时是唯一可用带图候选。
 	},
 	{
@@ -353,10 +339,10 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "Nemotron 3 Nano Omni (30B-A3B)",
 		contextWindow: 256_000, // Kilo listing 实证（2026-11-05 复核）
 		maxOutput: 65_536,
-		vision: true, // listing 含 text+audio+image+video；vision 链第 4 位
+		vision: true, // listing 含 text+audio+image+video；vision 链第 3 位
 		// #18（KB 08 #241）：NVIDIA 官方定位「感知子代理」omni 小模型（30B-A3B，3B 活跃），
 		// 面向多模态输入理解而非主力编码/工程链路，无榜单用量背书、零本插件实弹 → 家族第 3 位，
-		// 但仍保留 vision 链第 4 位的补位价值（带图链不单独定序）。
+		// 但仍保留 vision 链第 3 位的补位价值（带图链不单独定序）。
 	},
 	{
 		id: "nvidia/nemotron-3.5-super-vl:free",
@@ -365,7 +351,7 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "Nemotron 3.5 Super VL (120B-A12B)",
 		contextWindow: 1_000_000, // Kilo listing 实证
 		maxOutput: 131_072,
-		vision: true, // listing input_modalities 含 image+video；vision 链第 5 位（末位，不再作带图链首选）
+		vision: true, // listing input_modalities 含 image+video；vision 链第 4 位（末位，不再作带图链首选）
 		// #19（KB 08 #241 末位隔离）：NVIDIA 通用代理模型（编码/搜索/工具/文档），旧 #229 由 #10 升池首
 		// 的依据是 Kilo Leaderboard 单渠道真实用量（Code/Plan/Debug 三榜 #1、24h 273.0B #1、
 		// Code agent rank #6）；该渠道只衡量被采用程度，不衡量本插件 XML 工具协议下的可靠性。

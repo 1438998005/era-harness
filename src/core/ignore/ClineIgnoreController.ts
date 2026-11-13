@@ -220,10 +220,10 @@ export class ClineIgnoreController {
 	 * @returns path of file that is being accessed if it is being accessed, undefined if command is allowed
 	 */
 	validateCommand(command: string): string | undefined {
-		// Always allow if no .clineignore exists
-		if (!this.clineIgnoreContent) {
-			return undefined
-		}
+		// KB 08 #262：不能因为「没有 .clineignore」就早退放行——ignoreInstance 里还带着
+		// 探测到 Emuera 工程后注入的备份目录规则（与 validateAccess 同一口径）。早退会让
+		// file 工具读 `_备份/` 被拦、终端 `cat _备份/...` 却放行，内置忽略被终端绕过。
+		// 没有任何规则时 ignores() 恒 false，行为与早退等价，只是多一次数组 includes。
 
 		// Split command into parts and get the base command
 		const parts = command.trim().split(/\s+/)

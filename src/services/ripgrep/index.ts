@@ -191,13 +191,22 @@ export async function regexSearchFiles(
 	let lineTruncated: boolean
 	try {
 		const pass1 = await runJsonPass(args)
-		merged = pass1.results
 		lineTruncated = pass1.lineTruncated
-		if (!lineTruncated) {
-			// CP932 第二遍：默认遍被截断时结果已到上限，不再跑第二遍
-			const pass2 = await runJsonPass([...args, "--encoding", "shift-jis"])
+		// CP932 第二遍无条件跑（KB 08 #259）：原实现首轮触发 4000 行截断就跳过第二遍，
+		// eraTW 工程的无 BOM CP932 文件在宽 regex 下静默漏搜——与加这一遍的初衷
+		// （2026-10-25 取证「CP932 文件读不出」）自相矛盾。输出体积由 formatResults 的
+		// 条数上限与 0.25MB 字节预算兜底（format.ts），不会因多跑一遍而撑爆。
+		const pass2 = await runJsonPass([...args, "--encoding", "shift-jis"])
+		lineTruncated = lineTruncated || pass2.lineTruncated
+		if (pass1.lineTruncated) {
+			// 首轮已截断：pass1 结果本来就不完整，且 4000 行 ÷ 7 行/结果 ≈ 571 条已超过
+			// formatResults 的 500 条上限——第二遍独有的文件若按惯例追加在尾部会被整段
+			// 吃掉，等于白跑。把第二遍独有的文件插到前面，这一遍的覆盖才真正可见；
+			// pass1 已命中的文件仍按原序原样保留（防 UTF-8 文件被 Shift-JIS 转码假阳性）。
+			const seen = new Set(pass1.results.map((r) => r.filePath))
+			merged = [...pass2.results.filter((r) => !seen.has(r.filePath)), ...pass1.results]
+		} else {
 			merged = mergeEncodingPasses(pass1.results, pass2.results)
-			lineTruncated = pass2.lineTruncated
 		}
 	} catch (error) {
 		throw Error("Error calling ripgrep", { cause: error })

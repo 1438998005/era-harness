@@ -3,6 +3,73 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.103.4 — 2026-11-14
+
+> 修复版：本批 #256–#265 共十项——更新/回滚事务一致性三处（#257，P1）、编辑器写回编码纪律
+> 两条 + 复审补两处（#258/#264/#265）、ripgrep CP932 第二遍漏搜（#259）、权限守卫 fail-open
+> 两处（#261）与 clineignore 终端侧早退（#262）、免费池移除已下线的 Crouton Alpha（#256，
+> 池 18 → 17）、UTF-16BE 奇数长度解码（#263）、core 显式声明 zod 依赖（#260）。
+> 其中 #257–#263 来自 GitHub issue #1/#2（外部贡献者审查，已逐条对码核实：证实 9 条、
+> 半证实拆细 2 条、证伪 1 条未改）。无新设置项、新 UI 入口或新增候选。
+
+### 修复 · 更新/回滚事务一致性（#257，GitHub issue#1）
+
+- 流式归档的 overrides 写入挪进与归档写入同一个 try：任一写失败都走同一条回滚路径并返回
+  结构化失败报告（原实现写在 try 之外，写到一半失败会停在半合并状态且不触发回滚）。
+- 撤销更新恢复 state-before 的口径与 `readState()` 对齐：接受 schemaVersion 1 与 2
+  （service 已写 v2，原实现只认 1，撤销后报「格式不认识」）；manifest.status 改在状态
+  恢复成功后才落 "rolled-back"（原顺序会让二次撤销被「已撤销」早退，返回假成功）。
+- 自动回滚与手动路径同口径：全部恢复成功才标 "rolled-back"，部分失败保持 "applying"
+  可重试（原实现无条件标记，堵死重试）。
+- 回归：撤销/回滚类用例自 apply.spec.ts 拆至 apply-rollback.spec.ts（仓库 20KB 单文件
+  门禁），新增 4 用例（overrides 注入失败须回滚、v2 state-before 可恢复、
+  状态恢复失败保持可重试、自动回滚失败后重试真实还原）。
+
+### 修复 · 编辑器写回编码纪律（#258 + 复审 #264/#265，GitHub issue#1）
+
+- 拒绝修改（revert）按 open() 捕获的原始字节还原磁盘：编码/BOM/行尾原样，CP932 原文件
+  不再被宿主的 UTF-8 保存毁掉。
+- 保存后先对权威文本做目标编码往返检查：CP932 表示不了的字符如实检出、降级 UTF-8 带
+  BOM 并出 note（原实现只看磁盘字节，编辑器已按 CP932 落盘的 `？` 检不出来，静默丢字）。
+- 权威文本改用保存后的文档文本（#264）：formatOnSave 等保存时改写文档的行为不再被编码
+  重写抹掉，finalContent 与磁盘保持一致。
+- open() 的 create 分支清空 originalBytes（#265，防御性对齐，无外部可见行为）。
+- 回归：diff-encoding.spec.ts（编辑器替身）6 用例：revert 逐字节还原、emoji 降级 + note、
+  正常编辑零打扰（mtime 不动）、formatOnSave 保形、create 清 originalBytes。
+  真实 VS Code GUI 复核另行执行。
+
+### 修复 · ripgrep CP932 第二遍漏搜（#259，GitHub issue#2）
+
+- 首轮触发 4000 行截断后不再跳过 `--encoding shift-jis` 第二遍；且截断场景下第二遍独有的
+  文件前置展示（按惯例追加尾部会被 500 条上限整段吃掉）。eraTW 工程的无 BOM CP932 文件
+  在宽 regex 下不再静默漏搜。
+- 顺带修正原集成测试 CP932 fixture 的字节构造错误（`Buffer.from` 默认 UTF-8 会把 0x83
+  写成 0xC2 0x83，磁盘上不是 CP932 字节）。
+- 回归：test:ripgrep 新增截断用例（4500 行全命中构造必截断）。
+
+### 修复 · 权限守卫与 clineignore（#261/#262，GitHub issue#2）
+
+- `CLINE_COMMAND_PERMISSIONS` 设置了但 JSON 解析失败 → 一律拒绝（reason:
+  `config_parse_error`），不再被当成「未配置」全放行；命令解析抛错（如不完整的 `${`）
+  同样保守阻断，不再按空结构放行。三态（未配置放行 / 合法配置生效 / 坏配置拒绝）各有
+  回归测试钉住。
+- `validateCommand` 删除「无 .clineignore 就早退放行」：探测到 Emuera 工程后注入的内置
+  备份目录规则（`_备份/` 等）同样约束终端读文件命令（cat/type/get-content），与 file
+  工具侧同口径，消除「file 读被拦、终端 cat 放行」的不一致。
+- 回归：command-permissions.spec.ts 4 用例、cline-ignore.spec.ts 3 用例。
+
+### 修复 · 其他
+
+- 免费池移除已下线的 `stealth/crouton-alpha`（Crouton Alpha，#256，与 #255 同型）：池
+  18 → 17（OVH 9 + Kilo 8），带图链首位顺延为 Dots3-Note；pinned 用户不再单链 100%
+  失败；死项清单增补防回池；相关过时注释一并同步。
+- `era-harness-core` 显式声明 `zod ^4.6.7` 直接依赖（#260）：原先靠 MCP SDK 传递解析，
+  换严格包管理器或 SDK 改 peer-only 即断。
+- UTF-16BE 奇数长度解码补 swap16（#263）：损坏/截断文件开头部分读出正确文本 + 尾部
+  替换符（原实现 BE 字节按 LE 解，整段乱码）。
+- 验证：`check-types` 0 错误；test:update 1012 / test:free 72 / test:ripgrep 12 /
+  core 192 项 0 失败（1 项环境条件跳过）；dist 重打（产物 grep 无 `crouton`）。
+
 ## 3.103.3 — 2026-11-11
 
 > 修复版：免费池移除已下线的 Beam 1.0（KB 08 #255，池 19 → 18）；vsix 打包排除

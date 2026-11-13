@@ -34,6 +34,8 @@ const SPECS = [
 	"discover.spec.ts",
 	"profile.spec.ts",
 	"apply.spec.ts",
+	// 撤销/回滚用例（自 apply.spec.ts 拆出，20KB 单文件门禁；KB 08 #257 批次后拆分）
+	"apply-rollback.spec.ts",
 	"plan-drift.spec.ts",
 	"service.spec.ts",
 	"gates.spec.ts",
@@ -123,6 +125,12 @@ const SPECS = [
 	"stream-error-streak.spec.ts",
 	// 2026-11-08：OpenRouter 免费模型清单（列表切换）的数据契约与 grpc 接线
 	"openrouter-free-models.spec.ts",
+	// KB 08 #258：编码写回纪律（revert 保原始字节 / 保存前往返检查），编辑器替身单测
+	"diff-encoding.spec.ts",
+	// KB 08 #261：命令权限三态（未配置放行 / 合法配置生效 / 坏 JSON 与解析抛错一律拒绝）
+	"command-permissions.spec.ts",
+	// KB 08 #262：validateCommand 不得绕过内置忽略（无 .clineignore 时终端读备份目录仍被拦）
+	"cline-ignore.spec.ts",
 ]
 
 const aliasResolverPlugin = {
