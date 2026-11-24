@@ -10,6 +10,8 @@ import {
 	moonshotDefaultModelId,
 	moonshotModels,
 	shouldResetModelForProvider,
+	tencentTokenhubDefaultModelId,
+	tencentTokenhubModels,
 } from "@shared/api"
 import { DEEPSEEK_PEAK_MULTIPLIER, isDeepSeekPeakHour } from "@shared/deepseekPricing"
 import type { Mode } from "@shared/storage/types"
@@ -30,7 +32,16 @@ interface ModelQuickSwitchMenuProps {
 }
 
 interface QuickSwitchEntry {
-	provider: "free" | "deepseek" | "mimo" | "bigmodel" | "bigmodel-plan" | "moonshot" | "openai"
+	provider:
+		| "free"
+		| "deepseek"
+		| "mimo"
+		| "bigmodel"
+		| "bigmodel-plan"
+		| "moonshot"
+		| "tencent-tokenhub"
+		| "tencent-coding-plan"
+		| "openai"
 	label: string
 	icon: React.ReactNode
 	iconColor: string
@@ -87,6 +98,13 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 	const moonshotInfo =
 		(moonshotModels as Record<string, ModelInfo>)[rememberedIds?.moonshot ?? ""] ?? moonshotModels[moonshotDefaultModelId]
 	const moonshotPrice = `输入 ¥${moonshotInfo.cacheReadsPrice}–${moonshotInfo.cacheWritesPrice} / 输出 ¥${moonshotInfo.outputPrice}`
+
+	// 腾讯云 TokenHub（KB 08 #270）：字段口径与 Kimi/BigModel 相同；DeepSeek 系峰谷在设置页价格
+	// 说明里交代（菜单价格行按闲时价显示，不加实时倍率——与 DeepSeek 条目的实时峰价口径不同）。
+	const tencentTokenhubInfo =
+		(tencentTokenhubModels as Record<string, ModelInfo>)[rememberedIds?.["tencent-tokenhub"] ?? ""] ??
+		tencentTokenhubModels[tencentTokenhubDefaultModelId]
+	const tencentTokenhubPrice = `输入 ¥${tencentTokenhubInfo.cacheReadsPrice}–${tencentTokenhubInfo.cacheWritesPrice} / 输出 ¥${tencentTokenhubInfo.outputPrice}`
 
 	// KB 08 #242（用户裁定）：快捷切换菜单**不显示**指定模型、不参与 per-provider 记忆。
 	// pinnedModelId 是免费池内部的一份全局配置，切换主 provider 不该把它当作一个独立
@@ -161,6 +179,29 @@ export const ModelQuickSwitchMenu: React.FC<ModelQuickSwitchMenuProps> = ({ mode
 			badgeFg: "inherit",
 			priceText: moonshotPrice,
 			priceColor: "var(--vscode-foreground, #E7E7E7)",
+		},
+		{
+			// 腾讯云 TokenHub（KB 08 #270）：DeepSeek 系峰谷价在设置页价格说明里交代，菜单按闲时价显示
+			provider: "tencent-tokenhub",
+			label: "腾讯云 TokenHub",
+			icon: <Sparkles size={13} />,
+			iconColor: "var(--vscode-charts-blue, #3B82F6)",
+			badgeBg: "transparent",
+			badgeFg: "inherit",
+			priceText: tencentTokenhubPrice,
+			priceColor: "var(--vscode-foreground, #E7E7E7)",
+		},
+		{
+			// 套餐按请求次数计费（sk-sp- 与按量 Key 不互通）：同 GLM 套餐口径写「套餐内不计费」
+			provider: "tencent-coding-plan",
+			label: "腾讯云 Coding Plan",
+			icon: <Sparkles size={13} />,
+			iconColor: "var(--vscode-charts-blue, #3B82F6)",
+			badge: "套餐",
+			badgeBg: "var(--vscode-charts-blue, #3B82F6)",
+			badgeFg: "#FFFFFF",
+			priceText: "套餐内不计费",
+			priceColor: "var(--vscode-descriptionForeground, #9D9D9D)",
 		},
 		{
 			provider: "openai",

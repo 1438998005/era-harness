@@ -3,6 +3,55 @@
 本文件记录 era harness（Cline Chinese 减法改造版）的版本变更。
 上游 Cline / Cline Chinese 的历史变更见其各自仓库。
 
+## 3.103.5 — 2026-11-24
+
+> 功能版：免费池按「外部强度 70% + 实弹 30%」合成分全池重排并扩池 19 → 25（#267），
+> 移除已下线的 North Mini Code（#266）；OpenRouter 免费快照刷新（#268）；Qwen 工具方言
+> 归一（#269）；**预置腾讯云 TokenHub（按量）与 Coding Plan（套餐）双 provider**（#270）；
+> 落地后审查修复七项（#271–#277）。新增设置项：腾讯云两家 provider（广州/新加坡双线、
+> sk- 与 sk-sp- 分槽、可作辅助模型、快速切换菜单两条目）；Coding Plan 支持手填模型名。
+
+### 新增 · 免费池全池重排扩池 19 → 25（#266–#268）
+
+- 池按合成分降序重排（OVH 15 + Kilo 10），池首 DeepSeek-V4.1-Flash-1017；新增 9 项
+  （2026-11-17 前后上线的免费模型），移除已从 Kilo listing 消失且 POST 404 的
+  North Mini Code；OVH 输出上限全部换端点实证值。
+- OpenRouter `:free` 快照刷新 12 项（消失 3 项、新上榜 3 项）。
+- 回归：test:free 期望表 25 项 + 合成分非递增 + 两条硬规则断言，72/72。
+
+### 新增 · 腾讯云双 provider（#270）
+
+- 「腾讯云 TokenHub」按量：广州（默认）/新加坡双线下拉（两地密钥不通用）、16 款内置
+  模型（官方文档逐页核对）、混元思考三参（`reasoning_effort` / `thinking.type` /
+  `preserved_thinking`——工具定义在系统提示时按官方要求手动开启）、⛔ 绝不发
+  `tool_choice:"required"`、DeepSeek 系峰谷计价（北京时间工作日峰段整单 ×2）、模型列表在线同步。
+- 「腾讯云 Coding Plan」套餐：固定 lkeap 域、sk-sp- 专属 Key（与按量不互通，缺 Key 不回落）、
+  按请求计费金额恒 0、默认 `tc-code-latest`（Auto）、支持手填官方模型名。
+- 事实源与接线图见知识库 28；真实 Key 冒烟由用户执行（收窄三项）。
+
+### 新增 · Qwen 工具方言归一（#269）
+
+- Flint / Laguna XS 2.1 探针吐出的 `<tool_call>名<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`
+  完整块一趟还原为标准工具调用（带闭合、工具名过既有白名单），工具参数不再全空。
+- 回归：qwen-arg-dialect.spec.ts 6 用例（登记 SPECS）。
+
+### 修复 · 落地后审查七项（#271–#277）
+
+- #271（P1 硬阻塞）：tencent-provider.spec.ts 20,733B 超 20KB 闸门（`--worktree` 不扫
+  untracked 所以 lint 未拦，staged 必拒）→ 拆三份（request / provider / handler），
+  全部远离闸门；顺带修空转断言与标题笔误。
+- #272：辅助模型面板补腾讯云两家 + 智谱套餐模型表（新纯模块 aux-provider-catalog.ts），
+  按 AUXILIARY_SUPPORTED_PROVIDERS 派生期望的元测试防复发。
+- #273：TokenHub 思考强度界面默认档 medium → high（官方混元默认，/1823/132252）；
+  请求侧不变（未设置档位仍不发送）。
+- #274：混元「窗口含输出」三款（hy4-flash / hy4 / hy3）请求侧夹紧输出（复用
+  clampBigmodelOutputTokens；纯输入窗口模型按目录值发，08 #82 裁定不变）。
+- #275：在线同步回的未知模型不再继承默认档的「窗口含输出」能力位与混元价（不再多扣
+  输入预算、不再按混元价估费）。
+- #277：免费池三处注释口径更正（合成分系数、分数与单源表一致、权重敏感性重算结论）。
+- 回归：test:update 1049 → 1063（handler 级 10 用例 + 目录守门 3 + 未知模型 1）、
+  webview vitest 100 → 104（默认档 / 手填 / 快切菜单 ×2）。
+
 ## 3.103.4 — 2026-11-14
 
 > 修复版：本批 #256–#265 共十项——更新/回滚事务一致性三处（#257，P1）、编辑器写回编码纪律

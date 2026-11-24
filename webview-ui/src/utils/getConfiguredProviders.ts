@@ -47,6 +47,15 @@ export function getConfiguredProviders(
 		configured.push("moonshot")
 	}
 
+	// 腾讯云（KB 08 #270）：按量（sk-，入口由 tencentTokenhubApiLine 决定）与 Coding Plan
+	// 套餐（sk-sp-）两把 Key 官方明示不互通，分别判已配置
+	if (apiConfiguration.tencentTokenhubApiKey) {
+		configured.push("tencent-tokenhub")
+	}
+	if (apiConfiguration.tencentCodingPlanApiKey) {
+		configured.push("tencent-coding-plan")
+	}
+
 	// OpenAI Compatible - requires base URL and API key, OR has model configured
 	if (
 		(apiConfiguration.openAiBaseUrl && apiConfiguration.openAiApiKey) ||

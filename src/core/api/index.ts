@@ -11,6 +11,7 @@ import { FreeModelHandler } from "./providers/free"
 import { MimoHandler } from "./providers/mimo"
 import { MoonshotHandler } from "./providers/moonshot"
 import { OpenAiHandler } from "./providers/openai"
+import { TencentHandler } from "./providers/tencent"
 import { ApiStream, ApiStreamUsageChunk } from "./transform/stream"
 
 export type CommonApiHandlerOptions = {
@@ -132,6 +133,28 @@ function createHandlerForProvider(
 				bigmodelModelInfo: mode === "plan" ? options.planModeBigmodelPlanModelInfo : options.actModeBigmodelPlanModelInfo,
 				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
 				baseUrlOverride: BIGMODEL_PLAN_BASE_URL,
+				billingMode: "plan",
+			})
+		case "tencent-tokenhub":
+			// 腾讯云 TokenHub 按量：基址由入口下拉（tencentTokenhubApiLine，默认广州）决定
+			return new TencentHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				tencentTokenhubApiKey: options.tencentTokenhubApiKey?.trim(),
+				apiModelId,
+				tencentTokenhubModelInfo:
+					mode === "plan" ? options.planModeTencentTokenhubModelInfo : options.actModeTencentTokenhubModelInfo,
+				reasoningEffort: resolveReasoningEffort(apiProvider, options, mode),
+				apiLine: options.tencentTokenhubApiLine,
+			})
+		case "tencent-coding-plan":
+			// 腾讯云 Coding Plan 套餐：固定 lkeap 套餐基址 + sk-sp- 专属 Key，按请求次数计费。
+			// 两把 Key 官方明示不互通，不做跨入口回落（区别于 bigmodel-plan，见 handler 注释）。
+			return new TencentHandler({
+				onRetryAttempt: options.onRetryAttempt,
+				tencentCodingPlanApiKey: options.tencentCodingPlanApiKey?.trim(),
+				apiModelId,
+				tencentCodingPlanModelInfo:
+					mode === "plan" ? options.planModeTencentCodingPlanModelInfo : options.actModeTencentCodingPlanModelInfo,
 				billingMode: "plan",
 			})
 		default:

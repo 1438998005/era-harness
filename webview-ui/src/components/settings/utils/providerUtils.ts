@@ -10,6 +10,8 @@ import {
 	getDeepSeekModelInfo,
 	getMimoModelInfo,
 	getMoonshotModelInfo,
+	getTencentCodingPlanModelInfo,
+	getTencentTokenhubModelInfo,
 	ModelInfo,
 	mimoDefaultModelId,
 	modelIdToWriteOnProviderSwitch,
@@ -20,6 +22,10 @@ import {
 	resolveCatalogModelId,
 	resolveMimoModelId,
 	resolveMoonshotModelId,
+	resolveTencentCodingPlanModelId,
+	resolveTencentTokenhubModelId,
+	tencentCodingPlanDefaultModelId,
+	tencentTokenhubDefaultModelId,
 } from "@shared/api"
 import { FREE_POOL, OPENROUTER_FREE_ROUTER_CONTEXT_WINDOW } from "@shared/free-pools"
 import { Mode } from "@shared/storage/types"
@@ -155,6 +161,38 @@ export function normalizeApiConfiguration(
 				selectedModelInfo: getMoonshotModelInfo(resolvedModelId, moonshotModelInfo),
 			}
 		}
+		case "tencent-tokenhub": {
+			// 与 moonshot 分支同构（KB 08 #270）：小写归一 + 未知 id 保留（在线同步回新 id 不丢）
+			const requestedModelId = modelId?.trim()
+			const resolvedModelId = requestedModelId
+				? (resolveTencentTokenhubModelId(requestedModelId) ?? requestedModelId)
+				: tencentTokenhubDefaultModelId
+			const tencentTokenhubModelInfo =
+				currentMode === "plan"
+					? apiConfiguration?.planModeTencentTokenhubModelInfo
+					: apiConfiguration?.actModeTencentTokenhubModelInfo
+			return {
+				selectedProvider: provider,
+				selectedModelId: resolvedModelId,
+				selectedModelInfo: getTencentTokenhubModelInfo(resolvedModelId, tencentTokenhubModelInfo),
+			}
+		}
+		case "tencent-coding-plan": {
+			// 套餐动态模型库允许手填 model 名：未知 id 原样保留 + 默认档保守元数据（价格 0）
+			const requestedModelId = modelId?.trim()
+			const resolvedModelId = requestedModelId
+				? (resolveTencentCodingPlanModelId(requestedModelId) ?? requestedModelId)
+				: tencentCodingPlanDefaultModelId
+			const tencentCodingPlanModelInfo =
+				currentMode === "plan"
+					? apiConfiguration?.planModeTencentCodingPlanModelInfo
+					: apiConfiguration?.actModeTencentCodingPlanModelInfo
+			return {
+				selectedProvider: provider,
+				selectedModelId: resolvedModelId,
+				selectedModelInfo: getTencentCodingPlanModelInfo(resolvedModelId, tencentCodingPlanModelInfo),
+			}
+		}
 		case "openai":
 			const openAiModelId =
 				currentMode === "plan" ? apiConfiguration?.planModeOpenAiModelId : apiConfiguration?.actModeOpenAiModelId
@@ -201,6 +239,8 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			bigmodelModelInfo: undefined,
 			bigmodelPlanModelInfo: undefined,
 			moonshotModelInfo: undefined,
+			tencentTokenhubModelInfo: undefined,
+			tencentCodingPlanModelInfo: undefined,
 
 			// Other mode-specific fields
 			thinkingBudgetTokens: undefined,
@@ -227,6 +267,14 @@ export function getModeSpecificFields(apiConfiguration: ApiConfiguration | undef
 			mode === "plan" ? apiConfiguration.planModeBigmodelPlanModelInfo : apiConfiguration.actModeBigmodelPlanModelInfo,
 		moonshotModelInfo:
 			mode === "plan" ? apiConfiguration.planModeMoonshotModelInfo : apiConfiguration.actModeMoonshotModelInfo,
+		tencentTokenhubModelInfo:
+			mode === "plan"
+				? apiConfiguration.planModeTencentTokenhubModelInfo
+				: apiConfiguration.actModeTencentTokenhubModelInfo,
+		tencentCodingPlanModelInfo:
+			mode === "plan"
+				? apiConfiguration.planModeTencentCodingPlanModelInfo
+				: apiConfiguration.actModeTencentCodingPlanModelInfo,
 
 		// Other mode-specific fields (thinking budget 随非目标 provider 已剥离)
 		thinkingBudgetTokens: undefined,
@@ -300,6 +348,21 @@ export async function syncModeConfigurations(
 			updates.actModeMoonshotModelInfo = sourceFields.moonshotModelInfo
 			break
 
+		// 腾讯云（KB 08 #270）：与 moonshot 同构，模式联动时 ModelInfo 随 apiModelId 一起同步
+		case "tencent-tokenhub":
+			updates.planModeApiModelId = sourceFields.apiModelId
+			updates.actModeApiModelId = sourceFields.apiModelId
+			updates.planModeTencentTokenhubModelInfo = sourceFields.tencentTokenhubModelInfo
+			updates.actModeTencentTokenhubModelInfo = sourceFields.tencentTokenhubModelInfo
+			break
+
+		case "tencent-coding-plan":
+			updates.planModeApiModelId = sourceFields.apiModelId
+			updates.actModeApiModelId = sourceFields.apiModelId
+			updates.planModeTencentCodingPlanModelInfo = sourceFields.tencentCodingPlanModelInfo
+			updates.actModeTencentCodingPlanModelInfo = sourceFields.tencentCodingPlanModelInfo
+			break
+
 		default:
 			updates.planModeApiModelId = sourceFields.apiModelId
 			updates.actModeApiModelId = sourceFields.apiModelId
@@ -318,47 +381,11 @@ export async function syncModeConfigurations(
 }
 
 /**
- * 把在线同步回来的模型 id（`GET /models`）并进内置清单。
- *
- * 两条规则，都是踩过坑才写下来的：
- *
- * 1. **内置清单是底座，在线清单只加不换**（#62）。`GET /models` 只回 id，而且不保证把
- *    全部可用模型都列出来——智谱的免费六款在端点里根本不存在，BigModel 填了 Key 同步一次，
- *    免费款就从下拉框里整个消失，用户以为免费额度没了。反过来「在线清单为空就回落内置」
- *    也救不了：只要同步成功过一次，就再也回不去。
- * 2. **键必须用规范 id**。`DeepSeek-V4-Pro` 与内置清单里的 `deepseek-v4-pro` 是同一个模型，
- *    用原始 id 当键会让 `ModelSelector` 出现两行同一模型（它不做去重）。
- *
- * 抽成纯函数而不是在 DeepSeek / MiMo / BigModel 三个组件里各写一遍：这正是本项目已复发多次的
- * 「同一规则写三遍必然有两遍漂移」。
- *
- * @param builtins     内置清单（同时决定下拉框的排列顺序：按档位排好的，比接口返回顺序有意义）
- * @param liveModelIds 在线同步回来的 id
- * @param canonicalize 归一函数（`resolveDeepSeekModelId` / `resolveMimoModelId` / `resolveBigmodelModelId`）；
- *                     返回 undefined 表示清单里没有这个 id，原样保留（官方可能新增模型）
- * @param infoFor      按 id 取元数据
- * @param selectedModelId 当前选中的模型，必须始终在列表里，否则下拉框会显示空值
+ * 把在线同步回来的模型 id 并进内置清单——函数本体已抽到 ./merge-live-model-ids
+ * （2026-11-24，KB 08 #270：本文件因腾讯云分支越过 20KB 闸门后的拆分）；
+ * 原路径保留再导出，既有 import 不用动。
  */
-export function mergeLiveModelIds(
-	builtins: Record<string, ModelInfo>,
-	liveModelIds: readonly string[],
-	canonicalize: (id: string) => string | undefined,
-	infoFor: (id: string) => ModelInfo,
-	selectedModelId?: string,
-): Record<string, ModelInfo> {
-	const merged: Record<string, ModelInfo> = { ...builtins }
-	for (const id of liveModelIds) {
-		const key = canonicalize(id) ?? id
-		// 已在内置清单里的不覆盖：接口只给 id，内置清单里的价格/上下文才是准的
-		if (!merged[key]) {
-			merged[key] = infoFor(key)
-		}
-	}
-	if (selectedModelId && !merged[selectedModelId]) {
-		merged[selectedModelId] = infoFor(selectedModelId)
-	}
-	return merged
-}
+export { mergeLiveModelIds } from "./merge-live-model-ids"
 
 /**
  * 下拉选项的计费上下文（#90）。

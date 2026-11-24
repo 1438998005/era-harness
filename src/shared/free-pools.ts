@@ -1,126 +1,70 @@
 /**
  * 免费模型池：单一静态候选表 + Kilo listing 解析 + 候选链组装。
  *
- * 数据来源（2026-11-05 复核）：
- * - Zen 侧上下文/输出以 **models.dev 的 opencode provider 免费版登记**为准
- *   （免费版与付费版窗口不同：GLM 5.3 Flash Free / DeepSeek V4.1 Flash Free /
- *     Big Pickle 均为 200K，付费版才是 1M；Cat Jam 正式 ID 为 `cat-jam-free`）；
+ * 数据来源（2026-11-24 复核）：
  * - Kilo 侧以运行时 listing `GET https://api.kilo.ai/api/gateway/models` 的 `isFree === true` 行为准
  *   （context_length / top_provider.max_completion_tokens / architecture.input_modalities）；
- *   **判据不是 `:free` 后缀**：无后缀的 `stealth/glyph-cluster`
- *   同样是免费行（同型的 `stealth/crouton-alpha` 已于 2026-11-13 下线移除，KB 08 #256）；
- *   反过来去掉 `:free` 的付费行绝不能拿来补位。
- * - OVH 侧以端点 `GET /v1/models`（无 key 可拉）的 context_length 为准；
- *   maxOutput 端点未登记 → 保守估值，handler 的 FREE_REQUEST_MAX_OUTPUT 截断兜底。
+ *   **判据不是 `:free` 后缀**：无后缀的 `stealth/glyph-cluster` 同样是免费行；反过来去掉
+ *   `:free` 的付费行绝不能拿来补位。
+ * - OVH 侧以端点 `GET /v1/models`（无 key 可拉）的 context_length **与 max_completion_tokens**
+ *   为准（2026-11-24 起端点已登记输出上限，本批全部换实证值，不再保守估值）。
  *   **但目录存在 ≠ 推理端点可用**：退役生效日必须逐个 `POST /v1/chat/completions` 实测
  *   （404 `no Route matched with those values` = 已下架；429 = 存活只是限流）。
- * - vision 以 listing `input_modalities` 含 `image` 为准（未验证不声明，保守 false）。
+ * - vision 判据：Kilo 条目按 listing `input_modalities` 含 `image`；OVH 端点无模态字段，
+ *   只有带图探针（1×1 PNG data URL）通过才声明，未验证保守 false。
  *
- * 池顺序（2026-11-13 移除 Crouton Alpha；2026-11-08 补入 LFM3-1.7B；2026-11-05 二次修订，KB 08 #241 用户裁定「只调整英伟达家族 4 项」）：
- * Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) → Glyph Cluster(kilo) →
- * Dots3-Note(kilo) → Qwen3.5-397B(ovh) → North Mini Code(kilo) → gpt-oss-120b(ovh) →
- * Mistral Small 3.2(ovh) → gpt-oss-20b(ovh) → Llama 3.3 70B(ovh) → Qwen3.5-9B(ovh) →
- * Qwen2.5-VL-72B(ovh) → Nemotron 3 Ultra(kilo) → LFM3-1.7B(kilo) → Nemotron 3.5 Lightning(kilo) →
- * Nemotron 3 Nano Omni(kilo) → Nemotron 3.5 Super VL(kilo)。
- * （共 17 项：OVH 9 + Kilo 8。2026-11-13 原 #5 Crouton Alpha 从 Kilo listing 下线移除（KB 08 #256），
- * 其余项相对顺序逐字不动；2026-11-11 原 #1 Beam 1.0 渠道下线移除（KB 08 #255），其余 18 项
- * 相对顺序逐字不动，池首由 Beam 顺延为 Qwen3.8-27B；2026-11-08 版 19 项中**前 14 项相对顺序与
- * #229 旧序逐字不变**，该轮只把 Kilo 新免费行 LFM3-1.7B 插为新 #16（Ultra 之后、Lightning 之前）、
- * 不重新评估；
- * 「保持原序」≠ 已按新三源重新评估；原 Zen 10 项已移出池，客户端代码休眠保留待恢复，
- * 门控判据见 free-lanes.ts。带图链不单独定序，仍是 `filter(vision)`：首位 Dots3-Note
- * （#256 移除 Crouton Alpha 后按池序顺延，与 #255 同型处理）。）
+ * 池顺序（2026-11-24 全池重排 + 扩池，KB 08 #267；此前版本见 git 与 KB 07 §7.9）：
+ * DeepSeek-V4.1-Flash-1017(ovh) → Qwen3.8-27B(ovh) → Qwen3.6-27B(ovh) →
+ * Nemotron 3.5 Super VL(kilo) → Qwen3.5-397B(ovh) → Qwen3.6-35B-A3B(ovh) →
+ * Dots3-Note(kilo) → ERNIE 5.5 Flash Preview(kilo) → Particle-1(kilo) → Glyph Cluster(kilo) →
+ * Nemotron 3 Ultra(kilo) → Flint(kilo) → Nemotron3 Nano 30B(ovh) → gpt-oss-20b(ovh) →
+ * gpt-oss-120b(ovh) → Laguna XS 2.1(ovh) → Mistral Small 3.2(ovh) → Llama 3.3 70B(ovh) →
+ * Nemotron 3 Nano Omni(kilo) → Nemotron3 Omni 30B(ovh) → Qwen3-VL-30B(ovh，32K 链尾) →
+ * Qwen2.5-VL-72B(ovh，32K 链尾) → Qwen3.5-9B(ovh) → Nemotron 3.5 Lightning(kilo) →
+ * LFM3-1.7B(kilo)。
+ * （共 25 项：OVH 15 + Kilo 10，池首 DeepSeek-V4.1-Flash-1017。本轮**新增 9 项**：
+ *   DeepSeek-V4.1-Flash-1017 / qwen3.6-35b-a3b / nemotron3-nano-30b / laguna-xs-2.1 /
+ *   nemotron3-omni-30b / qwen3-vl-30b-a3b（以上 OVH），ernie-5.5-flash-preview /
+ *   particle-1 / flint-v1.0（以上 Kilo）；**移除 1 项**：cohere/north-mini-code:free
+ *   （2026-11-23 起 Kilo listing 整行消失且 POST 404）。）
  *
- * 排序口径（#241 用户裁定「三源并重，任一源不得独占」）：
- * ① **本地实测（硬门槛）**：本插件 XML 工具协议实弹回放——标签闭合率 / `parse repair` 数 /
- *    命令失败率 / 端到端结论可复核；池首与带图链首位须有实弹记录（回升时才逐个补做）。
- * ② **编码与代码能力榜单**：SWE-V / SWE-bench / Terminal-Bench / LiveCodeBench / AA Coding Index 等
- *    **能力基准**；与「按 token 用量占比排的榜」分开登记，不得互相替代。
- * ③ **社区评价·渠道多元化**：Reddit 子版 / HF 模型卡与讨论 / 厂商 GitHub issue /
- *    OpenRouter 官方页工具调用错误率与可用性 / **其他平台用量排行**等交叉。
- * ⚠️ 仅移除「Kilo Leaderboard 真实用量排行」这**一个渠道**（它衡量被采用程度，不衡量本插件协议下的
- * 可靠性）；**不是把「用量排行」整个类别拉黑**。旧 #229 以该单渠道为主证据把 Super VL 提到池首，
- * 实测任务 1793888219697 中 Super VL 畸形 `<regex>` / 两次 search_files 失败 / 9 次命令失败全被审计记 ok，
- * 最终产出「未实装净土」的错误结论（只读复验仍有 20 个文件精确命中），故本轮把它**末位隔离**；
- * Ultra 有独立能力基准且无协议失败实证 → 家族首位，Lightning / Nano Omni 属「零实弹、同源
- * chat template / tool-call 方言风险未排除」的保守处置，**不是已证伪**。
- * 回升判据：逐个做本插件多轮实弹（含 search_files + execute_command），标签闭合率 100%、无 parse repair、
- * 命令结果正确、结论可复核，再由能力榜与多渠道社区评价独立佐证；一次只回升一个。
+ * 排序口径（2026-11-24 用户裁定，取代 #241「三源并重」与 #229/#241 的位次裁定）：
+ * **合成分 = 外部强度 × 70% + 实弹 × 30%**（有实弹分者）；无实弹分 = 外部强度 × 风险系数
+ * （XML 探针按本插件协议通过 0.95 / 方言不合规 0.90 / 未探 0.85）；无任何跑分的只用实弹分。
+ * 外部强度取自能力基准的横向归一（AA 智能指数 / Terminal-Bench / llm-stats 的 HLE·GPQA·
+ * SWE-V 等；**Kilo 调用量榜不用**——它衡量被采用程度，不衡量能力），逐模型证据表见
+ * KB 07 §7.9 修订块与工作区 `免费模型实弹打分表-v4.0.md`。两条位置硬规则：
+ * ① 打分表 v4.1 A 组未合格三项（Qwen3.5-9B / Lightning / LFM3-1.7B）垫底；
+ * ② 登记窗口 < 64K 的排到非失败组末尾（Qwen3-VL-30B / Qwen2.5-VL-72B，32K 窗口对工程任务
+ *    太短，排分再高也不该挡在长上下文候选前面）。
+ * 外部权重敏感性（2026-11-24 重算复核，#277）：70% 上下各取 60%/80% 重算——取 60% 时
+ * 5/6、11/12、19/20 位相邻互换；取 80% 时 4/5 互换、#14 gpt-oss-20b（47.4）落到 #16（48.6）之后；
+ * 前 3 位、7–10 位与两条硬规则不受影响。
+ * 回升/复测判据不变：新入池 9 项零实弹，位置暂定；按打分表八连发逐个补测后复核
+ * （建议第一发 DeepSeek-V4.1-Flash-1017）。带图链不单独定序，仍是 `filter(vision)`：
+ * 首位 Super VL（池序 #4 顺延）。
  *
- * 2026-11-05 变更（用户发起全渠道存活复核后的实施，KB 08 #229 销项）：
- * ① 移除 5 个 Kilo 免费行整行消失的死项：`thinkingmachines/inkling:free`（旧 #1，曾是 vision 链首选）、
- *    `recursive/flint-v1.0:free`、`xingchen-agi/xing4.0-29b-a4b:free`、`google/gemma-4-31b-it:free`、
- *    `liquid/lfm-2.5-2.6b:free`。其中 Inkling/Gemma/LFM 只剩去 `:free` 后缀的付费行（isFree=false），
- *    **不得用付费行补位**（会静默路由到付费模型）。
- * ② 移除 OVH `Mistral-Nemo-Instruct-2407`：`GET /v1/models` 仍列该 ID，但两次 POST 稳定 404
- *    `no Route matched with those values` → 已下架。旧池里它每次都会白烧一次请求再 failover。
- *    同日退役公告的 `Mistral-Small-3.2-24B-Instruct-2506` 实测仍 HTTP 200，保留。
- * ③ 新增 3 个 Kilo 真实免费行：`stealth/crouton-alpha`（1M/943_718，text+image+video+file+audio）、
- *    `nvidia/nemotron-3.5-lightning:free`（1M/65_536，text）、
- *    `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`（256K/65_536，text+audio+image+video）。
- * ④ **两个虚拟路由器 ID 明确不入池**：`kilo-auto/free`（Kilo Auto Model Free 档，官方
- *    `Rotates through available free models`）与 `openrouter/free`（OpenRouter Free Models Router，
- *    官方 `selects free models at random`）。它们是上游网关在单次请求内部黑盒选模型，不是真实权重，
- *    客户端事先不知道落到谁；实测请求 ID 与响应体 `model` 不同（分别落到 Dots3-Note 与 Nemotron 3.5 Super VL）。
- *    入池会破坏能力排序、`hasImages` 硬过滤、上下文管理、审计口径与可复现性。插件自己的 failover 是
- *    **客户端显式候选链**：按池序逐个发请求，只在 `classifyFreeFailure` 判 switchable 后才换下一个。
- *    「渠道」在本项目特指 `zen`/`kilo`/`ovh` 三条车道（`FreeLane`），ID 里带 `free` 不代表渠道。
- * ⑤ Nemotron 3.5 Super VL 由旧 #10 升到池首：旧序依据 r/opencode 单条「失望」帖，被平台级真实用量
- *    （Code/Plan/Debug 三榜 #1）覆盖——这正是「社区评价（重点）」权重 changes 的直接结果。
- *    **带图链首选同步由 Inkling 改为本模型**。
- *    ⚠️ **此条与 ⑥ 的「社区评价（重点）」口径已被 KB 08 #241 推翻**：见文件头二次修订块——
- *    Super VL 现为 #18 末位隔离、带图链首选为 Crouton Alpha；保留原行仅作 #229 的历史裁定记录。
- * ⑥ Glyph Cluster / Crouton Alpha 低置信放中段：前者匿名 stealth、零基准分，仅有自家榜用量；
- *    后者 2026-11-03 新上线、零社区评价，OpenRouter 官方页标 Tool call error rate **8.13%**、可用性约 97%，
- *    且是推理模型（响应带 `reasoning.encrypted` 型 `reasoning_details`，多轮须完整回传，免费池路径未实弹验证）。
- *    隐私口径冲突（OpenRouter 称「不用于训练」vs Kilo listing `mayTrainOnYourPrompts=true`）按项目保守规则
- *    仍走 Kilo 渠道 `collectsData=true`。故排在 Glyph 之后、Dots3 之前，随时可调。
- * ⑦ Lightning / Nano Omni 按官方定位（执行层快速模型 / 感知子代理 30B-A3B）放中后段，不因「新」而靠前。
- * 历史裁定：2026-11-04 Gemma 4 31B 因社区实测降位（合成基准系统性高估 Gemma 系编码，该模型本轮已死项移除）；
- * 2026-11-03 Inkling 完整版免费回归与 Gemma 加入；2026-10-24 移除 Inkling Small / Ling 3.0 Flash Sante。
- * 详见 git 与 KB 07 §7.9。）
- *
- * 2026-11-08 本轮增补（用户裁定：只给新模型定序，其余 18 项相对顺序不动）：
- * ① 两渠道清单快照：Kilo `GET /api/gateway/models` 与 `/api/v1/models` 均 383 行，`isFree === true` 12 行
- *    （10 个真实模型 + `kilo-auto/free` / `openrouter/free` 两个虚拟路由器）；池内原 9 个 Kilo 项全存活，
- *    **新增 `liquid/lfm-3-1.7b:free`**（2026-11-06 上线，262144/8192、纯文本、推理模型、0/0 价）。
- *    OVH `/v1/models` 与 catalog_v2 各 21 行，池内 9 项全在；目录仅清掉早已移出池的
- *    `Mistral-Nemo-Instruct-2407`。净变化 = 补 1 项，无池内死项。
- * ② `openrouter/free` 来源澄清：它是 OpenRouter 官方 2026-02-01 发布的 Free Models Router
- *    （`selects free models at random`），被 Kilo 网关收录进自己的目录并标 `isFree=true`；
- *    `inference_provider_ids:["virtual"]` / `tokenizer:"Router"` / 窗口与 maxOut 为 null。
- *    ⚠️ **它不是插件的第三个渠道**：请求只发到 Kilo 网关，由上游黑盒选模型（实测响应体 `model`
- *    与请求 ID 不同），不需要也不接受用户配置 OpenRouter 账号/Key。本轮按用户裁定把它做成设置页
- *    「自动路由 / 指定模型 / OpenRouter 免费路由」三选一的**独立路由模式**，⛔ 仍不进 FREE_POOL
- *    （④ 的不入池理由继续成立，见 KB 07 §7.9 修订行）。OpenRouter 侧 5 个独有免费行
- *    （`flint-v1.0` / `xing4.0-29b-a4b` / `lfm-2.5-2.6b` / `gemma-4-26b-a4b-it` / `gemma-4-31b-it`，
- *    均为 `:free` 后缀）在 Kilo 目录全部缺失（3 个只剩付费行）：「OpenRouter 免费 ≠ Kilo 网关免费」，
- *    ⛔ 不得用精确 ID 或付费行补位。
- * ③ 评分口径（用户 2026-11-08 裁定）：社区评价（**排除 Kilo Leaderboard 一切用量/占比**）+
- *    AA 榜单 + 代码/工具/工程能力榜单等多维度；**#241 的本地实弹硬门槛本轮暂不纳入**（实弹未测完，
- *    不废止历史裁定），实弹完成后按三源统一复核。本轮只给 LFM3 定序，其余 18 项不重排。
- *    LFM3 评分表与逐条出处见 KB 07 §7.9：AA `artificialanalysis.ai/models/lfm-3-1-7b` 404 → 标「未列」
- *    而非 0 分；OpenRouter 官方页 Availability 3d 92.09% / Uptime 99.99%；独立媒体指全部基准为厂商
- *    自报且官方模型卡「not recommended for agentic coding」；LMSpeed V3.0 Overall 45.0(#169/189)、
- *    Coding 28.4 / Agents 42.3；能力榜 SWE-V 43.4、SWE-Multi 23.0、TB2.1 12.9、MCP-Atlas 32.6
- *    弱于 Qwen3.5-9B，但 BFCL V4 71.4、ToolSandbox 80.4、IFEval 96.7、AutomationBench 41.3、
- *    LiveClaw 45.6 强 → 工具·指令特化、仓库级编码偏弱，故插在 Ultra(#15) 之后、Lightning 之前。
- * ④ 可用性门禁（KB 07 §7.8）：2026-11-08 实测 OVH 9 项逐个 HTTP 200；Kilo 新项零凭据
- *    200 / cost=0（偶发 429 `Provider returned error`，重试即成功），且该端点**强制推理不可关闭**
- *    （`reasoning:{enabled:false}` → 400）；`openrouter/free` 20/20 成功、7 次落到池外独有免费模型，
- *    `kilo-auto/free` 20/20 固定 Dots3-Note（零增量）。探针见工作区根 `probe-openrouter-router.mjs`，
- *    ⛔ 不进分发包、不落响应正文。
- * ⑤ 回升判据不变：#241 三源并重的逐项实弹仍未完成；LFM3 零实弹且官方不建议 agentic coding，
- *    不得因此前移到带图链首位或池首，实弹完成后按文件头三源判据逐个复核。
+ * 池首窗口连带后果（用户裁定「登记窗口不改 262K」的反向面）：池首 DeepSeek 登记窗口照实
+ * 1,048,576，设置页自动路由展示的任务窗口与 Task 层截断/压缩阈值随之变为 1M——
+ * 这是「窗口照实登记」的直接代价，已记入 KB 07 §7.9；上下文超限仍走 classifyFreeFailure
+ * 的 context-exceeded（不切换候选，原样上抛交 Task 层截断重试）。
  *
  * 设计要点：
- * - 顺序 = 本地实测（硬门槛）+ 能力基准 + 多渠道社区评价三源并重（#241），依次尝试直到成功；
+ * - 顺序 = 合成分降序（两条位置硬规则例外），依次尝试直到成功；
  * - OVH 候选始终进链（匿名可打全部；Zen 免费门为 lane 级拒绝，已暂时移出池、代码保留）；
  * - Kilo 候选受 listing 门控：拉取成功时只保留仍在免费池的；拉取失败时只放行已实证
  *   精确 ID 的条目（宁缺毋滥）；
  * - `needsProxy`：原区域敏感候选（Muse Spark 1.3/1.2、Cat Jam）均随 Zen 移出池，当前池内不触发；
  * - `collectsData` 按渠道查表（LANE_META）：Kilo 实证 mayTrainOnYourPrompts=true（明文收集）；
  *   OVH 零数据保留、不用于训练。UI「明文收集」徽标的数据源。
+ *
+ * 历史裁定（摘要，全文见 git log 与 KB 07 §7.9）：
+ * #229（2026-11-05）三源并重初版；#241（2026-11-13）NVIDIA 家族四项重排、Super VL 末位隔离；
+ * #255（11-11）Beam 1.0 渠道下线移除；#256（11-13）Crouton Alpha 下线移除；
+ * #267（2026-11-24）本轮：实弹八连发 v4.0/v4.1 完成 + 三源替代榜单调研后全池重排扩池，
+ * #241 的位次裁定与「前 14 项相对序不动」约束至此废止（新证据：外部强度主导 + 9 项新模型）。
+ * Super VL 特记：#241 曾因实弹失败末位隔离；v4.x 复测 83 分（测试组第 4）后按合成分复位 #4，
+ * 带图链首位随池序顺延。
  */
 
 export type FreeLane = "zen" | "kilo" | "ovh"
@@ -164,18 +108,33 @@ export interface FreeCandidate {
 	listingMatch?: RegExp
 }
 
-/** 单一候选池：顺序 = 三源并重（本地实测硬门槛 / 能力基准 / 多渠道社区评价）；2026-11-08 插入 LFM3-1.7B 至 19 项，2026-11-11 Beam 1.0 渠道下线移除（KB 08 #255），2026-11-13 Crouton Alpha 渠道下线移除（KB 08 #256）→ 共 17 项（OVH 9 + Kilo 8），池首 Qwen3.8-27B */
+/**
+ * 单一候选池：顺序 = 合成分降序（外部强度 70% + 实弹 30%，两条位置硬规则例外）。
+ * 2026-11-24 全池重排并扩池 19 → 25 项（KB 08 #267：新增 9、移除 North Mini Code），池首 DeepSeek-V4.1-Flash-1017。
+ */
 export const FREE_POOL: readonly FreeCandidate[] = [
+	{
+		id: "DeepSeek-V4.1-Flash-1017",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "DeepSeek V4.1 Flash 1017",
+		// 用户裁定（2026-11-23）：登记窗口照实写、不封顶。连带后果见文件头「池首窗口连带后果」。
+		contextWindow: 1_048_576, // OVH 端点 /v1/models 实证
+		maxOutput: 262_144, // 2026-11-24 起端点登记 max_completion_tokens，全池换实证值
+		vision: false, // 纯文本探针按本插件 XML 协议通过（2026-11-23）；带图未验证不声明
+		// #1：合成分 95.0 = 外部强度 100 × 探针系数 0.95（XML 探针按本插件协议通过；无实弹分，
+		// 按文件头口径不吃 70/30 权重）。AA II 32.6(max) / TB4.0 38.5%（官方榜 #23）/ HLE 43.3，
+		// 显著强于池内其余全部候选；OVH 2026-11-17 前后上架。零实弹，位置暂定（八连发第一发建议）。
+	},
 	{
 		id: "Qwen3.8-27B",
 		lane: "ovh",
 		wire: "chat",
 		displayName: "Qwen3.8 27B",
-		contextWindow: 262_144, // OVH 端点 /v1/models 实证
-		maxOutput: 32_768, // 端点未登记，保守估值（handler 截断兜底）
+		contextWindow: 262_144, // OVH 端点实证
+		maxOutput: 262_144, // 2026-11-24 端点实证（原保守估值 32_768）
 		vision: false,
-		// #2：OVH 侧编码首选。r/LocalLLaMA 社区共识 Qwen 系编码「大幅胜出」Gemma 系（SWE-V 73.4 vs 52.0），
-		// 欧盟零数据保留渠道的最强工程模型；POST 实测 HTTP 200。
+		// #2：合成分 89.5（外部 88×0.7 + 实弹 93×0.3）。实弹八连发最高分，原池首让位给 DeepSeek。
 	},
 	{
 		id: "Qwen3.6-27B",
@@ -183,9 +142,74 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		wire: "chat",
 		displayName: "Qwen3.6 27B",
 		contextWindow: 262_144,
-		maxOutput: 32_768,
+		maxOutput: 262_144, // 2026-11-24 端点实证
 		vision: false,
-		// #3：Qwen3.8 的同系前代，SWE-V 73.4 社区实测背书；POST 实测 HTTP 200。
+		// #3：合成分 84.0（外部 84×0.7 + 实弹 84×0.3）。
+	},
+	{
+		id: "nvidia/nemotron-3.5-super-vl:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Nemotron 3.5 Super VL (120B-A12B)",
+		contextWindow: 1_000_000, // Kilo listing 实证
+		maxOutput: 131_072,
+		vision: true, // listing 含 image+video；带图链首位（池序 #4 顺延，不单独定序）
+		// #4：合成分 79.5（外部 78×0.7 + 实弹 83×0.3）。#241 的「末位隔离」已被 v4.x 实弹复核推翻
+		//（83 分，测试组第 4、NVIDIA 之首）；Kilo 调用量榜仍不参与排序。
+	},
+	{
+		id: "Qwen3.5-397B-A17B",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Qwen3.5 397B A17B",
+		contextWindow: 262_144,
+		maxOutput: 262_144, // 2026-11-24 端点实证
+		vision: false,
+		// #5：合成分 78.1（外部 82×0.7 + 实弹 69×0.3）。OVH 侧大 MoE。
+	},
+	{
+		id: "qwen3.6-35b-a3b",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Qwen3.6 35B A3B",
+		contextWindow: 262_144, // OVH 端点实证
+		maxOutput: 65_536,
+		vision: false, // 纯文本 XML 探针通过（2026-11-23）；带图未验证
+		// #6：合成分 77.9（外部 82×0.7，XML 探针通过 ×0.95 → 77.9）。AA 头对头与 Qwen3.8-27B 接近，
+		// 厂商 SWE-V 73.4；零实弹，位置暂定。
+	},
+	{
+		id: "dots-studio/dots-3-note-preview:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Dots3-Note Preview",
+		contextWindow: 512_000, // Kilo listing 实证
+		maxOutput: 460_800,
+		vision: true, // listing 含 image；带图链第 2 位
+		// #7：合成分 76.0（实弹 76，无外部跑分 → 只用实弹分）。
+	},
+	{
+		id: "baidu/ernie-5.5-flash-preview:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "ERNIE 5.5 Flash Preview",
+		contextWindow: 1_024_000, // Kilo listing 实证
+		maxOutput: 921_600,
+		vision: false, // listing 仅 text
+		// #8：合成分 76.0（外部 80×0.7，XML 探针通过 ×0.95 → 76.0）。280B-A14B MoE、1M 窗口、
+		// 2026-11-11 上线的中转检查点；厂商自报 TB4.0 46.5 / DeepSWE 71.2，无独立榜单 entry。
+		// 零实弹，位置暂定；偶发 429（Kilo 上游限流，重试即过）。
+	},
+	{
+		id: "particle-ai/particle-1:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Particle-1",
+		contextWindow: 1_048_576, // Kilo listing 实证
+		maxOutput: 131_072,
+		vision: true, // listing 含 image（2026-11-24 带图请求 200 接受）
+		// #9：合成分 76.0（外部 80×0.7，XML 探针通过 ×0.95 → 76.0）。DeepSeek V4.1 Flash rank-64
+		// agentic LoRA，GPQA 90.4；独立测试 28/30 ≈ GPT-6.1 SOL。零实弹，位置暂定。
 	},
 	{
 		id: "stealth/glyph-cluster",
@@ -195,98 +219,9 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 256_000, // Kilo listing 实证
 		maxOutput: 256_000,
 		vision: false,
-		nativeTools: true, // 2026-11-09 实测：listing `supports_function_calling: true`，原生探针 `finish_reason=tool_calls`；XML-only 下 29 轮零工具（KB 08 #254）
-		// #4（低置信）：Kilo/Vercel 双渠道 stealth 槽位，tokenizer 疑似 Microsoft，**无任何基准分**；
-		// 排位依据仅 Kilo 自家榜用量 Code 11.9% #4 / Plan #3 / Ask #2 / kiloclaw 29.0% #1 → 中段，随时可调。
-		// stealth 期 prompt 被上游留存：Kilo 渠道级 collectsData=true 已覆盖，无新增恶化。
-	},
-	{
-		id: "dots-studio/dots-3-note-preview:free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Dots3-Note Preview",
-		contextWindow: 512_000, // Kilo listing 实证
-		maxOutput: 460_800,
-		vision: true, // vision 链第 1 位（#256 移除 Crouton Alpha 后按池序顺延）
-		// #6：Kilo 榜 Code 3.7% #7 / 24h 70.4B #5，有真实用量但 agent 实战弱于前三；
-		// 历史教训：厂商自报基准须打折（与 Gemma 系同款），社区口碑优先。
-	},
-	{
-		id: "Qwen3.5-397B-A17B",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "Qwen3.5 397B A17B",
-		contextWindow: 262_144,
-		maxOutput: 32_768,
-		vision: false,
-		// #7：OVH 侧大 MoE，agentic 对比胜 Gemma 5/8；POST 实测 HTTP 200。
-	},
-	{
-		id: "cohere/north-mini-code:free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "North Mini Code",
-		contextWindow: 256_000, // Kilo listing 实证
-		maxOutput: 64_000,
-		vision: false,
-		// #8：Cohere 编码特化小模型，未进 Kilo 榜各 agent 前 10 → 编码中段。
-	},
-	{
-		id: "gpt-oss-120b",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "gpt-oss-120b",
-		contextWindow: 131_072,
-		maxOutput: 32_768,
-		vision: false,
-	},
-	{
-		id: "Mistral-Small-3.2-24B-Instruct-2506",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "Mistral Small 3.2 24B",
-		contextWindow: 131_072,
-		maxOutput: 32_768,
-		vision: false,
-		// 2026-11-05 生效日实测：与 Nemo 同日退役公告，但 POST 仍 HTTP 200 → 保留（同公告 ≠ 同步下架）；
-		// 目录滞后陷阱见文件头。旧 24B，编程中等偏下。
-	},
-	{
-		id: "gpt-oss-20b",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "gpt-oss-20b",
-		contextWindow: 131_072,
-		maxOutput: 32_768,
-		vision: false,
-	},
-	{
-		id: "Meta-Llama-3_3-70B-Instruct",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "Llama 3.3 70B Instruct",
-		contextWindow: 131_072,
-		maxOutput: 32_768,
-		vision: false,
-	},
-	{
-		id: "Qwen3.5-9B",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "Qwen3.5 9B",
-		contextWindow: 262_144,
-		maxOutput: 32_768,
-		vision: false,
-	},
-	{
-		id: "Qwen2.5-VL-72B-Instruct",
-		lane: "ovh",
-		wire: "chat",
-		displayName: "Qwen2.5 VL 72B",
-		contextWindow: 32_768, // OVH 端点实证
-		maxOutput: 8_192,
-		vision: true, // vision 链第 2 位；OVH 侧唯一 vision 候选（隐私开关下带图请求唯一可打的模型）
-		// VL = 视觉语言模型；32K 窗口对工程任务太短，排序靠后，但隐私开关开启时是唯一可用带图候选。
+		nativeTools: true, // 2026-11-09 实测：listing `supports_function_calling: true`，原生探针 `finish_reason=tool_calls`（KB 08 #254）
+		// #10：合成分 75.0（实弹 75，无外部跑分 → 只用实弹分；与 test/free/spec.ts 的
+		// BLENDED_SCORES 单源表一致）。stealth 槽位仍零基准分，位次靠实弹。
 	},
 	{
 		id: "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -296,9 +231,146 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		contextWindow: 1_000_000, // Kilo listing 实证
 		maxOutput: 65_536,
 		vision: false,
-		// #15（KB 08 #241）：550B-A55B 超大 MoE，Kilo 榜 Code 18.1% #2 / 24h 180.8B #2，
-		// 但 **Code agent rank 仅 #34**；有独立能力基准、且无本插件协议失败实证 → NVIDIA 家族首位。
-		// ⚠️ 旧 #4 位次已废止：#241 只重排 NVIDIA 四项，其余 14 项相对序不动。
+		// #11：合成分 63.3（外部 66×0.7 + 实弹 57×0.3）。550B-A55B 超大 MoE，NVIDIA 家族第 2 位。
+	},
+	{
+		id: "recursive/flint-v1.0:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Flint v1.0",
+		contextWindow: 262_144, // Kilo listing 实证
+		maxOutput: 235_929,
+		vision: false, // listing 仅 text
+		// #12：合成分 63.0（外部 70×0.7，方言不合规 ×0.90 → 63.0）。厂商自报 TB2.1 54.9 / SWE-V 74.2
+		// / SWE-Pro v2 89.7，但社区对 agentic 场景评价负面；探针输出 Qwen `<tool_call>`+`arg_key`
+		// 方言（已由 parse-assistant-message 归一器还原，KB 08 #269）。零实弹，位置暂定。
+	},
+	{
+		id: "nemotron3-nano-30b",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Nemotron3 Nano 30B",
+		contextWindow: 262_144, // OVH 端点实证
+		maxOutput: 65_536,
+		vision: false, // 纯文本 XML 探针通过（2026-11-23）
+		// #13：合成分 53.2（外部 56×0.7 ×0.95 探针通过 → 53.2）。30B-A3B（3.5B 活跃），
+		// 思考型、英文为主、有 parser bug 记录；零实弹，位置暂定。
+	},
+	{
+		id: "gpt-oss-20b",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "gpt-oss-20b",
+		contextWindow: 131_072,
+		maxOutput: 65_536, // 2026-11-24 端点实证（原保守估值 32_768）
+		vision: false,
+		// #14：合成分 49.1（外部 44×0.7 + 实弹 61×0.3）。
+	},
+	{
+		id: "gpt-oss-120b",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "gpt-oss-120b",
+		contextWindow: 131_072,
+		maxOutput: 131_072, // 2026-11-24 端点实证（原保守估值 32_768）
+		vision: false,
+		// #15：合成分 49.1（外部 50×0.7 + 实弹 47×0.3）。AA II 3.8 明显低于 20b 的业界预期，
+		// 与实弹分（47 < 61）同向 → 与 20b 并列，按外部稍高居前。
+	},
+	{
+		id: "laguna-xs-2.1",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Laguna XS 2.1",
+		contextWindow: 131_072, // OVH 端点实证
+		maxOutput: 65_536,
+		vision: false, // 纯文本探针输出 Qwen `arg_key` 方言（归一器已覆盖）；带图未验证
+		// #16：合成分 48.6（外部 54×0.7，方言不合规 ×0.90 → 48.6）。poolside 33B-A3B，
+		// 厂商自报 TB2.0 37.5，社区有 harness 过拟合报告；零实弹，位置暂定。
+	},
+	{
+		id: "Mistral-Small-3.2-24B-Instruct-2506",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Mistral Small 3.2 24B",
+		contextWindow: 131_072,
+		maxOutput: 131_072, // 2026-11-24 端点实证（原保守估值 32_768）
+		vision: false,
+		// #17：合成分 44.2（外部 52×0.7 ×0.85 未探 → 44.2）。旧 24B，编码中下；2026-11-05 同公告
+		// 退役实测仍 200 保留的旧裁定继续有效（2026-11-24 listing 在列）。
+	},
+	{
+		id: "Meta-Llama-3_3-70B-Instruct",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Llama 3.3 70B Instruct",
+		contextWindow: 131_072,
+		maxOutput: 131_072, // 2026-11-24 端点实证（原保守估值 32_768）
+		vision: false,
+		// #18：合成分 30.4（外部 28×0.7 + 实弹 36×0.3）。TB2.1 4.9 / HLE 3.6，代际明显落后。
+	},
+	{
+		id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Nemotron 3 Nano Omni (30B-A3B)",
+		contextWindow: 256_000, // Kilo listing 实证
+		maxOutput: 65_536,
+		vision: true, // listing 含 audio+image+video；带图链第 4 位
+		// #19：合成分 24.8（外部 26×0.7 + 实弹 22×0.3）。感知子代理定位，非主力编码链路。
+	},
+	{
+		id: "nemotron3-omni-30b",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Nemotron3 Omni 30B",
+		contextWindow: 131_072, // OVH 端点实证
+		maxOutput: 65_536,
+		vision: false, // 带图探针 2026-11-24 未完成（OVH 匿名限流），未验证不声明
+		// #20：合成分 24.7（外部 26×0.7 ×0.95 探针通过 → 24.7）。与 Kilo Nano Omni 同权重，
+		// 官方口径英文为主；零实弹，位置暂定。
+	},
+	{
+		id: "qwen3-vl-30b-a3b",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Qwen3-VL 30B A3B",
+		contextWindow: 32_768, // OVH 端点实证；<64K → 位置硬规则②排到非失败组末尾
+		maxOutput: 16_384,
+		vision: false, // Instruct 变体、多语 OCR 强（外部 34），但带图探针 2026-11-24 未完成，未验证不声明
+		// #21：合成分 32.3（外部 34×0.7 ×0.95 → 32.3），但 32K 窗口触发链尾规则，不按分数插队。
+	},
+	{
+		id: "Qwen2.5-VL-72B-Instruct",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Qwen2.5 VL 72B",
+		contextWindow: 32_768, // OVH 端点实证；<64K → 位置硬规则②
+		maxOutput: 32_768, // 2026-11-24 端点实证（原保守估值 8_192）
+		vision: true, // 早期带图实测通过；隐私开关下带图请求的唯一 OVH 候选
+		// #22：合成分 27.2（外部 32×0.7 ×0.85 未探 → 27.2）。代际最老的 VL；32K 窗口链尾，
+		// 但隐私开关开启时仍是唯一 OVH 带图候选。
+	},
+	{
+		id: "Qwen3.5-9B",
+		lane: "ovh",
+		wire: "chat",
+		displayName: "Qwen3.5 9B",
+		contextWindow: 262_144,
+		maxOutput: 65_536, // 2026-11-24 端点实证（原保守估值 32_768）
+		vision: false,
+		// #23–25（A 组垫底，位置硬规则①）：v4.1 实弹 A 组未合格——Qwen3.5-9B（A1 9）、
+		// Lightning（A2 0，A=11）、LFM3-1.7B（A=9）。合成分不参与排序，保持三者原有相对序。
+	},
+	{
+		id: "nvidia/nemotron-3.5-lightning:free",
+		lane: "kilo",
+		wire: "chat",
+		displayName: "Nemotron 3.5 Lightning (free)",
+		contextWindow: 1_000_000, // Kilo listing 实证
+		maxOutput: 65_536,
+		vision: false, // listing 仅 text
+		// #24：A 组未合格（A2 0，A=11）垫底；NVIDIA 官方定位「执行层 / 低延迟」快速模型。
 	},
 	{
 		id: "liquid/lfm-3-1.7b:free",
@@ -307,56 +379,9 @@ export const FREE_POOL: readonly FreeCandidate[] = [
 		displayName: "LFM3-1.7B",
 		contextWindow: 262_144, // Kilo listing 实证
 		maxOutput: 8_192,
-		vision: false, // listing input_modalities 仅 text
-		// #16（2026-11-08 新增，用户裁定「只给新模型定序」）：Liquid AI 1.73B 三混合架构，2026-11-06 上线。
-		// 社区评价（**排除 Kilo 调用量**）：OpenRouter 官方页 Availability 3d 92.09% / Uptime 99.99%，
-		// 独立媒体指全部基准为厂商自报、模型卡「not recommended for agentic coding」；多家社区实测共识
-		// 「窄范围工具调用可用、复杂任务不足」；LMSpeed V3.0 Overall 45.0(#169/189)、Coding 28.4、Agents 42.3。
-		// AA 榜单：artificialanalysis.ai/models/lfm-3-1-7b 404 → 标「未列」，不计 0 分（权重按比例归一化）。
-		// 能力榜（LMSpeed V3.0 / 官方 README）：工具·指令强 BFCL V4 71.4 / ToolSandbox 80.4 /
-		// IFEval 96.7 / IFStruct 93.7 / AutomationBench 41.3 / LiveClaw 45.6；仓库级编码弱
-		// SWE-V 43.4、SWE-Multi 23.0、TB2.1 12.9、MCP-Atlas 32.6（低于 Qwen3.5-9B 的 51.2/35.0/18.0/42.7）。
-		// 风险：262K/8K、纯文本、**强制推理不可关闭**（reasoning:false → 400）、零凭据偶发 429、
-		// mayTrainOnYourPrompts=true、官方不建议 agentic coding → 零实弹，不得进池首或带图链首位。
-		// 位次：低于 Ultra(#15，AA 49.3 / SWE-V 70.7)，高于三个零实弹观察项，不占 Super VL 末位隔离位。
-		// 评分表与逐条出处见 KB 07 §7.9；本轮 #241 实弹硬门槛暂不纳入（实弹未测完），完成后按三源复核。
-	},
-	{
-		id: "nvidia/nemotron-3.5-lightning:free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Nemotron 3.5 Lightning (free)",
-		contextWindow: 1_000_000, // Kilo listing 实证（2026-11-05 复核）
-		maxOutput: 65_536,
-		vision: false, // listing input_modalities 仅 text
-		// #17（KB 08 #241）：NVIDIA 官方定位「执行层 / 低延迟」快速模型，24h 21.3B #8 有真实用量，
-		// 但未进任一 agent 榜前 10，且**零本插件实弹** → 家族内部第 2 位，保守隔离在 #15–19 段。
-	},
-	{
-		id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Nemotron 3 Nano Omni (30B-A3B)",
-		contextWindow: 256_000, // Kilo listing 实证（2026-11-05 复核）
-		maxOutput: 65_536,
-		vision: true, // listing 含 text+audio+image+video；vision 链第 3 位
-		// #18（KB 08 #241）：NVIDIA 官方定位「感知子代理」omni 小模型（30B-A3B，3B 活跃），
-		// 面向多模态输入理解而非主力编码/工程链路，无榜单用量背书、零本插件实弹 → 家族第 3 位，
-		// 但仍保留 vision 链第 3 位的补位价值（带图链不单独定序）。
-	},
-	{
-		id: "nvidia/nemotron-3.5-super-vl:free",
-		lane: "kilo",
-		wire: "chat",
-		displayName: "Nemotron 3.5 Super VL (120B-A12B)",
-		contextWindow: 1_000_000, // Kilo listing 实证
-		maxOutput: 131_072,
-		vision: true, // listing input_modalities 含 image+video；vision 链第 4 位（末位，不再作带图链首选）
-		// #19（KB 08 #241 末位隔离）：NVIDIA 通用代理模型（编码/搜索/工具/文档），旧 #229 由 #10 升池首
-		// 的依据是 Kilo Leaderboard 单渠道真实用量（Code/Plan/Debug 三榜 #1、24h 273.0B #1、
-		// Code agent rank #6）；该渠道只衡量被采用程度，不衡量本插件 XML 工具协议下的可靠性。
-		// 任务 1793888219697 实弹：畸形 `<regex>`、search_files 两次失败、9 次命令失败、最终错误结论
-		// → 唯一有本地实测且实测失败的 NVIDIA 项，本轮降到末位。回升须按文件头三源判据逐个补做实弹。
+		vision: false, // listing 仅 text
+		// #25：A 组未合格（A=9）垫底。1.73B 三混合架构，官方「not recommended for agentic coding」、
+		// 强制推理不可关闭（reasoning:false → 400）。2026-11-24 探活复活（前两日 429）。
 	},
 ]
 
@@ -402,7 +427,7 @@ export interface FreeChainOptions {
 	/**
 	 * KB 08 #242：指定的**真实上游模型 ID**。先按下面四道门构造完整链，再做钳制，
 	 * 因此指定模型同样要过隐私 / listing / vision / 车道冷却四道门；链长恰为 1 或 0。
-	 * ⛔ 不是 displayName，也不是池内下标——#241 重排后下标会串位。
+	 * ⛔ 不是 displayName，也不是池内下标——#241/#267 重排后下标会串位。
 	 */
 	pinnedModelId?: string
 }

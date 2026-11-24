@@ -1,14 +1,9 @@
-import {
-	type ApiConfiguration,
-	type ApiProvider,
-	bigmodelModels,
-	deepSeekModels,
-	type ModelInfo,
-	mimoModels,
-	moonshotModels,
-} from "@shared/api"
+import { type ApiConfiguration, type ApiProvider } from "@shared/api"
 import { AUXILIARY_CONFIG_KEYS, AUXILIARY_SUPPORTED_PROVIDERS } from "@shared/aux-model"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+// #272：provider 标签与模型表搬到纯模块 aux-provider-catalog——由 test/update/
+// aux-provider-catalog.spec.ts 按 AUXILIARY_SUPPORTED_PROVIDERS 逐家守门，这里不再内联
+import { auxProviderLabel, auxProviderModels } from "./utils/aux-provider-catalog"
 import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers"
 
 /**
@@ -21,22 +16,6 @@ import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers
  *   所选服务的主 API 配置（「各存各的」「一起改」），因此这里不再渲染密钥框 / 思考强度下拉 /
  *   Kimi 入口下拉——**只选服务即生效**。旧字段保留在存储与清空清单里但四处都不读。
  */
-
-const PROVIDER_LABELS: Record<string, string> = {
-	deepseek: "DeepSeek",
-	mimo: "Xiaomi MiMo",
-	bigmodel: "智谱 BigModel",
-	"bigmodel-plan": "智谱 GLM 套餐（Coding Plan）",
-	moonshot: "Kimi (Moonshot)",
-	free: "免费模型",
-}
-
-const PROVIDER_MODELS: Partial<Record<ApiProvider, Record<string, ModelInfo>>> = {
-	deepseek: deepSeekModels as Record<string, ModelInfo>,
-	mimo: mimoModels as Record<string, ModelInfo>,
-	bigmodel: bigmodelModels as Record<string, ModelInfo>,
-	moonshot: moonshotModels as Record<string, ModelInfo>,
-}
 
 interface AuxCardProps {
 	prefix: "enhance" | "subagent"
@@ -53,7 +32,7 @@ const AuxModelCard = ({ prefix, title, description }: AuxCardProps) => {
 		| undefined
 	const modelId = (apiConfiguration?.[`${prefix}ApiModelId` as keyof typeof apiConfiguration] as string | undefined) ?? ""
 
-	const models = provider ? PROVIDER_MODELS[provider] : undefined
+	const models = provider ? auxProviderModels(provider) : undefined
 
 	/**
 	 * #230/#235：字段名由 prefix 拼出，TS 无法把计算键收窄成具体 key，但泛型约束
@@ -94,7 +73,7 @@ const AuxModelCard = ({ prefix, title, description }: AuxCardProps) => {
 					<option value="">跟随主模型（不单独配置）</option>
 					{AUXILIARY_SUPPORTED_PROVIDERS.map((p) => (
 						<option key={p} value={p}>
-							{PROVIDER_LABELS[p] ?? p}
+							{auxProviderLabel(p)}
 						</option>
 					))}
 				</select>

@@ -6,12 +6,12 @@
  * **不按优先级依次尝试、结果不可复现**。这里列出的只是「可能被选中的模型」，
  * 不是路由顺序，也不保证一定命中清单内（采样 35% 命中池外独有免费模型）。
  *
- * 数据来源：2026-11-08 实测 `GET https://openrouter.ai/api/v1/models`（HTTP 200、
- * total 461、`:free` 后缀 12 项、零价 16 项）。零价但无 `:free` 后缀的 4 项为
- * `stealth/crouton-alpha`（当时在 Kilo 免费池内、并非 OpenRouter 免费变体，故不纳入展示；
- * 登记时它的「池首」说法不准——实为池 #4 / 带图链首位；2026-11-13 已从免费池移除，KB 08 #256）、
- * 两个 Lyria 音乐生成模型
- * 与虚拟路由器 `openrouter/free` 本身，均不纳入展示——音乐模型不参与聊天路由，
+ * 数据来源：2026-11-24 实测 `GET https://openrouter.ai/api/v1/models`（`:free` 后缀 12 项，
+ * KB 08 #268 快照刷新；上一版为 2026-11-08）。`cohere/north-mini-code:free`、
+ * `xingchen-agi/xing4.0-29b-a4b:free`、`liquid/lfm-2.5-2.6b:free` 已从官方免费清单消失，
+ * 由 `inclusionai/ling-3.2-flash:free`、`baidu/ernie-5.5-flash-preview:free`、
+ * `particle-ai/particle-1:free` 顶替。零价但无 `:free` 后缀的条目（两个 Lyria 音乐生成模型、
+ * 虚拟路由器 `openrouter/free` 本身）不纳入展示——音乐模型不参与聊天路由，
  * 虚拟路由器只是请求 ID、不是真实权重。
  */
 
@@ -32,11 +32,16 @@ export const OPENROUTER_UNKNOWN_CONTEXT_WINDOW = 0
 export const OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
 
 /**
- * 内置静态快照（2026-11-08 实测 12 项，按 id 稳定排序）。
+ * 内置静态快照（2026-11-24 实测 12 项，按 id 稳定排序）。
  * 只用于展示与失败回落，⛔ 绝不进 `FREE_POOL`、不参与候选链。
  */
 export const OPENROUTER_FREE_MODELS_SNAPSHOT: readonly OpenRouterFreeModel[] = Object.freeze([
-	{ id: "cohere/north-mini-code:free", name: "Cohere: North Mini Code (free)", contextWindow: 256_000, vision: false },
+	{
+		id: "baidu/ernie-5.5-flash-preview:free",
+		name: "Baidu: ERNIE-5.5-Flash-Preview (free)",
+		contextWindow: 1_024_000,
+		vision: false,
+	},
 	{
 		id: "dots-studio/dots-3-note-preview:free",
 		name: "Dots Studio: Dots3-Note Preview (free)",
@@ -45,12 +50,17 @@ export const OPENROUTER_FREE_MODELS_SNAPSHOT: readonly OpenRouterFreeModel[] = O
 	},
 	{
 		id: "google/gemma-4-26b-a4b-it:free",
-		name: "Google: Gemma 4 26B A4B (free)",
+		name: "Google: Gemma 4 26B A4B  (free)",
 		contextWindow: 262_144,
 		vision: true,
 	},
 	{ id: "google/gemma-4-31b-it:free", name: "Google: Gemma 4 31B (free)", contextWindow: 262_144, vision: true },
-	{ id: "liquid/lfm-2.5-2.6b:free", name: "LiquidAI: LFM2.5-2.6B (free)", contextWindow: 65_536, vision: false },
+	{
+		id: "inclusionai/ling-3.2-flash:free",
+		name: "inclusionAI: Ling 3.2 Flash (free)",
+		contextWindow: 1_048_576,
+		vision: true,
+	},
 	{ id: "liquid/lfm-3-1.7b:free", name: "LiquidAI: LFM3-1.7B (free)", contextWindow: 262_144, vision: false },
 	{
 		id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
@@ -76,13 +86,8 @@ export const OPENROUTER_FREE_MODELS_SNAPSHOT: readonly OpenRouterFreeModel[] = O
 		contextWindow: 1_000_000,
 		vision: true,
 	},
+	{ id: "particle-ai/particle-1:free", name: "Particle AI: Particle-1 (free)", contextWindow: 1_048_576, vision: true },
 	{ id: "recursive/flint-v1.0:free", name: "Recursive: Flint (free)", contextWindow: 262_144, vision: false },
-	{
-		id: "xingchen-agi/xing4.0-29b-a4b:free",
-		name: "XingChen: Xing4.0 29B A4B (free)",
-		contextWindow: 262_144,
-		vision: false,
-	},
 ])
 
 type UnknownRecord = Record<string, unknown>

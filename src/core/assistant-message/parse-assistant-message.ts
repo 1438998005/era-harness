@@ -16,11 +16,32 @@ function normalizeLeakedToolMarkup(text: string): string {
 	// 只有闭包裹（流式截断残留）也要清，所以证据判定包含闭包裹
 	if (!/<\/?tool_call>|<\/?tool-call>/.test(text)) return text
 	const known = new Set(getToolUseNames())
-	return text
-		.replace(/<(?:tool_call|tool-call)>\s*(?:<function=)?([a-z_][a-z0-9_]*)\s*>?/g, (_m, name) =>
-			known.has(name) ? "<" + name + ">" : _m,
-		)
-		.replace(/<\/\s*(?:tool_call|tool-call)\s*>/g, "")
+	return (
+		text
+			// Qwen 方言完整块（2026-11-23 免费池探针实测，Flint / Laguna XS 2.1）：
+			// `<tool_call>read_file<arg_key>path</arg_key><arg_value>ERB/DIM.ERH</arg_value></tool_call>`。
+			// 整块一次性归一成**带闭合**的 `<read_file><path>…</path></read_file>`——只拆外层会把
+			// 工具块留成 partial（Task 层视为「工具调用不完整」）；键值对只在包裹块内还原，块外
+			// 正文出现 arg_key 字样可能是模型在举例讲解协议，绝不能动。未知工具名整块不动（白名单）。
+			// 必须跑在下面的开包裹归一之前：包裹先归一成 `<read_file>` 后块边界就没了。
+			.replace(/<(?:tool_call|tool-call)>([\s\S]*?)<\/\s*(?:tool_call|tool-call)\s*>/g, (block, inner: string) => {
+				const openMatch = inner.match(/^\s*(?:<function=)?([a-z_][a-z0-9_]*)\s*>?/)
+				if (!openMatch || !known.has(openMatch[1])) {
+					return block
+				}
+				const body = inner
+					.slice(openMatch[0].length)
+					.replace(
+						/<arg_key>\s*([a-zA-Z0-9_.-]+)\s*<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/g,
+						(_pair, key: string, value: string) => `<${key}>${value}</${key}>`,
+					)
+				return `<${openMatch[1]}>${body}</${openMatch[1]}>`
+			})
+			.replace(/<(?:tool_call|tool-call)>\s*(?:<function=)?([a-z_][a-z0-9_]*)\s*>?/g, (_m, name) =>
+				known.has(name) ? "<" + name + ">" : _m,
+			)
+			.replace(/<\/\s*(?:tool_call|tool-call)\s*>/g, "")
+	)
 }
 
 // era harness: some models (observed GLM-5.3-Flash) XML-escape shell commands, writing

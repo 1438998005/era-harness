@@ -17,6 +17,8 @@ import { FreeModelProvider } from "./providers/FreeModelProvider"
 import { MimoProvider } from "./providers/MimoProvider"
 import { MoonshotProvider } from "./providers/MoonshotProvider"
 import { OpenAICompatibleProvider } from "./providers/OpenAICompatible"
+import { TencentCodingPlanProvider } from "./providers/TencentCodingPlanProvider"
+import { TencentTokenhubProvider } from "./providers/TencentTokenhubProvider"
 import { useApiConfigurationHandlers } from "./utils/useApiConfigurationHandlers"
 
 interface ApiOptionsProps {
@@ -350,6 +352,12 @@ const ApiOptions = ({
 			)}
 			{apiConfiguration && selectedProvider === "moonshot" && (
 				<MoonshotProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
+			{apiConfiguration && selectedProvider === "tencent-tokenhub" && (
+				<TencentTokenhubProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
+			)}
+			{apiConfiguration && selectedProvider === "tencent-coding-plan" && (
+				<TencentCodingPlanProvider currentMode={currentMode} isPopup={isPopup} showModelOptions={showModelOptions} />
 			)}
 
 			{apiConfiguration && selectedProvider === "openai" && (

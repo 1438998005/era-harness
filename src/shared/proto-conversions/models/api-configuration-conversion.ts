@@ -149,6 +149,12 @@ function convertApiProviderToProto(provider: string | undefined): ProtoApiProvid
 			return ProtoApiProvider.BIGMODEL_PLAN
 		case "moonshot":
 			return ProtoApiProvider.MOONSHOT
+		// 腾讯云（2026-11-24，KB 08 #270）：TokenHub 按量与 Coding Plan 套餐两个 provider。
+		// 漏一个方向都会被静默存成 DeepSeek（见 default 分支的警告）。
+		case "tencent-tokenhub":
+			return ProtoApiProvider.TENCENT_TOKENHUB
+		case "tencent-coding-plan":
+			return ProtoApiProvider.TENCENT_CODING_PLAN
 		default:
 			return ProtoApiProvider.DEEPSEEK
 	}
@@ -171,6 +177,10 @@ export function convertProtoToApiProvider(provider: ProtoApiProvider): ApiProvid
 			return "bigmodel-plan"
 		case ProtoApiProvider.MOONSHOT:
 			return "moonshot"
+		case ProtoApiProvider.TENCENT_TOKENHUB:
+			return "tencent-tokenhub"
+		case ProtoApiProvider.TENCENT_CODING_PLAN:
+			return "tencent-coding-plan"
 		default:
 			return "deepseek"
 	}
@@ -192,6 +202,11 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		bigmodelPlanApiKey: config.bigmodelPlanApiKey,
 		moonshotApiKey: config.moonshotApiKey,
 		moonshotApiLine: config.moonshotApiLine,
+		// 腾讯云（2026-11-24，KB 08 #270）：与 moonshot 同构的按量/套餐双 provider 字段
+		tencentTokenhubApiKey: config.tencentTokenhubApiKey,
+		tencentTokenhubApiLine: config.tencentTokenhubApiLine,
+		tencentTokenhubReasoningEffort: config.tencentTokenhubReasoningEffort,
+		tencentCodingPlanApiKey: config.tencentCodingPlanApiKey,
 		// 「提示词增强 / 子代理」独立模型配置（跨厂商时的独立凭证与模型三元组）
 		enhanceApiProvider: config.enhanceApiProvider ? convertApiProviderToProto(config.enhanceApiProvider) : undefined,
 		enhanceApiKey: config.enhanceApiKey,
@@ -228,6 +243,8 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		planModeBigmodelModelInfo: convertModelInfoToProtoOpenRouter(config.planModeBigmodelModelInfo),
 		planModeBigmodelPlanModelInfo: convertModelInfoToProtoOpenRouter(config.planModeBigmodelPlanModelInfo),
 		planModeMoonshotModelInfo: convertModelInfoToProtoOpenRouter(config.planModeMoonshotModelInfo),
+		planModeTencentTokenhubModelInfo: convertModelInfoToProtoOpenRouter(config.planModeTencentTokenhubModelInfo),
+		planModeTencentCodingPlanModelInfo: convertModelInfoToProtoOpenRouter(config.planModeTencentCodingPlanModelInfo),
 		planModeProviderModelIds: config.planModeProviderModelIds ?? {},
 
 		// Act mode configurations
@@ -241,6 +258,8 @@ export function convertApiConfigurationToProto(config: ApiConfiguration): ProtoA
 		actModeBigmodelModelInfo: convertModelInfoToProtoOpenRouter(config.actModeBigmodelModelInfo),
 		actModeBigmodelPlanModelInfo: convertModelInfoToProtoOpenRouter(config.actModeBigmodelPlanModelInfo),
 		actModeMoonshotModelInfo: convertModelInfoToProtoOpenRouter(config.actModeMoonshotModelInfo),
+		actModeTencentTokenhubModelInfo: convertModelInfoToProtoOpenRouter(config.actModeTencentTokenhubModelInfo),
+		actModeTencentCodingPlanModelInfo: convertModelInfoToProtoOpenRouter(config.actModeTencentCodingPlanModelInfo),
 		actModeProviderModelIds: config.actModeProviderModelIds ?? {},
 	}
 }
@@ -259,6 +278,11 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		bigmodelPlanApiKey: protoConfig.bigmodelPlanApiKey,
 		moonshotApiKey: protoConfig.moonshotApiKey,
 		moonshotApiLine: protoConfig.moonshotApiLine,
+		// 腾讯云（2026-11-24，KB 08 #270）：与写侧一一对应，漏一个方向会被静默存成 DeepSeek
+		tencentTokenhubApiKey: protoConfig.tencentTokenhubApiKey,
+		tencentTokenhubApiLine: protoConfig.tencentTokenhubApiLine,
+		tencentTokenhubReasoningEffort: protoConfig.tencentTokenhubReasoningEffort,
+		tencentCodingPlanApiKey: protoConfig.tencentCodingPlanApiKey,
 		// 「提示词增强 / 子代理」独立模型配置（与 convertApiConfigurationToProto 一一对应）
 		enhanceApiProvider:
 			protoConfig.enhanceApiProvider !== undefined ? convertProtoToApiProvider(protoConfig.enhanceApiProvider) : undefined,
@@ -301,6 +325,8 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		planModeBigmodelModelInfo: convertProtoToModelInfo(protoConfig.planModeBigmodelModelInfo),
 		planModeBigmodelPlanModelInfo: convertProtoToModelInfo(protoConfig.planModeBigmodelPlanModelInfo),
 		planModeMoonshotModelInfo: convertProtoToModelInfo(protoConfig.planModeMoonshotModelInfo),
+		planModeTencentTokenhubModelInfo: convertProtoToModelInfo(protoConfig.planModeTencentTokenhubModelInfo),
+		planModeTencentCodingPlanModelInfo: convertProtoToModelInfo(protoConfig.planModeTencentCodingPlanModelInfo),
 		planModeProviderModelIds: protoConfig.planModeProviderModelIds ?? {},
 
 		// Act mode configurations
@@ -315,63 +341,17 @@ export function convertProtoToApiConfiguration(protoConfig: ProtoApiConfiguratio
 		actModeBigmodelModelInfo: convertProtoToModelInfo(protoConfig.actModeBigmodelModelInfo),
 		actModeBigmodelPlanModelInfo: convertProtoToModelInfo(protoConfig.actModeBigmodelPlanModelInfo),
 		actModeMoonshotModelInfo: convertProtoToModelInfo(protoConfig.actModeMoonshotModelInfo),
+		actModeTencentTokenhubModelInfo: convertProtoToModelInfo(protoConfig.actModeTencentTokenhubModelInfo),
+		actModeTencentCodingPlanModelInfo: convertProtoToModelInfo(protoConfig.actModeTencentCodingPlanModelInfo),
 		actModeProviderModelIds: protoConfig.actModeProviderModelIds ?? {},
 	}
 }
 
-/**
- * proto `ModelsApiConfiguration` 中全部 `*ModelInfo` 字段 → proto message 类型名 的静态映射。
- *
- * #233：通用分派原先只按 `key.includes("OpenAi")` 二分——Oca（proto message 无 `tiers`，
- * 喂进 OpenRouter 转换 `protoInfo.tiers.length` 直接 TypeError）与 Aihubmix（字段名不含
- * "OpenAi"，被误转成 OpenRouter 形状丢 `temperature`/`isR1FormatRequired`）都处理不了。
- * 期望值以 `proto/cline/models.proto` 的 `ModelsApiConfiguration` 为唯一事实源，
- * 完整性与类型一致性由 `test/update/model-info-proto-mapping.spec.ts` 从 proto 文本
- * 解析后锁定（手写字段名 → proto 文本核对，测出漂移即红）。
- */
-export type ProtoModelInfoTypeName = "OpenRouterModelInfo" | "OpenAiCompatibleModelInfo" | "LiteLLMModelInfo" | "OcaModelInfo"
+// #233 的静态映射已抽到同级文件（本文件当时距 20KB 闸门只剩 72 字节，KB 08 #270）；
+// 原路径保留再导出，既有 import 不用动。
+export { MODEL_INFO_FIELD_PROTO_TYPE, type ProtoModelInfoTypeName } from "./model-info-proto-fields"
 
-export const MODEL_INFO_FIELD_PROTO_TYPE = {
-	// Plan mode（proto 108–144 区段）
-	planModeOpenRouterModelInfo: "OpenRouterModelInfo",
-	planModeOpenAiModelInfo: "OpenAiCompatibleModelInfo",
-	planModeDeepSeekModelInfo: "OpenRouterModelInfo",
-	planModeMimoModelInfo: "OpenRouterModelInfo",
-	planModeBigmodelModelInfo: "OpenRouterModelInfo",
-	planModeBigmodelPlanModelInfo: "OpenRouterModelInfo",
-	planModeMoonshotModelInfo: "OpenRouterModelInfo",
-	planModeLiteLlmModelInfo: "LiteLLMModelInfo",
-	planModeRequestyModelInfo: "OpenRouterModelInfo",
-	planModeGroqModelInfo: "OpenRouterModelInfo",
-	planModeHuggingFaceModelInfo: "OpenRouterModelInfo",
-	planModeHuaweiCloudMaasModelInfo: "OpenRouterModelInfo",
-	planModeBasetenModelInfo: "OpenRouterModelInfo",
-	planModeVercelAiGatewayModelInfo: "OpenRouterModelInfo",
-	planModeOcaModelInfo: "OcaModelInfo",
-	planModeAihubmixModelInfo: "OpenAiCompatibleModelInfo",
-	planModeClineModelInfo: "OpenRouterModelInfo",
-	// Act mode（proto 208–247 区段，与 plan 完全镜像）
-	actModeOpenRouterModelInfo: "OpenRouterModelInfo",
-	actModeOpenAiModelInfo: "OpenAiCompatibleModelInfo",
-	actModeDeepSeekModelInfo: "OpenRouterModelInfo",
-	actModeMimoModelInfo: "OpenRouterModelInfo",
-	actModeBigmodelModelInfo: "OpenRouterModelInfo",
-	actModeBigmodelPlanModelInfo: "OpenRouterModelInfo",
-	actModeMoonshotModelInfo: "OpenRouterModelInfo",
-	actModeLiteLlmModelInfo: "LiteLLMModelInfo",
-	actModeRequestyModelInfo: "OpenRouterModelInfo",
-	actModeGroqModelInfo: "OpenRouterModelInfo",
-	actModeHuggingFaceModelInfo: "OpenRouterModelInfo",
-	actModeHuaweiCloudMaasModelInfo: "OpenRouterModelInfo",
-	actModeBasetenModelInfo: "OpenRouterModelInfo",
-	actModeVercelAiGatewayModelInfo: "OpenRouterModelInfo",
-	actModeOcaModelInfo: "OcaModelInfo",
-	actModeAihubmixModelInfo: "OpenAiCompatibleModelInfo",
-	actModeClineModelInfo: "OpenRouterModelInfo",
-	// 全局辅助配置
-	enhanceModelInfo: "OpenRouterModelInfo",
-	subagentModelInfo: "OpenRouterModelInfo",
-} as const satisfies Record<string, ProtoModelInfoTypeName>
+import { MODEL_INFO_FIELD_PROTO_TYPE, type ProtoModelInfoTypeName } from "./model-info-proto-fields"
 
 /**
  * 按 proto message 类型名选转换器。LiteLLM 与 OpenAiCompatible 同构（tiers/temperature/

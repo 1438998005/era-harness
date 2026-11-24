@@ -114,6 +114,10 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	bigmodelReasoningEffort: { default: undefined as string | undefined },
 	bigmodelPlanReasoningEffort: { default: undefined as string | undefined },
 	moonshotReasoningEffort: { default: undefined as string | undefined },
+	// 腾讯云（2026-11-24，KB 08 #270）：TokenHub 思维强度槽（映射单源见 @shared/aux-model
+	// PROVIDER_REASONING_EFFORT_KEY；只作用于混元系，第三方模型请求侧不发明知参数）。
+	// Coding Plan 是动态模型库 + 按请求次数计费，无思维强度槽。
+	tencentTokenhubReasoningEffort: { default: undefined as string | undefined },
 	// KB 08 #242：免费模型池「指定模型」。存**真实上游模型 ID**（不是 displayName、不是数组
 	// 下标），全局一份不分 plan/act；#241 池序重排后仍能指向同一个模型。清空 = 回到自动路由。
 	pinnedModelId: { default: undefined as string | undefined },
@@ -128,6 +132,8 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	planModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeBigmodelPlanModelInfo: { default: undefined as ModelInfo | undefined },
 	planModeMoonshotModelInfo: { default: undefined as ModelInfo | undefined },
+	planModeTencentTokenhubModelInfo: { default: undefined as ModelInfo | undefined },
+	planModeTencentCodingPlanModelInfo: { default: undefined as ModelInfo | undefined },
 	// #52（2026-10-28）：per-provider 模型记忆。deepseek/mimo/bigmodel 共用 planModeApiModelId
 	// 一个槽位，快速切换切走再切回就被覆盖成默认档——按 provider 各记一份，读侧仍过归属校验
 	//（记忆 id 不属本家清单 → 兑底默认档，KB 18 §18.11 教训不得绕过）。
@@ -143,6 +149,8 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	actModeBigmodelModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeBigmodelPlanModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeMoonshotModelInfo: { default: undefined as ModelInfo | undefined },
+	actModeTencentTokenhubModelInfo: { default: undefined as ModelInfo | undefined },
+	actModeTencentCodingPlanModelInfo: { default: undefined as ModelInfo | undefined },
 	actModeProviderModelIds: { default: {} as Record<string, string> },
 
 	// Model-specific settings
@@ -151,6 +159,9 @@ const API_HANDLER_SETTINGS_FIELDS = {
 	// Kimi (Moonshot) 双入口：china（api.moonshot.cn，默认）/ international（api.moonshot.ai）。
 	// 判据单一来源在 @shared/moonshot-request（设置页下拉与请求侧共用，知识库 18 §18.11 防漂移）。
 	moonshotApiLine: { default: undefined as string | undefined },
+	// 腾讯云 TokenHub 双线：china（tokenhub.tencentmaas.com，默认广州）/ intl（tokenhub-intl，
+	// 新加坡）。判据单一来源在 @shared/tencent-request（同款防漂移口径；两地密钥不通用）。
+	tencentTokenhubApiLine: { default: undefined as string | undefined },
 
 	// 「提示词增强 / 子代理」独立模型配置（2026-11-04 建立；2026-11-05 KB 08 #237 修订）。
 	// 平铺而不是嵌套 message：与 planMode*/actMode* 范式同构，state.proto 生成器与转换层都不用
@@ -253,6 +264,11 @@ const SECRETS_KEYS = [
 	// Kimi (Moonshot)：国内站（platform.kimi.com）与国际站密钥不互通，但同一个 key 值槽位
 	// 足够——入口由 moonshotApiLine 决定，换入口必须换 key，不存在两把 key 并存的场景
 	"moonshotApiKey",
+	// 腾讯云（2026-11-24，KB 08 #270）：按量 Key（sk-，入口由 tencentTokenhubApiLine 决定）与
+	// Coding Plan 专属 Key（sk-sp-）官方明示「不互通、请勿混用」，必须两个独立槽位；
+	// ⛔ 只登记在 SECRETS_KEYS，不进 API_HANDLER_SETTINGS_FIELDS（覆盖坑同上方 enhance/subagent）
+	"tencentTokenhubApiKey",
+	"tencentCodingPlanApiKey",
 	// 「提示词增强 / 子代理」旧独立凭证（KB 08 #237 起**保留但不读**）。
 	// 只在这里注册，绝不能同时进 API_HANDLER_SETTINGS_FIELDS：setApiConfiguration 按
 	// isSecretKey 优先写 secretsCache，而 constructApiConfigurationFromCache 是

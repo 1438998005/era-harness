@@ -78,6 +78,13 @@ export async function updateApiConfigurationProto(
 			planModeMoonshotModelInfo: protoApiConfiguration.planModeMoonshotModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.planModeMoonshotModelInfo)
 				: undefined,
+			// 腾讯云（2026-11-24，KB 08 #270）：按量与套餐两个 provider 的 ModelInfo
+			planModeTencentTokenhubModelInfo: protoApiConfiguration.planModeTencentTokenhubModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.planModeTencentTokenhubModelInfo)
+				: undefined,
+			planModeTencentCodingPlanModelInfo: protoApiConfiguration.planModeTencentCodingPlanModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.planModeTencentCodingPlanModelInfo)
+				: undefined,
 			// #233：lite_llm 一直漏转（靠 spread 原样透传 proto 形状）；LiteLLM 与 OpenAiCompatible
 			// 同构（tiers/temperature/apiFormat），按 OpenAiCompatible 形状还原不丢字段
 			planModeLiteLlmModelInfo: protoApiConfiguration.planModeLiteLlmModelInfo
@@ -139,6 +146,13 @@ export async function updateApiConfigurationProto(
 				: undefined,
 			actModeMoonshotModelInfo: protoApiConfiguration.actModeMoonshotModelInfo
 				? fromProtobufModelInfo(protoApiConfiguration.actModeMoonshotModelInfo)
+				: undefined,
+			// 腾讯云（2026-11-24，KB 08 #270）：漏转会让「切走再切回」丢模型元数据（#52 同款缺口）
+			actModeTencentTokenhubModelInfo: protoApiConfiguration.actModeTencentTokenhubModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.actModeTencentTokenhubModelInfo)
+				: undefined,
+			actModeTencentCodingPlanModelInfo: protoApiConfiguration.actModeTencentCodingPlanModelInfo
+				? fromProtobufModelInfo(protoApiConfiguration.actModeTencentCodingPlanModelInfo)
 				: undefined,
 			// #233：lite_llm 漏转，同 planModeLiteLlmModelInfo
 			actModeLiteLlmModelInfo: protoApiConfiguration.actModeLiteLlmModelInfo

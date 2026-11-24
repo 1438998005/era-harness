@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 	navigateToSettingsModelPicker: vi.fn(),
 }))
 
+// 当前模型 id 可按用例覆盖（默认 deepseek-v4-pro，与既有用例口径一致）
+const state = vi.hoisted(() => ({ currentModelId: "deepseek-v4-pro" }))
+
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
 vi.mock("@/components/ui/popover", () => ({
@@ -31,8 +34,8 @@ vi.mock("@/context/ExtensionStateContext", () => ({
 		apiConfiguration: {
 			actModeApiProvider: "deepseek",
 			planModeApiProvider: "deepseek",
-			actModeApiModelId: "deepseek-v4-pro",
-			planModeApiModelId: "deepseek-v4-pro",
+			actModeApiModelId: state.currentModelId,
+			planModeApiModelId: state.currentModelId,
 		},
 		navigateToSettingsModelPicker: mocks.navigateToSettingsModelPicker,
 	}),
@@ -44,6 +47,7 @@ describe("ModelQuickSwitchMenu 含 Kimi 条目", () => {
 	afterEach(() => {
 		cleanup()
 		vi.clearAllMocks()
+		state.currentModelId = "deepseek-v4-pro"
 	})
 
 	it("菜单里能看到「Kimi (Moonshot)」及其默认档价格", () => {
@@ -68,5 +72,29 @@ describe("ModelQuickSwitchMenu 含 Kimi 条目", () => {
 		const [, values] = mocks.handleModeFieldsChange.mock.calls[0]
 		expect(values.provider).toBe("moonshot")
 		expect(values.modelId).toBe("kimi-k3.1-pro")
+	})
+
+	it("点腾讯云 TokenHub 条目写入 tencent-tokenhub + 默认档 hy3，价格行按闲时价（峰谷在设置页交代，#277）", async () => {
+		// deepseek-flash 属于 deepseek 清单且不在 TokenHub 在售 16 款里 → 触发归属纠正落默认档
+		state.currentModelId = "deepseek-flash"
+		render(<ModelQuickSwitchMenu mode={"act" as never} trigger={<button type="button">model</button>} />)
+		expect(screen.getByText("腾讯云 TokenHub")).toBeTruthy()
+		// hy3（默认档）闲时价：输入命中 0.25 / 未命中 1 / 输出 4
+		expect(screen.getByText("输入 ¥0.25–1 / 输出 ¥4")).toBeTruthy()
+		fireEvent.click(screen.getByText("腾讯云 TokenHub"))
+		await waitFor(() => expect(mocks.handleModeFieldsChange).toHaveBeenCalledTimes(1))
+		const [, values] = mocks.handleModeFieldsChange.mock.calls[0]
+		expect(values.provider).toBe("tencent-tokenhub")
+		expect(values.modelId).toBe("hy3")
+	})
+
+	it("deepseek-v4-pro 两家都在售：切到 TokenHub 保留该 id（归属判据「已知 id 保留」面，#277）", async () => {
+		// 默认 state.currentModelId = "deepseek-v4-pro"：该 id 同时在 deepseek 与 TokenHub 清单里
+		render(<ModelQuickSwitchMenu mode={"act" as never} trigger={<button type="button">model</button>} />)
+		fireEvent.click(screen.getByText("腾讯云 TokenHub"))
+		await waitFor(() => expect(mocks.handleModeFieldsChange).toHaveBeenCalledTimes(1))
+		const [, values] = mocks.handleModeFieldsChange.mock.calls[0]
+		expect(values.provider).toBe("tencent-tokenhub")
+		expect(values.modelId).toBe("deepseek-v4-pro")
 	})
 })

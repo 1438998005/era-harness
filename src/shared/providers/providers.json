@@ -25,6 +25,14 @@
 			"label": "Kimi (Moonshot)"
 		},
 		{
+			"value": "tencent-tokenhub",
+			"label": "腾讯云 TokenHub"
+		},
+		{
+			"value": "tencent-coding-plan",
+			"label": "腾讯云 Coding Plan"
+		},
+		{
 			"value": "openai",
 			"label": "OpenAI Compatible"
 		}

@@ -22,13 +22,15 @@ import type { Mode } from "./storage/types"
  * 但解析、请求配置、诊断摘要、UI 四处一律不读——见 extractAuxiliaryOverride 的屏蔽注释。
  */
 
-/** 辅助配置支持的 provider：五家预设 + 免费池。OpenAI 兼容需要自定义 baseUrl，暂不纳入。 */
+/** 辅助配置支持的 provider：七家预设 + 免费池。OpenAI 兼容需要自定义 baseUrl，暂不纳入。 */
 export const AUXILIARY_SUPPORTED_PROVIDERS = [
 	"deepseek",
 	"mimo",
 	"bigmodel",
 	"bigmodel-plan",
 	"moonshot",
+	"tencent-tokenhub",
+	"tencent-coding-plan",
 	"free",
 ] as const satisfies readonly ApiProvider[]
 
@@ -145,6 +147,9 @@ const PROVIDER_SECRET_KEY: Partial<Record<ApiProvider, keyof ApiConfiguration>> 
 	bigmodel: "bigmodelApiKey",
 	"bigmodel-plan": "bigmodelPlanApiKey",
 	moonshot: "moonshotApiKey",
+	// 腾讯云（KB 08 #270）：按量 sk- 与套餐 sk-sp- 两把 Key 官方明示不互通，分槽
+	"tencent-tokenhub": "tencentTokenhubApiKey",
+	"tencent-coding-plan": "tencentCodingPlanApiKey",
 }
 
 /**
@@ -161,6 +166,8 @@ export const PROVIDER_REASONING_EFFORT_KEY: Partial<Record<ApiProvider, keyof Ap
 	bigmodel: "bigmodelReasoningEffort",
 	"bigmodel-plan": "bigmodelPlanReasoningEffort",
 	moonshot: "moonshotReasoningEffort",
+	// 腾讯云（KB 08 #270）：思考档只对混元系生效（请求侧门控）；Coding Plan 动态库无槽
+	"tencent-tokenhub": "tencentTokenhubReasoningEffort",
 }
 
 /**
@@ -192,6 +199,8 @@ const PROVIDER_MODEL_INFO_KEY: Partial<Record<ApiProvider, { plan: keyof ApiConf
 	bigmodel: { plan: "planModeBigmodelModelInfo", act: "actModeBigmodelModelInfo" },
 	"bigmodel-plan": { plan: "planModeBigmodelPlanModelInfo", act: "actModeBigmodelPlanModelInfo" },
 	moonshot: { plan: "planModeMoonshotModelInfo", act: "actModeMoonshotModelInfo" },
+	"tencent-tokenhub": { plan: "planModeTencentTokenhubModelInfo", act: "actModeTencentTokenhubModelInfo" },
+	"tencent-coding-plan": { plan: "planModeTencentCodingPlanModelInfo", act: "actModeTencentCodingPlanModelInfo" },
 }
 
 /** 一套辅助配置的值包（从 ApiConfiguration 平铺字段抽取，见 extractAuxiliaryOverride）。 */

@@ -158,6 +158,10 @@ message ModelsApiSecrets {
   optional string bigmodel_api_key = 41;
   // 套餐 Key 与按量 Key 互不通用，必须分开存
   optional string bigmodel_plan_api_key = 42;
+  // era harness（2026-11-24，KB 08 #270）：腾讯云按量 Key（sk-）与 Coding Plan 专属 Key（sk-sp-）
+  // 官方明示「不互通、请勿混用」，两个独立槽位
+  optional string tencent_tokenhub_api_key = 43;
+  optional string tencent_coding_plan_api_key = 44;
 }
 
 // API configuration options (non-secret settings)
@@ -432,6 +436,9 @@ enum ApiProvider {
   BIGMODEL = 45;
   // 智谱 GLM 套餐（Coding Plan）：与 BIGMODEL 是两套 Key / 两套额度
   BIGMODEL_PLAN = 46;
+  // 腾讯云（2026-11-24，KB 08 #270）：TokenHub 按量 + Coding Plan 套餐（sk- 与 sk-sp- 两把 Key 不互通）
+  TENCENT_TOKENHUB = 47;
+  TENCENT_CODING_PLAN = 48;
 }
 
 enum ApiFormat {
@@ -702,6 +709,16 @@ message ModelsApiConfiguration {
   // 与 state.proto Settings 的 220 同名对应（生成器按 camel 边界拆词：free_use_open_router_router，
   // 两端 TS 字段均为 freeUseOpenRouterRouter）；普通设置字段，登记单源在 state-keys.ts。
   optional bool free_use_open_router_router = 276;
+  // era harness（2026-11-24，KB 08 #270）：腾讯云 TokenHub 按量 + Coding Plan 套餐。
+  // 与 state.proto Settings 的 221–226（api_line / reasoning_effort / 4 个 ModelInfo）一一对应。
+  optional string tencent_tokenhub_api_key = 277;
+  optional string tencent_tokenhub_api_line = 278;
+  optional string tencent_tokenhub_reasoning_effort = 279;
+  optional string tencent_coding_plan_api_key = 280;
+  optional OpenRouterModelInfo plan_mode_tencent_tokenhub_model_info = 281;
+  optional OpenRouterModelInfo act_mode_tencent_tokenhub_model_info = 282;
+  optional OpenRouterModelInfo plan_mode_tencent_coding_plan_model_info = 283;
+  optional OpenRouterModelInfo act_mode_tencent_coding_plan_model_info = 284;
   optional string deep_seek_reasoning_effort = 270;
   optional string mimo_reasoning_effort = 271;
   optional string bigmodel_reasoning_effort = 272;

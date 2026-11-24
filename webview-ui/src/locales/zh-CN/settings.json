@@ -496,6 +496,36 @@
 			"reasoningDescription": "K3.1 系始终开启思考：low=轻量、high=深度、xhigh=最大（发送为 max，官方默认）。不发送则用官方默认值。temperature 与 top_p 为官方固定值（1.0 / 0.95），插件不发送。",
 			"priceNote": "价格为官方按量计费单价（元 / 百万 tokens）：输入分缓存命中 / 未命中两档，1M 上下文窗口不分段计费。Kimi 开放平台为按量计费、无订阅制方案。"
 		},
+		"tencentTokenhub": {
+			"name": "腾讯云 TokenHub",
+			"apiKeyLabel": "腾讯云 API Key（sk-）",
+			"consoleButton": "打开控制台建钥页（API Key）",
+			"docsButton": "官方文档",
+			"lineLabel": "调用入口",
+			"lineChina": "广州站（tokenhub.tencentmaas.com）",
+			"lineIntl": "新加坡站（tokenhub-intl.tencentmaas.com）",
+			"lineHint": "广州入口 https://tokenhub.tencentmaas.com/v1；新加坡入口 https://tokenhub-intl.tencentmaas.com/v1。两地密钥不通用、不支持跨地域调用：切换入口后需要换对应站的密钥。新用户可在控制台模型广场领取免费体验包（每款语言模型 100 万 tokens，活动至 2026-12-31）。",
+			"syncOk": "已从 TokenHub 同步 {{count}} 个模型",
+			"syncFail": "同步失败，暂用内置清单",
+			"syncIdle": "填入密钥后自动同步官方模型列表",
+			"refresh": "刷新模型列表",
+			"refreshing": "同步中…",
+			"unknownModel": "该模型不在内置清单中，上下文与输出上限按默认档保守值处理。",
+			"reasoningLabel": "思考强度（仅混元系生效）",
+			"reasoningDescription": "官方档位 reasoning_effort：low / medium / high（hy4-flash、hy4、hy3 的官方默认档为 high）；「关闭」发送 thinking:{type:\"disabled\"}。只有混元系（hy3 / hy4 / hy4-flash）读取该设置，未设置档位时不发送该参数、由官方按默认 high 执行；DeepSeek、GLM、Kimi 等第三方模型走各自官方默认，插件不发明知参数。混元系会按官方要求附带 preserved_thinking（本插件的工具定义写在系统提示里，需要手动开启保留式思考）。",
+			"priceNote": "价格为官方按量计费单价（元 / 百万 tokens）：输入分缓存命中 / 未命中两档。DeepSeek 系按峰谷计价：工作日 9:00–12:00、14:00–18:00（北京时间）整单 ×2，其余时段闲时价。"
+		},
+		"tencentCodingPlan": {
+			"name": "腾讯云 Coding Plan",
+			"apiKeyLabel": "Coding Plan 专属 API Key（sk-sp-）",
+			"consoleButton": "打开 Coding Plan 控制台（套餐 / 取 Key）",
+			"docsButton": "官方文档",
+			"planHint": "按请求次数计费的订阅套餐（Lite 约 1,200 次/5 小时、9,000 次/周、18,000 次/月；Pro 约 6 倍），与按量 Key 互不通用。模型库动态更新：默认 tc-code-latest（Auto 自动匹配），也可手填官方公布的模型名（不在清单时由服务端判定可用性）。暂不支持多模态。",
+			"manualLabel": "手填模型名（套餐动态模型库）",
+			"manualPlaceholder": "输入官方公布的模型名（如 minimax-m2.5 / kimi-k2.5 / glm-5），回车或失焦生效",
+			"unknownModel": "该模型名不在内置清单中（套餐模型库动态更新），元数据按保守值处理；若服务端报 invalid model，请改回 tc-code-latest。",
+			"priceNote": "套餐按订阅额度计费，不按 token 扣费：这里显示的价格一律为 0，用量统计里不会累计金额，token 数仍照实记录（上下文进度条要用）。额度余量与有效期以腾讯云控制台为准。"
+		},
 		"minimax": {
 			"name": "MiniMax",
 			"entrypoint": "MiniMax 入口地址",

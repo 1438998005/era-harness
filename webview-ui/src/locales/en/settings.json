@@ -496,6 +496,36 @@
 			"reasoningDescription": "K3.1 models always reason: low=light, high=deep, xhigh=max (sent as max, the official default). Omitted values use the official default. temperature and top_p are fixed server-side (1.0 / 0.95) and are not sent by the extension.",
 			"priceNote": "Prices are official pay-as-you-go rates (CNY / million tokens): input is split into cache-hit / cache-miss tiers, and the 1M context window is billed uniformly. The Kimi API platform is pay-as-you-go only; no subscription plans."
 		},
+		"tencentTokenhub": {
+			"name": "Tencent Cloud TokenHub",
+			"apiKeyLabel": "Tencent Cloud API Key (sk-)",
+			"consoleButton": "Open console API-key page",
+			"docsButton": "Official docs",
+			"lineLabel": "Endpoint",
+			"lineChina": "Guangzhou (tokenhub.tencentmaas.com)",
+			"lineIntl": "Singapore (tokenhub-intl.tencentmaas.com)",
+			"lineHint": "Guangzhou endpoint https://tokenhub.tencentmaas.com/v1; Singapore endpoint https://tokenhub-intl.tencentmaas.com/v1. Keys are not interchangeable across sites and cross-region calls are unsupported: switch endpoints together with the matching key. New users can claim a free trial pack per language model (1M tokens each, until 2026-12-31) in the console model gallery.",
+			"syncOk": "Synced {{count}} models from TokenHub",
+			"syncFail": "Sync failed; using the built-in catalog",
+			"syncIdle": "Enter a key to sync the official model list",
+			"refresh": "Refresh model list",
+			"refreshing": "Syncing…",
+			"unknownModel": "This model is not in the built-in catalog; context and output limits fall back to conservative defaults.",
+			"reasoningLabel": "Reasoning effort (Hunyuan models only)",
+			"reasoningDescription": "Official tiers via reasoning_effort: low / medium / high (the official default for hy4-flash / hy4 / hy3 is high); \"Off\" sends thinking:{type:\"disabled\"}. Only Hunyuan models (hy3 / hy4 / hy4-flash) read this setting; when no tier is set the parameter is omitted and Hunyuan runs at the official default (high). Third-party models (DeepSeek, GLM, Kimi…) keep their own defaults and the extension sends no unknown parameters. Hunyuan requests also carry preserved_thinking as officially required when tool definitions live in the system prompt instead of the tools array (this extension's XML protocol).",
+			"priceNote": "Prices are official pay-as-you-go rates (CNY / million tokens): input is split into cache-hit / cache-miss tiers. DeepSeek models use peak/valley pricing: weekdays 9:00–12:00 and 14:00–18:00 (Beijing time) are billed at 2×, otherwise valley rates apply."
+		},
+		"tencentCodingPlan": {
+			"name": "Tencent Cloud Coding Plan",
+			"apiKeyLabel": "Coding Plan dedicated API Key (sk-sp-)",
+			"consoleButton": "Open Coding Plan console (plan / key)",
+			"docsButton": "Official docs",
+			"planHint": "Subscription billed per request (Lite: ~1,200 req/5h, 9,000/week, 18,000/month; Pro roughly 6×). Not interchangeable with pay-as-you-go keys. The model library updates dynamically: the default is tc-code-latest (Auto matching); officially published model names may also be entered manually (the server validates availability). Multimodal input is not supported yet.",
+			"manualLabel": "Manual model name (dynamic plan library)",
+			"manualPlaceholder": "Enter an officially published model name (e.g. minimax-m2.5 / kimi-k2.5 / glm-5); press Enter or blur to apply",
+			"unknownModel": "This model name is not in the built-in catalog (the plan's model library updates dynamically); metadata falls back to conservative defaults. If the server reports invalid model, switch back to tc-code-latest.",
+			"priceNote": "The plan is billed by subscription quota, not per token: prices shown here are always 0 and no amount is accumulated in usage stats; tokens are still recorded for the context progress bar. Quota and validity are tracked in the Tencent Cloud console."
+		},
 		"minimax": {
 			"name": "MiniMax",
 			"entrypoint": "MiniMax Entrypoint",

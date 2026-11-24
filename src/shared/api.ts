@@ -28,6 +28,8 @@ export type ApiProvider =
 	| "cline"
 	| "litellm"
 	| "moonshot"
+	| "tencent-tokenhub"
+	| "tencent-coding-plan"
 	| "nebius"
 	| "fireworks"
 	| "asksage"
@@ -1043,6 +1045,29 @@ export function getMoonshotModelInfo(modelId: string, modelInfo?: ModelInfo): Mo
 	return { ...moonshotModels[moonshotDefaultModelId], ...modelInfo }
 }
 
+// 腾讯云（2026-11-24，KB 08 #270）：TokenHub 按量 + Coding Plan 套餐。
+// 模型数据与请求侧判据的单一来源在 ./tencent-models 与 ./tencent-request（api.ts 只做
+// 归属注册与 re-export，避免既有的 20KB 旧文件继续膨胀）；两把 Key 不互通，是两个 provider。
+export {
+	getTencentCodingPlanModelInfo,
+	getTencentTokenhubModelInfo,
+	resolveTencentCodingPlanModelId,
+	resolveTencentTokenhubModelId,
+	type TencentCodingPlanModelId,
+	type TencentTokenhubModelId,
+	tencentCodingPlanDefaultModelId,
+	tencentCodingPlanModels,
+	tencentTokenhubDefaultModelId,
+	tencentTokenhubModels,
+} from "./tencent-models"
+
+import {
+	resolveTencentCodingPlanModelId,
+	resolveTencentTokenhubModelId,
+	tencentCodingPlanDefaultModelId,
+	tencentTokenhubDefaultModelId,
+} from "./tencent-models"
+
 /**
  * 该 id 是否明显属于某家**有内置清单**的 provider。
  * 用来处理「切到无清单的 OpenAI 兼容端点时，别家的模型 id 会被原样发出去」。
@@ -1056,7 +1081,9 @@ export function modelIdBelongsToKnownCatalog(modelId: string | undefined): boole
 		resolveMimoModelId(modelId) !== undefined ||
 		resolveDeepSeekModelId(modelId) !== undefined ||
 		resolveBigmodelModelId(modelId) !== undefined ||
-		resolveMoonshotModelId(modelId) !== undefined
+		resolveMoonshotModelId(modelId) !== undefined ||
+		resolveTencentTokenhubModelId(modelId) !== undefined ||
+		resolveTencentCodingPlanModelId(modelId) !== undefined
 	)
 }
 
@@ -1076,6 +1103,10 @@ export function apiProviderDefaultModelId(provider: string | undefined): string 
 			return bigmodelPlanDefaultModelId
 		case "moonshot":
 			return moonshotDefaultModelId
+		case "tencent-tokenhub":
+			return tencentTokenhubDefaultModelId
+		case "tencent-coding-plan":
+			return tencentCodingPlanDefaultModelId
 		default:
 			return undefined
 	}
@@ -1097,6 +1128,10 @@ export function isBuiltinModelId(provider: string | undefined, modelId: string |
 			return resolveBigmodelPlanModelId(modelId) !== undefined
 		case "moonshot":
 			return resolveMoonshotModelId(modelId) !== undefined
+		case "tencent-tokenhub":
+			return resolveTencentTokenhubModelId(modelId) !== undefined
+		case "tencent-coding-plan":
+			return resolveTencentCodingPlanModelId(modelId) !== undefined
 		default:
 			return true
 	}

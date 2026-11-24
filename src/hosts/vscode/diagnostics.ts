@@ -17,6 +17,7 @@ import { mimoBaseUrlForKey } from "@/shared/mimo-request"
 import { moonshotBaseUrlForLine } from "@/shared/moonshot-request"
 import { ShowMessageType } from "@/shared/proto/index.host"
 import { Logger } from "@/shared/services/Logger"
+import { TENCENT_CODING_PLAN_BASE_URL, tencentBaseUrlForLine } from "@/shared/tencent-request"
 import { createOpenInOsDeps, openFolderInOs } from "./open-in-os"
 
 /**
@@ -104,6 +105,11 @@ function collectSettingsSummary(): Record<string, string> {
 			// 忽略单个基址读取失败
 		}
 
+		// 腾讯云（KB 08 #270）：按量入口随下拉切广州/新加坡，与请求侧共用 tencentBaseUrlForLine；
+		// Coding Plan 固定 lkeap 套餐域（sk-sp- 专属 Key，与按量不互通）
+		summary.tencentTokenhubBaseUrl = `${tencentBaseUrlForLine(stateManager.getApiConfiguration().tencentTokenhubApiLine)}（按入口下拉推导）`
+		summary.tencentCodingPlanBaseUrl = `${TENCENT_CODING_PLAN_BASE_URL}（Coding Plan 套餐，内置）`
+
 		const secretKeys = [
 			"openAiApiKey",
 			"deepSeekApiKey",
@@ -111,6 +117,9 @@ function collectSettingsSummary(): Record<string, string> {
 			"bigmodelApiKey",
 			"bigmodelPlanApiKey",
 			"moonshotApiKey",
+			// KB 08 #270：腾讯云按量与套餐两把 Key 官方明示不互通，分槽显示
+			"tencentTokenhubApiKey",
+			"tencentCodingPlanApiKey",
 			// KB 08 #237：旧的 enhanceApiKey / subagentApiKey 不再进诊断摘要。两套辅助模型
 			// 统一用所选 provider 的主配置密钥，把旧值显示成「已设置」会误导排障方向
 			//（用户以为辅助模型还有独立凭证）。字段名与存储仍保留，仅此处不读。

@@ -267,18 +267,20 @@ describe("KB 08 #237：resolveReasoningEffort 纯函数（按 provider 各存各
 })
 
 describe("KB 08 #237：per-provider 槽的结构性对称与清单对齐", () => {
-	it("五个新槽都在 settings 名单、都不在 secrets 名单（否则会被 undefined 覆盖）", () => {
+	it("各家思维强度槽都在 settings 名单、都不在 secrets 名单（否则会被 undefined 覆盖）", () => {
 		const settings = new Set<string>(ApiHandlerSettingsKeys as readonly string[])
 		const secrets = new Set<string>(SecretKeys as readonly string[])
 		for (const key of Object.values(PROVIDER_REASONING_EFFORT_KEY)) {
 			assert.ok(settings.has(String(key)), `${String(key)} 必须在 API_HANDLER_SETTINGS_FIELDS`)
 			assert.equal(secrets.has(String(key)), false, `${String(key)} 不能登记为密钥`)
 		}
-		assert.equal(Object.keys(PROVIDER_REASONING_EFFORT_KEY).length, 5, "五家各一档，free/openai 无槽")
+		// 2026-11-24（KB 08 #270）：腾讯云 TokenHub 入表（思考档只对混元系生效）；Coding Plan 动态库无槽
+		assert.equal(Object.keys(PROVIDER_REASONING_EFFORT_KEY).length, 6, "六家各一档，free/openai 无槽")
 		assert.equal(PROVIDER_REASONING_EFFORT_KEY.free, undefined)
+		assert.equal(PROVIDER_REASONING_EFFORT_KEY["tencent-coding-plan"], undefined)
 	})
 
-	it("proto 往返对称：五个新槽两条转换路径都不丢", () => {
+	it("proto 往返对称：各家思维强度槽两条转换路径都不丢", () => {
 		const config = Object.fromEntries(
 			Object.values(PROVIDER_REASONING_EFFORT_KEY).map((key, i) => [key, `roundtrip-${i}`]),
 		) as ApiConfiguration
@@ -329,14 +331,15 @@ describe("KB 08 #237：元测试（旧字段不读 / 单源接线 / proto 号段
 		assert.match(ui, /密钥与思维强度跟随该服务的主配置/, "两套卡片都要给出跟随主配置的说明")
 	})
 
-	it("映射单源：只有一份 PROVIDER_REASONING_EFFORT_KEY，请求侧七处都走共享纯函数", () => {
+	it("映射单源：只有一份 PROVIDER_REASONING_EFFORT_KEY，请求侧各分支都走共享纯函数", () => {
 		const aux = readCode("src/shared/aux-model.ts")
 		assert.equal((aux.match(/export const PROVIDER_REASONING_EFFORT_KEY/g) ?? []).length, 1)
 		assert.match(aux, /export function resolveReasoningEffort\(/, "读取判据也收在同一纯函数里")
 		const api = stripComments(readCode("src/core/api/index.ts"))
 		assert.match(api, /import \{ resolveReasoningEffort \} from "@shared\/aux-model"/)
-		assert.equal((api.match(/reasoningEffort: resolveReasoningEffort\(apiProvider, options, mode\)/g) ?? []).length, 7)
-		assert.doesNotMatch(api, /reasoningEffort: mode === "plan"/, "七个分支不得再各自读全局两槽")
+		// 2026-11-24（KB 08 #270）：腾讯 TokenHub 入列后 8 处（Coding Plan 按请求计费无思维档，不传）
+		assert.equal((api.match(/reasoningEffort: resolveReasoningEffort\(apiProvider, options, mode\)/g) ?? []).length, 8)
+		assert.doesNotMatch(api, /reasoningEffort: mode === "plan"/, "各分支不得再各自读全局两槽")
 	})
 
 	it("设置页五家 provider 页都传 provider，控件按单源映射写各家自己的槽", () => {

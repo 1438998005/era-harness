@@ -131,6 +131,16 @@ const SPECS = [
 	"command-permissions.spec.ts",
 	// KB 08 #262：validateCommand 不得绕过内置忽略（无 .clineignore 时终端读备份目录仍被拦）
 	"cline-ignore.spec.ts",
+	// KB 08 #269：Qwen arg_key 工具方言归一（Flint / Laguna XS 2.1 探针取证）
+	"qwen-arg-dialect.spec.ts",
+	// KB 08 #270：腾讯云 TokenHub / Coding Plan 双 provider（请求侧判据 + 接线 + 归属注册）
+	// KB 08 #271：原单文件 20,733B 超 20KB 闸门，拆三份（请求侧 / 模型常量与接线 / handler 级）
+	"tencent-provider.spec.ts",
+	"tencent-request.spec.ts",
+	// KB 08 #274/#275：腾讯云 handler 级行为（getModel / 基址 / 缺 Key / 计费 / 窗口含输出夹紧）
+	"tencent-handler.spec.ts",
+	// KB 08 #272：辅助模型面板 provider 目录覆盖支持清单（新增 provider 漏补标签/模型表会红）
+	"aux-provider-catalog.spec.ts",
 ]
 
 const aliasResolverPlugin = {
